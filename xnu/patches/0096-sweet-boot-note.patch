@@ -1,0 +1,73 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -474,7 +474,24 @@
+  * used like any other.
+  */
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
++#include <stdarg.h>
++
++char sweet_boot_note[256];
++
++static void
++sweet_note(const char *fmt, ...) __printflike(1, 2);
++
+ static void
++sweet_note(const char *fmt, ...)
++{
++	size_t used = strlen(sweet_boot_note);
++	va_list ap;
++	va_start(ap, fmt);
++	(void)vsnprintf(sweet_boot_note + used, sizeof(sweet_boot_note) - used, fmt, ap);
++	va_end(ap);
++}
++
++static void
+ sweet_pbfix(void)
+ {
+ 	static const char path[] = "/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.19";
+@@ -500,6 +517,7 @@
+ 		printf("SWEET PBFIX: read err %d resid %d\n", err, resid);
+ 	} else if (memcmp(cur, want, 4) == 0) {
+ 		printf("SWEET PBFIX: already %s\n", on ? "patched" : "original");
++		sweet_note("pbfix already %s; ", on ? "patched" : "original");
+ 	} else if (memcmp(cur, from, 4) != 0) {
+ 		printf("SWEET PBFIX: unexpected bytes %02x%02x%02x%02x, left alone\n",
+ 		    cur[0], cur[1], cur[2], cur[3]);
+@@ -542,6 +560,7 @@
+ 		int e = sweet_mkdir(dirs[i], 0755);
+ 		if (e && e != EEXIST) {
+ 			printf("SWEET AUTOBAHN: mkdir %s: %d\n", dirs[i], e);
++			sweet_note("autobahn mkdir %s: %d; ", dirs[i], e);
+ 			return;
+ 		}
+ 	}
+@@ -550,6 +569,7 @@
+ 	int err = vnode_open(path, O_CREAT | O_TRUNC | FWRITE, 0644, 0, &vp, ctx);
+ 	if (err) {
+ 		printf("SWEET AUTOBAHN: open %s: %d\n", path, err);
++		sweet_note("autobahn open: %d; ", err);
+ 		return;
+ 	}
+ 	int resid = 0;
+@@ -558,6 +578,7 @@
+ 	(void)vnode_close(vp, FWRITE, ctx);
+ 	printf("SWEET AUTOBAHN: Autobahn %s (%d bytes, err %d resid %d)\n",
+ 	    on ? "enabled" : "disabled", len, err, resid);
++	sweet_note("autobahn %s err %d resid %d; ", on ? "enabled" : "disabled", err, resid);
+ }
+ #endif
+ 
+--- a/bsd/dev/sweet_sample.c
++++ b/bsd/dev/sweet_sample.c
+@@ -118,6 +118,11 @@
+ 		uint64_t now = mach_absolute_time(), span = now - last, all = 0;
+ 		last = now;
+ 		char line[512];
++		extern char sweet_boot_note[];
++		if (sweet_boot_note[0]) {
++			printf("SWEET BOOT NOTE: %s\n", sweet_boot_note);
++			sweet_boot_note[0] = 0;
++		}
+ 		int len = snprintf(line, sizeof(line), "SWEET TOP %us:", secs);
+ 		for (unsigned i = 0; i < sweet_top_ncur; i++) {
+ 			all += sweet_top_cur[i].delta;
