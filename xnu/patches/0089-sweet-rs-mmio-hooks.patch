@@ -1,0 +1,43 @@
+--- a/osfmk/arm64/sweet_rs.c
++++ b/osfmk/arm64/sweet_rs.c
+@@ -3,9 +3,17 @@
+ #if defined(SWEET)
+ #include <kern/misc_protos.h>
+ #include <kern/debug.h>
++#include <kern/clock.h>
++#include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
+ 
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++
+ void sweet_rs_log(const char *msg);
+ void sweet_rs_panic(const char *msg) __abortlike;
++uintptr_t sweet_rs_io_map(uint64_t pa, uint64_t size);
++bool sweet_rs_boot_arg_u32(const char *name, uint32_t *out);
++void sweet_rs_delay_us(uint32_t us);
+ 
+ void
+ sweet_rs_log(const char *msg)
+@@ -18,4 +26,22 @@
+ {
+ 	panic("%s", msg);
+ }
++
++uintptr_t
++sweet_rs_io_map(uint64_t pa, uint64_t size)
++{
++	return ml_io_map((vm_offset_t)pa, (vm_size_t)size);
++}
++
++bool
++sweet_rs_boot_arg_u32(const char *name, uint32_t *out)
++{
++	return PE_parse_boot_argn(name, out, sizeof(*out));
++}
++
++void
++sweet_rs_delay_us(uint32_t us)
++{
++	delay(us);
++}
+ #endif
