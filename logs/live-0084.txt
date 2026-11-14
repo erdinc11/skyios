@@ -1,0 +1,1639 @@
+SWEET USB: setup 21 43 000e 0000 len 0
+SWEET USB: setup 21 43 000e 0000 len 0
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 354 tx 3640 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 354 tx 3648 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 354 tx 3657 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 354 tx 3665 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 355 tx 3674 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 355 tx 3681 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 355 tx 3690 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 356 tx 3698 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 356 tx 3707 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 358 tx 3716 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec icloudsubscriptionoptimizerd
+SWEET USB: ue0 rx 364 tx 3726 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET AKS: icloudsubscriptionoptimizerd sel 0 arg0 0 in 0/0 out 0/0 -> 0x0
+SWEET AKS: icloudsubscriptionoptimizerd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: icloudsubscriptionoptimizerd sel 7 arg0 0 in 1/0 out 1/0 -> 0x0
+SWEET AKS: icloudsubscriptionoptimizerd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: icloudsubscriptionoptimizerd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: icloudsubscriptionoptimizerd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec com.apple.siri-distributed-evalu
+exec xpcproxy
+exec mlruntimed
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkdSWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkdSWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: linkd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec bluetoothd
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec fairplayd.H2
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec com.apple.datamigrator
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 364 tx 3747 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 364 tx 3755 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 370 tx 3762 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 372 tx 3774 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 372 tx 3784 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 372 tx 3793 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec xpcproxy
+exec bluetoothd
+exec fairplayd.H2
+exec xpcproxy
+exec xpcproxy
+exec fairplayd.H2
+exec bluetoothd
+SWEET USB: ue0 rx 373 tx 3800 frames
+exec xpcproxy
+exec xpcproxy
+exec fairplayd.H2
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 373 tx 3806 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec xpcproxy
+exec bluetoothd
+exec fairplayd.H2
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec xpcproxy
+exec fairplayd.H2
+exec bluetoothd
+SWEET USB: ue0 rx 373 tx 3814 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 373 tx 3820 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 374 tx 3828 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 374 tx 3837 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec xpcproxy
+exec fairplayd.H2
+exec bluetoothd
+SWEET USB: ue0 rx 380 tx 3846 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec xpcproxy
+exec bluetoothd
+exec fairplayd.H2
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 380 tx 3855 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 380 tx 3863 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec xpcproxy
+exec bluetoothd
+exec fairplayd.H2
+SWEET USB: ue0 rx 380 tx 3872 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 381 tx 3881 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec xpcproxy
+exec bluetoothd
+exec fairplayd.H2
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 381 tx 3887 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 381 tx 3894 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec xpcproxy
+exec bluetoothd
+exec fairplayd.H2
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 381 tx 3903 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 382 tx 3911 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 382 tx 3922 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 382 tx 3931 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET USB: ue0 rx 383 tx 3940 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET KEYS: key=0 down=1 pon=0x1 gpio4:c110=0x1
+SWEET HID: key 0x30 down (1 clients)
+SWEET KEYS: key=2 down=1 pon=0x3 gpio4:c110=0x1
+SWEET HID: key 0xea down (1 clients)
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET HID: touch 0 down at 0,339 edge
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+exec xpcproxy
+exec fairplayd.H2
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 1 down at 108,0 edge
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096exec bluetoothd
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+exec xpcproxy
+exec sosd
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET AKS: sosd sel 0 arg0 0 in 0/0 out 0/0 -> 0x0
+SWEET AKS: sosd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+exec xpcproxy
+exec CAReportingService
+SWEET TOUCH: report err=5 irq=0x40000001
+exec InCallService
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET AKS: InCallService sel 0 arg0 0 in 0/0 out 0/0 -> 0x0
+SWEET AKS: InCallService sel 7 arg0 0 in 1/0 out 1/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+exec xpcproxy
+SWEET TOUCH: report err=5 irq=0x40000001
+exec vmd
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+exec xpcproxy
+exec sociallayerd
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET HID: touch 1 up at 107,0 edge
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: searchd sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: vmd sel 0 arg0 0 in 0/0 out 0/0 -> 0x0
+SWEET AKS: vmd sel 7 arg0 0 in 1/0 out 1/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 1 down at 112,0 edge
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET HID: touch 1 up at 111,0 edge
+SWEET HID: touch 1 down at 118,0 edge
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+|SpringBoard| 1969-12-31 19:14:48.-998 SpringBoard[26:250] 
+|SpringBoard| <CATransformLayer: 0x281b3bce0> - changing property cornerCurve in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 19:14:48.-997 SpringBoard[26:250] 
+|SpringBoard| <CATransformLayer: 0x281b3bce0> - changing property cornerRadius in transform-only layer, will have no effect
+|SpringBoard| 
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET HID: touch 1 up at 115,0 edge
+|SpringBoard| 1969-12-31 19:14:48.-916 SpringBoard[26:250] 
+|SpringBoard| <CATransformLayer: 0x281bb00c0> - changing property cornerCurve in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 19:14:48.-916 SpringBoard[26:250] 
+|SpringBoard| <CATransformLayer: 0x281bb00c0> - changing property cornerRadius in transform-only layer, will have no effect
+|SpringBoard| 
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET SURF: SpringBoard create id 31 180x180 fmt 0x42475241 bpe 4 bpr 736 planes 0 size 147456 keys 6 -> 0x0
+SWEET HID: touch 1 down at 122,0 edge
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 1 up at 119,0 edge
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET SURF: SpringBoard create id 32 465x465 fmt 0x62336138 bpe 4 bpr 1920 planes 2 size 1212416 keys 9 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 0 up at 0,339 edge
+SWEET SURF: SpringBoard create id 33 465x465 fmt 0x62336138 bpe 4 bpr 1920 planes 2 size 1212416 keys 9 -> 0x0
+SWEET USB: ue0 rx 450 tx 460 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec IMDMessageServicesAgent
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 1 swaps (0.2/s), 1 presents, copy avg 2378 us max 2378 us
+SWEET HID: touch 0 down at 462,2398 edge
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+exec xpcproxy
+SWEET AKS: SpringBoard sel 35 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec com.apple.sbd
+SWEET HID: touch 0 up at 566,1207 edge
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec Spotlight
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: Spotlight sel 0 arg0 0 in 0/0 out 0/0 -> 0x0
+SWEET AKS: Spotlight sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: Spotlight sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: Spotlight sel 7 arg0 0 in 1/0 out 1/0 -> 0x0
+SWEET AKS: Spotlight sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: Spotlight sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: Spotlight sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: Spotlight sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET HID: touch 0 down at 862,1772
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET FB: 5 s: 64 swaps (12.8/s), 58 presents, copy avg 3210 us max 7612 us
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET HID: touch 0 up at 187,1833
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET SURF: SpringBoard create id 10 1065x282 fmt 0x62336138 bpe 4 bpr 4288 planes 2 size 1523712 keys 6 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET SURF: backboardd trap 4
+SWEET SURF: backboardd trap 5
+SWEET SURF: SpringBoard trap 1
+SMP --- sample 0
+SMP backboardd[56] slide 0x52820000 mh 0x100104000
+SMP backboardd t0 pc 0x214e31030 lr 0x214e42b18 sp 0x16fcfa880 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x10010de40 0x1f6e44344 0x0
+SMP backboardd t1 pc 0x214e31030 lr 0x214e42b18 sp 0x16ffb1eb0 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e0dc2f70 0x2243bc0ec 0x2243ba72c
+SMP backboardd t2 pc 0x214e31030 lr 0x214e42b18 sp 0x1701469b0 bt 0x214e42db8 0x214e31524 0x1daaec884 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t3 pc 0x214e31ad0 lr 0x1e0388128 sp 0x1702d8e90 bt 0x1e0387f10 0x1e03a00f0 0x100000000 0x1e039f5fc 0x1dac65ed8 0x1dac65a4c 0x1dabbf278 0x1dabaffdc 0x1dac63e4c 0x1dab09278 0x1dab59020 0x1dac47b0c 0x1dac48f24 0x1dad311d8 0x1dab3b68c 0x1dab083SMP backboardd t4 pc 0x214e31ad0 lr 0x1e0388128 sp 0x16fd82860 bt 0x1e03884a0 0x10011ca78 0x1e03b77a8 0x1e03b8780 0x1e03936fc 0x1e03941e4 0x1e039df14 0x2243babd0 0x2243ba720
+SMP backboardd t5 pc 0x214e31030 lr 0x214e42b18 sp 0x16fe8dd90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t6 pc 0x214e31030 lr 0x214e42b18 sp 0x1703edd90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t7 pc 0x214e31030 lr 0x214e42b18 sp 0x1704f9d90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t8 pc 0x214e31030 lr 0x214e42b18 sp 0x17003de40 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e41ddfac 0x2243bc0ec 0x2243ba72c
+SMP backboardd t9 pc 0x214e30fc4 lr 0x1e0387d9c sp 0x1701d6f30 bt 0x1e0388328 0x1e039ca80 0x2243bc0ec 0x2243ba72c
+SMP backboardd t10 pc 0x214e314f0 lr 0x2243bac1c sp 0x170612fc0 bt 0x2243ba720
+SMP backboardd t11 pc 0x214e314f0 lr 0x2243bac1c sp 0x1707b6fc0 bt 0x2243ba720
+SMP backboardd t12 pc 0x214e314f0 lr 0x2243bac1c sp 0x170842fc0 bt 0x2243ba720
+SMP backboardd t13 pc 0x214e314f0 lr 0x2243bac1c sp 0x16ff1afc0 bt 0x2243ba720
+SMP backboardd t14 pc 0x214e314f0 lr 0x2243bac1c sp 0x170586b40 bt 0x2243ba720
+SMP backboardd t15 pc 0x214e314f0 lr 0x2243bac1c sp 0x17069efc0 bt 0x2243ba720
+SMP backboardd t16 pc 0x214e314f0 lr 0x2243bac1c sp 0x17072afc0 bt 0x2243ba720
+SMP backboardd t17 pc 0x214e314f0 lr 0x2243bac1c sp 0x1708cefc0 bt 0x2243ba720
+SMP backboardd t18 pc 0x2243ba718 lr 0x0 sp 0x17095b000 bt
+SMP backboardd t19 pc 0x2243ba718 lr 0x0 sp 0x1709e7000 bt
+SMP backboardd t20 pc 0x214e314f0 lr 0x2243bac1c sp 0x170a72fc0 bt 0x2243ba720
+SMP SpringBoard[26] slide 0x52820000 mh 0x1041d4000
+SMP SpringBoard t0 pc 0x214e31030 lr 0x214e42b18 sp 0x16bc2a1a0 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x211755998 0x1db91434c 0x1db913fc4 0x2180855e8 0x1f6e44344 0x0
+SMP SpringBoard t1 pc 0x214e31030 lr 0x214e42b18 sp 0x16c085c70 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0df4 0x1dba36818 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t2 pc 0x214e31030 lr 0x214e42b18 sp 0x16c111e40 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e41ddfac 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t3 pc 0x214e314f0 lr 0x2243bac1c sp 0x16c22ab30 bt 0x2243ba720
+SMP SpringBoard t4 pc 0x214e314f0 lr 0x2243bac1c sp 0x16c2b6b30 bt 0x2243ba720
+SMP SpringBoard t5 pc 0x214e31030 lr 0x214e42b18 sp 0x16c4e5c80 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x2181b05b8 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t6 pc 0x214e31030 lr 0x214e42b18 sp 0x16c571c60 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1f2e3d1b8 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t7 pc 0x214e31030 lr 0x214e42b18 sp 0x16c5fdc90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x1db9ddd88 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t8 pc 0x214e31030 lr 0x214e42b18 sp 0x16c82dc80 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x247fba0d4 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t9 pc 0x214e31030 lr 0x214e42b18 sp 0x16c8b9c60 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x247fc8d80 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t10 pc 0x214e31030 lr 0x214e42b18 sp 0x16cb714d0 bt 0x214e42db8 0x214e31524 0x1e038a308 0x1e038a694 0x22440e0ec 0x1d3a2c224 0x1d39c5cb0 0x1d39c483c 0x1d39c4760 0x1e45b93a0 0x1e45c1afc 0x1e45b4de0 0x2446a8b44 0x1e03b77a8 0x1e03b8780 0x1e039SMP SpringBoard t11 pc 0x214e314f0 lr 0x2243bac1c sp 0x16cc02fc0 bt 0x2243ba720
+SMP SpringBoard t12 pc 0x214e314f0 lr 0x2243bac1c sp 0x16cfd6fc0 bt 0x2243ba720
+SMP SpringBoard t13 pc 0x214e314f0 lr 0x2243bac1c sp 0x16d062fc0 bt 0x2243ba720
+SMP SpringBoard t14 pc 0x214e314f0 lr 0x2243bac1c sp 0x16bd3efc0 bt 0x2243ba720
+SMP SpringBoard t15 pc 0x214e314f0 lr 0x2243bac1c sp 0x16bcb2fc0 bt 0x2243ba720
+SMP SpringBoard t16 pc 0x214e314f0 lr 0x2243bac1c sp 0x16be56b40 bt 0x2243ba720
+SMP SpringBoard t17 pc 0x0 lr 0x0 sp 0x0 bt
+SWEET SURF: SpringBoard create id 11 1125x2436 fmt 0x62336138 bpe 4 bpr 4544 planes 2 size 13877248 keys 6 -> 0x0
+SWEET HID: touch 0 down at 207,1726
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET HID: touch 0 up at 1078,1858
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET HID: touch 0 down at 693,1590
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 0 up at 138,1501
+SWEET SURF: SpringBoard create id 12 1065x282 fmt 0x62336138 bpe 4 bpr 4288 planes 2 size 1523712 keys 6 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET FB: 5 s: 30 swaps (6.0/s), 30 presents, copy avg 2707 us max 4530 us
+SWEET SURF: SpringBoard create id 13 1125x2436 fmt 0x62336138 bpe 4 bpr 4544 planes 2 size 13877248 keys 6 -> 0x0
+SWEET HID: touch 0 down at 328,1676
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET HID: touch 0 up at 1078,1756
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET HID: touch 0 down at 129,860
+exec xpcproxy
+exec splashboardd
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 0 up at 129,860
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec MobileSlideShow
+exec xpcproxy
+exec assetsd
+SWEET SURF: SpringBoard create id 14 1125x2436 fmt 0x77333072 bpe 4 bpr 4608 planes 0 size 11239424 keys 10 -> 0x0
+SWEET FB: 5 s: 17 swaps (3.4/s), 17 presents, copy avg 2999 us max 4829 us
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+|SpringBoard| 1969-12-31 16:02:16.-57 SpringBoard[26:249] 
+|SpringBoard| Unbalanced calls to begin/end appearance transitions for <SBSwitcherViewController: 0x10436bda0>.
+|SpringBoard| 
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+exec xpcproxy
+exec checkpointd
+exec xpcproxy
+exec xpcproxy
+exec ptpcamerad
+exec mscamerad-xpc
+SWEET USB: ue0 rx 450 tx 516 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 0 down at 544,2258
+SWEET HID: touch 0 up at 621,2046
+SWEET FB: 5 s: 8 swaps (1.6/s), 8 presents, copy avg 2850 us max 4351 us
+SWEET HID: touch 0 down at 482,2398 edge
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 0 up at 559,2024 edge
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET SURF: SpringBoard create id 15 1125x2436 fmt 0x77333072 bpe 4 bpr 4608 planes 0 size 11239424 keys 10 -> 0x0
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: contextstored sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET HID: touch 0 down at 176,75
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET SURF: SpringBoard create id 16 1125x2436 fmt 0x77333072 bpe 4 bpr 4608 planes 0 size 11239424 keys 10 -> 0x0
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET FB: 5 s: 64 swaps (12.8/s), 60 presents, copy avg 3412 us max 7099 us
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0x40000001
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET TOUCH: report err=5 irq=0xc000081
+SWEET HID: touch 0 up at 515,1765
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: biomed sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET FB: 5 s: 32 swaps (6.4/s), 30 presents, copy avg 3237 us max 6186 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET KEYS: key=2 down=1 pon=0x2 gpio4:c110=0x1
+SWEET HID: key 0xea down (1 clients)
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET KEYS: key=2 down=0 pon=0 gpio4:c110=0x1
+SWEET HID: key 0xea up (1 clients)
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+|SpringBoard| 1969-12-31 16:02:45.-188 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835ee600> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-188 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835ee600> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-188 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e5e20> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-188 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e5e20> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-187 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e71a0> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-187 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e71a0> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-187 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e7080> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-187 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e7080> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-184 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e6cc0> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-184 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e6cc0> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-184 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e7fc0> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-184 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e7fc0> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-183 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e6f60> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-183 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e6f60> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-183 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x283591180> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-183 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x283591180> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-179 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e71a0> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-179 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e71a0> - changing property allowsGroupBlending in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-179 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e5e20> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-179 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e5e20> - changing property allowsGroupBlending in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-179 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835ee600> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-179 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835ee600> - changing property allowsGroupBlending in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-179 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e7080> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+|SpringBoard| 
+|SpringBoard| 1969-12-31 16:02:45.-178 SpringBoard[26:249] 
+|SpringBoard| <CATransformLayer: 0x2835e7080> - changing property allowsGroupBlending in transform-only layer, will have no effect
+|SpringBoard| 
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET KEYS: key=0 down=1 pon=0x1 gpio4:c110=0x1
+SWEET HID: key 0x30 down (1 clients)
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET KEYS: key=0 down=0 pon=0 gpio4:c110=0x1
+SWEET HID: key 0x30 up (1 clients)
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET FB: display off
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 8 arg0 0 in 1/0 out 0/0 -> 0xe00002c7
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 8 arg0 0 in 1/0 out 0/0 -> 0xe00002c7
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 8 arg0 0 in 1/0 out 0/0 -> 0xe00002c7
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 8 arg0 0 in 1/0 out 0/0 -> 0xe00002c7
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 8 arg0 0 in 1/0 out 0/0 -> 0xe00002c7
+SWEET KEYS: key=0 down=1 pon=0x1 gpio4:c110=0x1
+SWEET HID: key 0x30 down (1 clients)
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 26 arg0 2 in 3/0 out 0/0 -> 0x0
+SWEET FB: display on
+SWEET FB: backboardd sel 79 in 2/0 out 0/40 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: SpringBoard sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec bluetoothd
+SWEET KEYS: key=0 down=0 pon=0 gpio4:c110=0x1
+SWEET HID: key 0x30 up (1 clients)
+SWEET AKS: SpringBoard sel 27 arg0 2 in 2/0 out 0/0 -> 0x0
+SWEET AKS: SpringBoard sel 8 arg0 0 in 1/0 out 0/0 -> 0xe00002c7
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 45 swaps (9.0/s), 43 presents, copy avg 2589 us max 8583 us
+SWEET USB: ue0 rx 460 tx 595 frames
+SWEET FB: 5 s: 245 swaps (49.0/s), 203 presents, copy avg 2879 us max 6056 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 364 swaps (72.8/s), 299 presents, copy avg 2782 us max 4458 us
+SWEET FB: 1000 swaps
+SWEET FB: 5 s: 155 swaps (31.0/s), 128 presents, copy avg 2595 us max 4202 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 365 swaps (73.0/s), 299 presents, copy avg 2716 us max 4142 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 315 swaps (63.0/s), 258 presents, copy avg 2583 us max 4170 us
+exec xpcproxy
+exec remotemanagementd
+SWEET AKS: remotemanagementd sel 0 arg0 0 in 0/0 out 0/0 -> 0x0
+SWEET AKS: remotemanagementd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+exec xpcproxy
+exec AccountSubscriber
+exec xpcproxy
+exec InteractiveLegacyProfilesSubscri
+exec xpcproxy
+exec LegacyProfilesSubscriber
+exec xpcproxy
+exec ManagementTestSubscriber
+exec xpcproxy
+exec PasscodeSettingsSubscriber
+SWEET FB: 5 s: 207 swaps (41.4/s), 170 presents, copy avg 2717 us max 4064 us
+SWEET FB: 2000 swaps
+SWEET USB: ue0 rx 460 tx 615 frames
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 363 swaps (72.6/s), 299 presents, copy avg 2607 us max 4128 us
+SWEET FB: 5 s: 157 swaps (31.4/s), 129 presents, copy avg 2664 us max 4147 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 364 swaps (72.8/s), 300 presents, copy avg 2687 us max 4238 us
+SWEET FB: 3000 swaps
+SWEET FB: 5 s: 349 swaps (69.8/s), 287 presents, copy avg 2662 us max 4103 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 173 swaps (34.6/s), 141 presents, copy avg 2738 us max 4077 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET USB: ue0 rx 460 tx 632 frames
+SWEET FB: 5 s: 361 swaps (72.2/s), 299 presents, copy avg 2635 us max 4364 us
+SMP --- sample 1
+SMP backboardd[56] slide 0x52820000 mh 0x100104000
+SMP backboardd t0 pc 0x214e31030 lr 0x214e42b18 sp 0x16fcfa880 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x10010de40 0x1f6e44344 0x0
+SMP backboardd t1 pc 0x214e31030 lr 0x214e42b18 sp 0x16ffb1eb0 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e0dc2f70 0x2243bc0ec 0x2243ba72c
+SMP backboardd t2 pc 0x214e31030 lr 0x214e42b18 sp 0x1701469b0 bt 0x214e42db8 0x214e31524 0x1daaec884 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t3 pc 0x214e31030 lr 0x214e42b18 sp 0x1702e1d90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t4 pc 0x214e31ad0 lr 0x1e0388128 sp 0x16fd82860 bt 0x1e03884a0 0x10011ca78 0x1e03b77a8 0x1e03b8780 0x1e03936fc 0x1e03941e4 0x1e039df14 0x2243babd0 0x2243ba720
+SMP backboardd t5 pc 0x214e31030 lr 0x214e42b18 sp 0x16fe8dd90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t6 pc 0x214e31030 lr 0x214e42b18 sp 0x1703edd90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t7 pc 0x214e31030 lr 0x214e42b18 sp 0x1704f9d90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t8 pc 0x214e31030 lr 0x214e42b18 sp 0x17003de40 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e41ddfac 0x2243bc0ec 0x2243ba72c
+SMP backboardd t9 pc 0x214e314f0 lr 0x2243bac1c sp 0x17095afc0 bt 0x2243ba720
+SMP backboardd t10 pc 0x214e314f0 lr 0x2243bac1c sp 0x16ff1afc0 bt 0x2243ba720
+SMP backboardd t11 pc 0x214e314f0 lr 0x2243bac1c sp 0x170586800 bt 0x2243ba720
+SMP backboardd t12 pc 0x214e314f0 lr 0x2243bac1c sp 0x17069efc0 bt 0x2243ba720
+SMP backboardd t13 pc 0x214e314f0 lr 0x2243bac1c sp 0x17072afc0 bt 0x2243ba720
+SMP backboardd t14 pc 0x214e314f0 lr 0x2243bac1c sp 0x170842b40 bt 0x2243ba720
+SMP backboardd t15 pc 0x214e314f0 lr 0x2243bac1c sp 0x1708cefc0 bt 0x2243ba720
+SMP backboardd t16 pc 0x214e30fc4 lr 0x1e0387d9c sp 0x1701d6f30 bt 0x1e0388328 0x1e039ca80 0x2243bc0ec 0x2243ba72c
+SMP backboardd t17 pc 0x214e314f0 lr 0x2243bac1c sp 0x170a72fc0 bt 0x2243ba720
+SMP backboardd t18 pc 0x214e314f0 lr 0x2243bac1c sp 0x170afefc0 bt 0x2243ba720
+SMP SpringBoard[26] slide 0x52820000 mh 0x1041d4000
+SMP SpringBoard t0 pc 0x214e31030 lr 0x214e42b18 sp 0x16bc2a1a0 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x211755998 0x1db91434c 0x1db913fc4 0x2180855e8 0x1f6e44344 0x0
+SMP SpringBoard t1 pc 0x214e31030 lr 0x214e42b18 sp 0x16c085c70 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0df4 0x1dba36818 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t2 pc 0x214e31030 lr 0x214e42b18 sp 0x16c111e40 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e41ddfac 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t3 pc 0x214e31030 lr 0x214e42b18 sp 0x16c4e5c80 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x2181b05b8 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t4 pc 0x214e31030 lr 0x214e42b18 sp 0x16c571c60 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1f2e3d1b8 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t5 pc 0x214e30fac lr 0x1e0387d24 sp 0x16c5fecf0 bt 0x1e0388360 0x1db9ddd9c 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t6 pc 0x214e31030 lr 0x214e42b18 sp 0x16c82dc80 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x247fba0d4 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t7 pc 0x214e31030 lr 0x214e42b18 sp 0x16c8b9c60 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x247fc8d80 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t8 pc 0x214e31030 lr 0x214e42b18 sp 0x16cb714d0 bt 0x214e42db8 0x214e31524 0x1e038a308 0x1e038a694 0x22440e0ec 0x1d3a2c224 0x1d39c5cb0 0x1d39c483c 0x1d39c4760 0x1e45b93a0 0x1e45c1afc 0x1e45b4de0 0x2446a8b44 0x1e03b77a8 0x1e03b8780 0x1e0393SMP SpringBoard t9 pc 0x214e314f0 lr 0x2243bac1c sp 0x16bdcab30 bt 0x2243ba720
+SMP SpringBoard t10 pc 0x214e314f0 lr 0x2243bac1c sp 0x16be56b30 bt 0x2243ba720
+SMP SpringBoard t11 pc 0x0 lr 0x0 sp 0x0 bt
+SWEET FB: 5 s: 184 swaps (36.8/s), 151 presents, copy avg 2684 us max 4119 us
+SWEET FB: 4000 swaps
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 336 swaps (67.2/s), 278 presents, copy avg 2626 us max 4117 us
+SWEET FB: 5 s: 365 swaps (73.0/s), 300 presents, copy avg 2630 us max 3976 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 153 swaps (30.6/s), 127 presents, copy avg 2613 us max 3869 us
+SWEET FB: 5000 swaps
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 364 swaps (72.8/s), 300 presents, copy avg 2575 us max 4093 us
+SWEET USB: ue0 rx 464 tx 656 frames
+SWEET FB: 5 s: 221 swaps (44.2/s), 182 presents, copy avg 2647 us max 4085 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 298 swaps (59.6/s), 246 presents, copy avg 2628 us max 4004 us
+SWEET FB: 6000 swaps
+SWEET FB: 5 s: 366 swaps (73.2/s), 300 presents, copy avg 2697 us max 4060 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 154 swaps (30.8/s), 129 presents, copy avg 2521 us max 3943 us
+SWEET FB: 5 s: 363 swaps (72.6/s), 298 presents, copy avg 2630 us max 4044 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 257 swaps (51.4/s), 212 presents, copy avg 2675 us max 4199 us
+SWEET USB: ue0 rx 464 tx 668 frames
+exec xpcproxy
+exec xpcproxy
+exec fairplayd.H2
+exec bluetoothd
+SWEET FB: 7000 swaps
+SWEET FB: 5 s: 265 swaps (53.0/s), 218 presents, copy avg 2706 us max 4194 us
+SWEET FB: 5 s: 365 swaps (73.0/s), 298 presents, copy avg 2723 us max 4344 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 155 swaps (31.0/s), 127 presents, copy avg 2600 us max 4144 us
+SWEET FB: 5 s: 365 swaps (73.0/s), 300 presents, copy avg 2688 us max 4169 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 8000 swaps
+SWEET FB: 5 s: 290 swaps (58.0/s), 239 presents, copy avg 2599 us max 4039 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 232 swaps (46.4/s), 190 presents, copy avg 2741 us max 4259 us
+SWEET USB: ue0 rx 465 tx 685 frames
+SWEET FB: 5 s: 363 swaps (72.6/s), 299 presents, copy avg 2645 us max 4098 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: dasd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET FB: 5 s: 154 swaps (30.8/s), 128 presents, copy avg 2462 us max 3892 us
+SWEET FB: 9000 swaps
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET AKS: coreduetd sel 17 arg0 0 in 1/0 out 0/4096 -> 0x0
+SWEET FB: 5 s: 365 swaps (73.0/s), 299 presents, copy avg 2650 us max 4156 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 322 swaps (64.4/s), 267 presents, copy avg 2665 us max 4179 us
+SMP --- sample 2
+SMP backboardd[56] slide 0x52820000 mh 0x100104000
+SMP backboardd t0 pc 0x214e31030 lr 0x214e42b18 sp 0x16fcfa880 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x10010de40 0x1f6e44344 0x0
+SMP backboardd t1 pc 0x214e31030 lr 0x214e42b18 sp 0x16ffb1eb0 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e0dc2f70 0x2243bc0ec 0x2243ba72c
+SMP backboardd t2 pc 0x214e31030 lr 0x214e42b18 sp 0x1701469b0 bt 0x214e42db8 0x214e31524 0x1daaec884 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t3 pc 0x214e31030 lr 0x214e42b18 sp 0x1702e1d90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t4 pc 0x214e31ad0 lr 0x1e0388128 sp 0x16fd82860 bt 0x1e03884a0 0x10011ca78 0x1e03b77a8 0x1e03b8780 0x1e03936fc 0x1e03941e4 0x1e039df14 0x2243babd0 0x2243ba720
+SMP backboardd t5 pc 0x214e31030 lr 0x214e42b18 sp 0x16fe8dd90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t6 pc 0x214e31030 lr 0x214e42b18 sp 0x1703edd90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t7 pc 0x214e31030 lr 0x214e42b18 sp 0x1704f9d90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t8 pc 0x214e31030 lr 0x214e42b18 sp 0x17003de40 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e41ddfac 0x2243bc0ec 0x2243ba72c
+SMP backboardd t9 pc 0x214e314f0 lr 0x2243bac1c sp 0x17095afc0 bt 0x2243ba720
+SMP backboardd t10 pc 0x214e314f0 lr 0x2243bac1c sp 0x170586fc0 bt 0x2243ba720
+SMP backboardd t11 pc 0x214e314f0 lr 0x2243bac1c sp 0x17069efc0 bt 0x2243ba720
+SMP backboardd t12 pc 0x214e314f0 lr 0x2243bac1c sp 0x170842b40 bt 0x2243ba720
+SMP backboardd t13 pc 0x214e314f0 lr 0x2243bac1c sp 0x1708cefc0 bt 0x2243ba720
+SMP backboardd t14 pc 0x214e314f0 lr 0x2243bac1c sp 0x170a72fc0 bt 0x2243ba720
+SMP backboardd t15 pc 0x214e314f0 lr 0x2243bac1c sp 0x170afefc0 bt 0x2243ba720
+SMP backboardd t16 pc 0x214e314f0 lr 0x2243bac1c sp 0x16ff1a800 bt 0x2243ba720
+SMP backboardd t17 pc 0x214e314f0 lr 0x2243bac1c sp 0x1707b6fc0 bt 0x2243ba720
+SMP backboardd t18 pc 0x0 lr 0x0 sp 0x0 bt
+SMP backboardd t19 pc 0x0 lr 0x0 sp 0x0 bt
+SMP backboardd t20 pc 0x214e30fc4 lr 0x1e0387d9c sp 0x170612f30 bt 0x1e0388328 0x1e039ca80 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard[26] slide 0x52820000 mh 0x1041d4000
+SMP SpringBoard t0 pc 0x214e31030 lr 0x214e42b18 sp 0x16bc2a1a0 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x211755998 0x1db91434c 0x1db913fc4 0x2180855e8 0x1f6e44344 0x0
+SMP SpringBoard t1 pc 0x214e31030 lr 0x214e42b18 sp 0x16c085c70 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0df4 0x1dba36818 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t2 pc 0x214e31030 lr 0x214e42b18 sp 0x16c111e40 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e41ddfac 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t3 pc 0x214e31030 lr 0x214e42b18 sp 0x16c4e5c80 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x2181b05b8 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t4 pc 0x214e31030 lr 0x214e42b18 sp 0x16c571c60 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1f2e3d1b8 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t5 pc 0x214e30fac lr 0x1e0387d24 sp 0x16c5fecf0 bt 0x1e0388360 0x1db9ddd9c 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t6 pc 0x214e31030 lr 0x214e42b18 sp 0x16c82dc80 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x247fba0d4 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t7 pc 0x214e31030 lr 0x214e42b18 sp 0x16c8b9c60 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x247fc8d80 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t8 pc 0x214e31030 lr 0x214e42b18 sp 0x16cb714d0 bt 0x214e42db8 0x214e31524 0x1e038a308 0x1e038a694 0x22440e0ec 0x1d3a2c224 0x1d39c5cb0 0x1d39c483c 0x1d39c4760 0x1e45b93a0 0x1e45c1afc 0x1e45b4de0 0x2446a8b44 0x1e03b77a8 0x1e03b8780 0x1e0393SMP SpringBoard t9 pc 0x214e314f0 lr 0x2243bac1c sp 0x16bdcab40 bt 0x2243ba720
+SMP SpringBoard t10 pc 0x214e314f0 lr 0x2243bac1c sp 0x16be56b30 bt 0x2243ba720
+SMP SpringBoard t11 pc 0x0 lr 0x0 sp 0x0 bt
+SWEET FB: 5 s: 196 swaps (39.2/s), 161 presents, copy avg 2729 us max 4120 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 10000 swaps
+SWEET FB: 5 s: 363 swaps (72.6/s), 299 presents, copy avg 2615 us max 4136 us
+SWEET USB: ue0 rx 465 tx 707 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 161 swaps (32.2/s), 132 presents, copy avg 2681 us max 3953 us
+exec xpcproxy
+exec xpcproxy
+exec ndoagent
+exec metrickitd
+SWEET AKS: securityd sel 10 arg0 0 in 2/32 out 1/40 -> 0xe00002c7
+SWEET AKS: securityd sel 10 arg0 0 in 2/32 out 1/40 -> 0xe00002c7
+SWEET AKS: securityd sel 10 arg0 0 in 2/32 out 1/40 -> 0xe00002c7
+SWEET AKS: securityd sel 10 arg0 0 in 2/32 out 1/40 -> 0xe00002c7
+SWEET FB: 5 s: 359 swaps (71.8/s), 295 presents, copy avg 2646 us max 4117 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 11000 swaps
+SWEET FB: 5 s: 360 swaps (72.0/s), 296 presents, copy avg 2685 us max 4201 us
+SWEET FB: 5 s: 162 swaps (32.4/s), 133 presents, copy avg 2736 us max 4088 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 363 swaps (72.6/s), 300 presents, copy avg 2628 us max 4159 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 195 swaps (39.0/s), 160 presents, copy avg 2662 us max 4070 us
+SWEET USB: ue0 rx 467 tx 726 frames
+SWEET FB: 12000 swaps
+SWEET FB: 5 s: 327 swaps (65.4/s), 269 presents, copy avg 2620 us max 4068 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 363 swaps (72.6/s), 297 presents, copy avg 2708 us max 4353 us
+SWEET FB: 5 s: 155 swaps (31.0/s), 128 presents, copy avg 2714 us max 4218 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+process vmd[219] thread 2391 caught burning CPU! It used more than 50% CPU over 180 seconds
+  (actual recent usage: 50% over ~178 seconds)
+  Thread lifetime cpu usage 204.956684s, (158.787531 user, 46.169153 sys)
+  Ledger balance: 1728000001; mabs credit: 3308017691; mabs debit: 1580017690
+  mabs limit: 1728000000; mabs period: 180000000000 ns; last refill: 178022690260 ns.
+SWEET FB: 13000 swaps
+SWEET FB: 5 s: 364 swaps (72.8/s), 300 presents, copy avg 2620 us max 4231 us
+exec xpcproxy
+exec fairplayd.H2
+SWEET FB: 5 s: 228 swaps (45.6/s), 187 presents, copy avg 2684 us max 4023 us
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec ASPCarryLog
+SWEET Sandbox: dasd privilege 1002 denied
+SWEET USB: ue0 rx 467 tx 743 frames
+SWEET FB: 5 s: 292 swaps (58.4/s), 241 presents, copy avg 2659 us max 4145 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+exec xpcproxy
+exec com.apple.SiriTTSService.TrialPr
+SWEET FB: 5 s: 365 swaps (73.0/s), 300 presents, copy avg 2781 us max 4277 us
+SWEET FB: 14000 swaps
+SWEET FB: 5 s: 156 swaps (31.2/s), 128 presents, copy avg 2525 us max 4006 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 366 swaps (73.2/s), 298 presents, copy avg 2729 us max 4207 us
+SWEET FB: 5 s: 260 swaps (52.0/s), 214 presents, copy avg 2642 us max 4312 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 259 swaps (51.8/s), 214 presents, copy avg 2618 us max 4206 us
+SWEET FB: 15000 swaps
+SWEET USB: ue0 rx 467 tx 759 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 363 swaps (72.6/s), 298 presents, copy avg 2749 us max 4248 us
+SMP --- sample 3
+SMP backboardd[56] slide 0x52820000 mh 0x100104000
+SMP backboardd t0 pc 0x214e31030 lr 0x214e42b18 sp 0x16fcfa880 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x10010de40 0x1f6e44344 0x0
+SMP backboardd t1 pc 0x214e31030 lr 0x214e42b18 sp 0x16ffb1eb0 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e0dc2f70 0x2243bc0ec 0x2243ba72c
+SMP backboardd t2 pc 0x214e31030 lr 0x214e42b18 sp 0x1701469b0 bt 0x214e42db8 0x214e31524 0x1daaec884 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t3 pc 0x214e31030 lr 0x214e42b18 sp 0x1702e1d90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t4 pc 0x214e31ad0 lr 0x1e0388128 sp 0x16fd82860 bt 0x1e03884a0 0x10011ca78 0x1e03b77a8 0x1e03b8780 0x1e03936fc 0x1e03941e4 0x1e039df14 0x2243babd0 0x2243ba720
+SMP backboardd t5 pc 0x214e31030 lr 0x214e42b18 sp 0x16fe8dd90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t6 pc 0x214e31030 lr 0x214e42b18 sp 0x1703edd90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t7 pc 0x214e31030 lr 0x214e42b18 sp 0x1704f9d90 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1dad21ccc 0x1dad2b418 0x2243bc0ec 0x2243ba72c
+SMP backboardd t8 pc 0x214e31030 lr 0x214e42b18 sp 0x17003de40 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e41ddfac 0x2243bc0ec 0x2243ba72c
+SMP backboardd t9 pc 0x214e314f0 lr 0x2243bac1c sp 0x17095afc0 bt 0x2243ba720
+SMP backboardd t10 pc 0x214e314f0 lr 0x2243bac1c sp 0x170586fc0 bt 0x2243ba720
+SMP backboardd t11 pc 0x214e314f0 lr 0x2243bac1c sp 0x17069efc0 bt 0x2243ba720
+SMP backboardd t12 pc 0x214e314f0 lr 0x2243bac1c sp 0x170842b40 bt 0x2243ba720
+SMP backboardd t13 pc 0x214e314f0 lr 0x2243bac1c sp 0x1708cefc0 bt 0x2243ba720
+SMP backboardd t14 pc 0x214e314f0 lr 0x2243bac1c sp 0x170a72fc0 bt 0x2243ba720
+SMP backboardd t15 pc 0x214e314f0 lr 0x2243bac1c sp 0x170afefc0 bt 0x2243ba720
+SMP backboardd t16 pc 0x214e314f0 lr 0x2243bac1c sp 0x16ff1afc0 bt 0x2243ba720
+SMP backboardd t17 pc 0x214e314f0 lr 0x2243bac1c sp 0x1707b6800 bt 0x2243ba720
+SMP backboardd t18 pc 0x0 lr 0x0 sp 0x0 bt
+SMP backboardd t19 pc 0x0 lr 0x0 sp 0x0 bt
+SMP backboardd t20 pc 0x214e30fc4 lr 0x1e0387d9c sp 0x170612f30 bt 0x1e0388328 0x1e039ca80 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard[26] slide 0x52820000 mh 0x1041d4000
+SMP SpringBoard t0 pc 0x214e31030 lr 0x214e42b18 sp 0x16bc2a1a0 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x211755998 0x1db91434c 0x1db913fc4 0x2180855e8 0x1f6e44344 0x0
+SMP SpringBoard t1 pc 0x214e31030 lr 0x214e42b18 sp 0x16c085c70 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0df4 0x1dba36818 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t2 pc 0x214e31030 lr 0x214e42b18 sp 0x16c111e40 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1e41ddfac 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t3 pc 0x214e31030 lr 0x214e42b18 sp 0x16c4e5c80 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x2181b05b8 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t4 pc 0x214e31030 lr 0x214e42b18 sp 0x16c571c60 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d96c0bec 0x1f2e3d1b8 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t5 pc 0x214e30fac lr 0x1e0387d24 sp 0x16c5fecf0 bt 0x1e0388360 0x1db9ddd9c 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t6 pc 0x214e31030 lr 0x214e42b18 sp 0x16c82dc80 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x247fba0d4 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t7 pc 0x214e31030 lr 0x214e42b18 sp 0x16c8b9c60 bt 0x214e42db8 0x214e31524 0x1d967c148 0x1d967d2e0 0x1d9681d20 0x1d39d0ef8 0x1d39d0da4 0x247fc8d80 0x1d39e8a5c 0x2243bc0ec 0x2243ba72c
+SMP SpringBoard t8 pc 0x214e31030 lr 0x214e42b18 sp 0x16cb714d0 bt 0x214e42db8 0x214e31524 0x1e038a308 0x1e038a694 0x22440e0ec 0x1d3a2c224 0x1d39c5cb0 0x1d39c483c 0x1d39c4760 0x1e45b93a0 0x1e45c1afc 0x1e45b4de0 0x2446a8b44 0x1e03b77a8 0x1e03b8780 0x1e0393SMP SpringBoard t9 pc 0x214e314f0 lr 0x2243bac1c sp 0x16bdcab30 bt 0x2243ba720
+SMP SpringBoard t10 pc 0x214e314f0 lr 0x2243bac1c sp 0x16bcb2b30 bt 0x2243ba720
+SMP SpringBoard t11 pc 0x0 lr 0x0 sp 0x0 bt
+SWEET FB: 5 s: 155 swaps (31.0/s), 127 presents, copy avg 2565 us max 4316 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 364 swaps (72.8/s), 300 presents, copy avg 2628 us max 3896 us
+SWEET FB: 16000 swaps
+SWEET FB: 5 s: 297 swaps (59.4/s), 245 presents, copy avg 2559 us max 3961 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 221 swaps (44.2/s), 182 presents, copy avg 2622 us max 3955 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 364 swaps (72.8/s), 300 presents, copy avg 2657 us max 4039 us
+SWEET USB: ue0 rx 468 tx 781 frames
+SWEET FB: 5 s: 155 swaps (31.0/s), 127 presents, copy avg 2533 us max 3997 us
+SWEET FB: 17000 swaps
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 364 swaps (72.8/s), 300 presents, copy avg 2672 us max 4091 us
+SWEET FB: 5 s: 335 swaps (67.0/s), 276 presents, copy avg 2600 us max 3968 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 186 swaps (37.2/s), 151 presents, copy avg 2737 us max 4046 us
+SWEET FB: 18000 swaps
+SWEET FB: 5 s: 361 swaps (72.2/s), 299 presents, copy avg 2594 us max 4012 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 171 swaps (34.2/s), 141 presents, copy avg 2690 us max 4234 us
+SWEET USB: ue0 rx 468 tx 796 frames
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 350 swaps (70.0/s), 289 presents, copy avg 2660 us max 4180 us
+SWEET FB: 5 s: 365 swaps (73.0/s), 299 presents, copy avg 2665 us max 4304 us
+SWEET FB: 19000 swaps
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 157 swaps (31.4/s), 129 presents, copy avg 2726 us max 4159 us
+SWEET FB: 5 s: 364 swaps (72.8/s), 298 presents, copy avg 2609 us max 4139 us
+exec xpcproxy
+exec fairplayd.H2
+exec xpcproxy
+exec bluetoothd
+SWEET FB: 5 s: 204 swaps (40.8/s), 167 presents, copy avg 2729 us max 4100 us

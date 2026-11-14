@@ -1,0 +1,31 @@
+Sending 'boot.img' (131072 KB)                     OKAY [  3.034s]
+Booting                                            OKAY [  0.134s]
+Finished. Total time: 3.261s
+/dev/block/sda34: 114970046464 bytes, read blocks 28067834.. ( 4198400 bytes)
+# version 1, ring 4194304, total 258643 bytes, flush #45
+mounted /dev/block/mapper/vendor
+a615_zap.b00
+a615_zap.b01
+a615_zap.b02
+a615_zap.elf
+a615_zap.mdt
+a618_gmu.bin
+a630_sqe.fw
+/mnt/vfw/firmware/a615_zap.b00: 1 file pulled, 0 skipped. 0.1 MB/s (148 bytes in 0.002s)
+pulled a615_zap.b00
+/mnt/vfw/firmware/a615_zap.b01: 1 file pulled, 0 skipped. 2.1 MB/s (6712 bytes in 0.003s)
+pulled a615_zap.b01
+/mnt/vfw/firmware/a615_zap.b02: 1 file pulled, 0 skipped. 1.0 MB/s (1984 bytes in 0.002s)
+pulled a615_zap.b02
+/mnt/vfw/firmware/a615_zap.elf: 1 file pulled, 0 skipped. 5.3 MB/s (14272 bytes in 0.003s)
+pulled a615_zap.elf
+/mnt/vfw/firmware/a615_zap.mdt: 1 file pulled, 0 skipped. 3.7 MB/s (6860 bytes in 0.002s)
+pulled a615_zap.mdt
+/mnt/vfw/firmware/a618_gmu.bin: 1 file pulled, 0 skipped. 11.1 MB/s (32768 bytes in 0.003s)
+pulled a618_gmu.bin
+/mnt/vfw/firmware/a630_sqe.fw: 1 file pulled, 0 skipped. 10.2 MB/s (32136 bytes in 0.003s)
+pulled a630_sqe.fw
+Sending 'boot.img' (16748 KB)                      OKAY [  0.388s]
+Booting                                            OKAY [  0.137s]
+Finished. Total time: 0.533s
+Sat Nov 14 14:07:03 UTC 2026
