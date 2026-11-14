@@ -4,6 +4,7 @@
 mod xnu;
 mod cmddb;
 mod gpu;
+mod smmu;
 
 extern "C" fn gpu_thread(stage: usize) {
     let secs = xnu::boot_arg_u32(c"sweetgpu_delay").unwrap_or(60);
@@ -16,6 +17,9 @@ extern "C" fn gpu_thread(stage: usize) {
         }
     }
     gpu::bringup(stage as u32);
+    if stage >= 3 {
+        smmu::dump();
+    }
 }
 
 #[unsafe(no_mangle)]
