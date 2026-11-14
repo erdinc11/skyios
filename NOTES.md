@@ -1,8 +1,17 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
-## Agent handoff / active work (2026-10-15, latest)
+## Agent handoff / active work (2026-11-15, latest)
 
-### >>> UPDATE 2026-11-15: repo is now the SkyIOS Cargo workspace <<<
+### >>> UPDATE 2026-11-15: GPU HFI v1 boot sequence ported (image 0107h, NOT booted) <<<
+
+- **State before this change (boot 0105g, `logs/usbnet-0105g.out`, real hardware):** stages A-D all pass: CX/GX up, GMU fw runs (`0xbabeface`), GMU memory in the adreno SMMU (cb4, SID 5, iova `0x60000000+0xd000`), OOB boot_slumber ACK, SPTPRAC on, `hfi ctrl status 0x1`. The old "clock probe" read the **CP** perfcounter (`0x0400`) and the **CP** always-on counter (`0x0980` = `CP_ALWAYS_ON_COUNTER` in the freedreno xml) and printed garbage: CP is still in reset (only Linux's `a6xx_hw_init` resets it), so 0105g's "~10 MHz / 0 TKHz" is meaningless for the GPU clock. The GMU always-on counter is `0x1f888/0x1f889`.
+- **New code (this commit, `skyios-kernel/src/hfi.rs`, wired in `gpu.rs`):** the freedreno legacy (a618, HFI v1) boot sequence: the 3-queue table at the hfi region (cmd 0 / response 4 / debug 5, 4 KiB rings), `HFI_H2F_MSG_INIT` (seg id 0, dbg buffer `0x60001000`, 16 KiB, cold/warm), `FW_VERSION` (1.10.2), `PERF_TABLE` v1 (gfx.lvl from cmd-db + the SM7150 OPP MHz 980..180, cx.lvl + 500/200/150), `BW_TABLE` exactly as `a618_build_bw_table` (drivers 0x50000/0x5003c/0x5000c, cnoc 0x5007c), `TEST`, `START`, then `GX_BW_PERF_VOTE` at the top gfx level. Waits for the `MSGQ` interrupt bit, reads the response queue, checks seqnum/error like `a6xx_hfi_wait_for_ack`. Any failure dumps the 3 queue headers+data, the log region, and the CM3 fault bit. Also added: `GMU_GENERAL_9 = 0` and `GMU_BOOT_KMD_LM_HANDSHAKE = 1` before SYSRESET (as Linux `a6xx_gmu_fw_start`); `gpu_set` OOB (set 16 / ack 24) around the GPU register reads, cleared afterwards, because the GMU has just voted the GX rail on.
+- **Port bug fixed in this commit:** a6xx defines **no** `RBBM_HW_VERSION`; the 0105g "a618 model word" would have been `0x00000000`. The chip id really comes from the a618 catalog entry `gmu_chipid` (`GMU_FW_CHIPID 0x06018000`); legacy firmware reports no version, so the probe prints `GMU_CORE_FW_VERSION` (expected 0) instead.
+- **Image `skyios-shim/out/shim-boot-0107h.img`** = kernel 0107 (xnu 0102 + this Rust lib, built locally `research/localbuild/dxb`, log `build28.log`) + the same shim/ADT/DTB as 0106b, cmdline needs `sweetgpu=4` (bring-up runs ~60 s after boot; `sweetgpu_delay=N` changes that).
+- **Expect in the live log:** `SWEET HFI: msg 0/1/4/3/5/10 seq N acked` lines, the reported fw version, the three queue states after `done`, the log region, then the `clock over 10 ms` line and `stage C done`. Failure modes to read: `boot aborted at <step>` (GMU rejects a table), `response interrupt TIMEOUT` (queue table not seen), `CM3 fault while waiting` (firmware asserted). **Nothing here has been observed on hardware yet.**
+- Next after that boot: GPU-side init (`a6xx_hw_init`: RBBM_SW_RESET, VBIF/GBIF, UCHE), the SQE firmware (`research/gpu-fw/a630_sqe.fw`) into a gfx3d_user SMMU context (SID 0), CP_SQE_INSTR_BASE, ringbuffer + CP_ME_INIT, then a first CP_NOP. The zap shader (TZ, PAS 13) can be skipped until there is real rendering.
+
+### >>> UPDATE 2026-11-14: repo is now the SkyIOS Cargo workspace <<<
 
 - Rebrand to **SkyIOS**; GitHub `origin` = `git@github.com:maulanasdqn/skyios.git` (old `dipa-studio/ios-sweet` kept as remote `upstream`).
 - Layout (old paths in older notes below map as follows):
