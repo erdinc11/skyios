@@ -115,10 +115,10 @@ static GMU_FW: &[u8] = include_bytes!(env!("SWEET_GMU_FW"));
 #[cfg(not(feature = "gmufw"))]
 static GMU_FW: &[u8] = &[];
 
-fn gmu_boot(gmu: &Gmu) {
+fn gmu_boot(gmu: &Gmu) -> bool {
     if GMU_FW.is_empty() || GMU_FW.len() > 0x8000 || GMU_FW.len() % 4 != 0 {
         crate::log!("SWEET GPU: no usable GMU firmware in this kernel ({} bytes)", GMU_FW.len());
-        return;
+        return false;
     }
     let warm = gmu.read(GMU_GENERAL_7) == 1;
     gmu.write(GMU_GENERAL_7, 1);
@@ -167,6 +167,196 @@ fn gmu_boot(gmu: &Gmu) {
     if ok {
         crate::log!("SWEET GPU: stage B done (GMU firmware running)");
     }
+    ok
+}
+
+const RSCC_BASE: usize = 0x23000;
+const GPU: u64 = 0x0500_0000;
+const PDC: u64 = 0x0b29_0000;
+const PDC_SEQ: u64 = 0x0b49_0000;
+const PDC_ADDRESS_OFFSET: u32 = 0x30090;
+
+const GMU_RSCC_CONTROL_REQ: usize = 0x23b07;
+const GMU_RSCC_CONTROL_ACK: usize = 0x23b08;
+const GMU_BOOT_SLUMBER_OPTION: usize = 0x1cbf8;
+const GMU_GX_VOTE_IDX: usize = 0x1cbf9;
+const GMU_MX_VOTE_IDX: usize = 0x1cbfa;
+const GMU_HOST2GMU_INTR_SET: usize = 0x1f994;
+const GMU_GMU2HOST_INTR_CLR: usize = 0x1f991;
+const GMU_GMU2HOST_INTR_INFO: usize = 0x1f992;
+const GMU_GX_SPTPRAC_POWER_CONTROL: usize = 0x1a881;
+const GMU_SPTPRAC_PWR_CLK_STATUS: usize = 0x1f8d0;
+const OOB_BOOT_SLUMBER_SET: u32 = 22;
+const OOB_BOOT_SLUMBER_ACK: u32 = 30;
+
+const RSC_STATUS0_DRV0: usize = 0x004;
+const RSC_PDC_SEQ_START_ADDR: usize = 0x008;
+const RSC_PDC_MATCH_VALUE_LO: usize = 0x009;
+const RSC_PDC_MATCH_VALUE_HI: usize = 0x00a;
+const RSC_PDC_SLAVE_ID_DRV0: usize = 0x00b;
+const RSC_HIDDEN_TCS_CMD0_ADDR: usize = 0x00d;
+const RSC_HIDDEN_TCS_CMD0_DATA: usize = 0x00e;
+const RSC_OVERRIDE_START_ADDR: usize = 0x100;
+const RSC_SEQ_BUSY_DRV0: usize = 0x101;
+const RSC_SEQ_MEM_0_DRV0: usize = 0x180;
+const RSC_SEQ: [u32; 5] = [0xa7a5_06a0, 0xa1e6_a6e7, 0xa2e0_81e1, 0xe9a9_82e2, 0x0020_e8a8];
+
+const PDC_ENABLE: usize = 0x1140;
+const PDC_SEQ_START_ADDR: usize = 0x1148;
+const PDC_TCS1: usize = 0x1572;
+const PDC_TCS3: usize = 0x15d6;
+const PDC_SEQ_MEM: [u32; 5] = [0xfebe_a1e1, 0xa5a4_a3a2, 0x8382_a6e0, 0xbce3_e284, 0x0020_81fc];
+
+impl Gmu {
+    fn rsc_read(&self, reg: usize) -> u32 {
+        self.0.read(RSCC_BASE + reg * 4)
+    }
+
+    fn rsc_write(&self, reg: usize, v: u32) {
+        self.0.write(RSCC_BASE + reg * 4, v)
+    }
+
+    fn poll(&self, reg: usize, mask: u32, want: u32, tries: u32) -> Option<u32> {
+        for _ in 0..tries {
+            let v = self.read(reg);
+            if v & mask == want {
+                return Some(v);
+            }
+            delay_us(10);
+        }
+        None
+    }
+}
+
+fn dw(m: &Mmio, reg: usize, v: u32) {
+    m.write(reg * 4, v)
+}
+
+fn pdc_tcs(pdc: &Mmio, tcs: usize, data: [u32; 3]) {
+    dw(pdc, tcs + 1, 7);
+    dw(pdc, tcs + 2, 0);
+    dw(pdc, tcs, 0);
+    for (i, (addr, d)) in [0x30010, 0x30000, PDC_ADDRESS_OFFSET].into_iter().zip(data).enumerate() {
+        dw(pdc, tcs + 3 + 4 * i, 0x10108);
+        dw(pdc, tcs + 4 + 4 * i, addr);
+        dw(pdc, tcs + 5 + 4 * i, d);
+    }
+}
+
+fn rpmh_init(gmu: &Gmu) -> bool {
+    let (Some(pdc), Some(seq)) = (Mmio::map(PDC, 0x10000), Mmio::map(PDC_SEQ, 0x1000)) else {
+        crate::log!("SWEET GPU: pdc map failed");
+        return false;
+    };
+    gmu.rsc_write(RSC_STATUS0_DRV0, 1 << 24);
+    gmu.rsc_write(RSC_PDC_SLAVE_ID_DRV0, 1);
+    for i in [0, 2, 4] {
+        gmu.rsc_write(RSC_HIDDEN_TCS_CMD0_DATA + i, if i == 4 { 0x8000_0000 } else { 0 });
+        gmu.rsc_write(RSC_HIDDEN_TCS_CMD0_ADDR + i, 0);
+    }
+    gmu.rsc_write(RSC_OVERRIDE_START_ADDR, 0);
+    gmu.rsc_write(RSC_PDC_SEQ_START_ADDR, 0x4520);
+    gmu.rsc_write(RSC_PDC_MATCH_VALUE_LO, 0x4510);
+    gmu.rsc_write(RSC_PDC_MATCH_VALUE_HI, 0x4514);
+    for (i, w) in RSC_SEQ.into_iter().enumerate() {
+        gmu.rsc_write(RSC_SEQ_MEM_0_DRV0 + i, w);
+    }
+    for (i, w) in PDC_SEQ_MEM.into_iter().enumerate() {
+        dw(&seq, i, w);
+    }
+    pdc_tcs(&pdc, PDC_TCS1, [1, 0, 0]);
+    pdc_tcs(&pdc, PDC_TCS3, [2, 2, 3]);
+    dw(&pdc, PDC_SEQ_START_ADDR, 0);
+    dw(&pdc, PDC_ENABLE, 0x8000_0001);
+    crate::log!(
+        "SWEET GPU: rsc/pdc programmed, rsc seq[0] {:#010x}, pdc enable {:#010x}",
+        gmu.rsc_read(RSC_SEQ_MEM_0_DRV0),
+        pdc.read(PDC_ENABLE * 4)
+    );
+    true
+}
+
+fn rpmh_start(gmu: &Gmu) -> bool {
+    gmu.write(GMU_RSCC_CONTROL_REQ, 1 << 1);
+    let ack = gmu.poll(GMU_RSCC_CONTROL_ACK, 1 << 1, 1 << 1, 1000);
+    let mut busy = 0;
+    let mut idle = false;
+    for _ in 0..1000 {
+        busy = gmu.rsc_read(RSC_SEQ_BUSY_DRV0);
+        if busy == 0 {
+            idle = true;
+            break;
+        }
+        delay_us(10);
+    }
+    gmu.write(GMU_RSCC_CONTROL_REQ, 0);
+    crate::log!(
+        "SWEET GPU: rsc wake: ack {} seq busy {busy:#x}{}",
+        if ack.is_some() { "OK" } else { "TIMEOUT" },
+        if idle { "" } else { " (stuck)" }
+    );
+    ack.is_some() && idle
+}
+
+fn arc_vote(db: &crate::cmddb::CmdDb) -> Option<(u32, u32)> {
+    let mut gfx = [0u16; 16];
+    let mut mx = [0u16; 16];
+    let ng = db.aux("gfx.lvl", &mut gfx);
+    let nm = db.aux("mx.lvl", &mut mx);
+    if ng == 0 || nm == 0 {
+        return None;
+    }
+    let gi = ng - 1;
+    let mi = mx[..nm].iter().position(|&l| l >= gfx[gi]).unwrap_or(nm - 1);
+    Some((gi as u32, mi as u32))
+}
+
+fn gfx_rail_on(gmu: &Gmu, gx: u32, mx: u32) -> bool {
+    gmu.write(GMU_BOOT_SLUMBER_OPTION, 0);
+    gmu.write(GMU_GX_VOTE_IDX, gx);
+    gmu.write(GMU_MX_VOTE_IDX, mx);
+    gmu.write(GMU_HOST2GMU_INTR_SET, 1 << OOB_BOOT_SLUMBER_SET);
+    let ack = gmu.poll(GMU_GMU2HOST_INTR_INFO, 1 << OOB_BOOT_SLUMBER_ACK, 1 << OOB_BOOT_SLUMBER_ACK, 10000);
+    let info = gmu.read(GMU_GMU2HOST_INTR_INFO);
+    gmu.write(GMU_GMU2HOST_INTR_CLR, 1 << OOB_BOOT_SLUMBER_ACK);
+    crate::log!(
+        "SWEET GPU: oob boot_slumber (gx idx {gx}, mx idx {mx}): {} intr info {info:#010x}",
+        if ack.is_some() { "ACK" } else { "TIMEOUT" }
+    );
+    ack.is_some()
+}
+
+fn sptprac_on(gmu: &Gmu) -> bool {
+    gmu.write(GMU_GX_SPTPRAC_POWER_CONTROL, 0x77_8000);
+    let r = gmu.poll(GMU_SPTPRAC_PWR_CLK_STATUS, 0x38, 0x28, 1000);
+    crate::log!(
+        "SWEET GPU: sptprac status {:#010x}{}",
+        gmu.read(GMU_SPTPRAC_PWR_CLK_STATUS),
+        if r.is_some() { " (on)" } else { " (TIMEOUT)" }
+    );
+    r.is_some()
+}
+
+fn stage_c(gmu: &Gmu, cc: &Mmio) {
+    let Some((gx, mx)) = crate::cmddb::CmdDb::open().as_ref().and_then(arc_vote) else {
+        crate::log!("SWEET GPU: no arc levels from cmd-db");
+        return;
+    };
+    let gx_before = cc.read(GPUCC_GX_GDSCR);
+    if !gfx_rail_on(gmu, gx, mx) {
+        return;
+    }
+    let sp = sptprac_on(gmu);
+    crate::log!("SWEET GPU: gpucc gx_gdscr {gx_before:#010x} -> {:#010x}", cc.read(GPUCC_GX_GDSCR));
+    if !sp || cc.read(GPUCC_GX_GDSCR) & GDSC_PWR_ON == 0 {
+        crate::log!("SWEET GPU: GX not powered, skipping GPU register read");
+        return;
+    }
+    let Some(gpu) = Mmio::map(GPU, 0x40000) else {
+        return;
+    };
+    crate::log!("SWEET GPU: rbbm_status {:#010x}", gpu.read(0x210 * 4));
+    crate::log!("SWEET GPU: stage C done (GX rail on, GPU registers readable)");
 }
 
 pub fn bringup(stage: u32) {
@@ -206,7 +396,10 @@ pub fn bringup(stage: u32) {
     }
     crate::log!("SWEET GPU: gmu itcm[0..2] = {:#010x} {:#010x}", gmu.read(0x1b400), gmu.read(0x1b401));
     crate::log!("SWEET GPU: stage A done (CX up, GMU registers readable)");
-    if stage >= 2 {
-        gmu_boot(&gmu);
+    if stage >= 3 && !(rpmh_init(&gmu) && rpmh_start(&gmu)) {
+        return;
+    }
+    if stage >= 2 && gmu_boot(&gmu) && stage >= 3 {
+        stage_c(&gmu, &cc);
     }
 }
