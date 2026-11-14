@@ -2,6 +2,17 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> UPDATE 2026-11-14: fresh reinstall from a macOS host (read first) <<<
+
+- New host: macOS (arm64), repo at `~/Development/ios-sweet`. NONE of the Linux-host artifacts (`/run/media/dipa/...`: v15 root image, shim builds, old backups) are on it.
+- Phone was running LineageOS (`lineage_sweet`, build BP4A.251205.006), bootloader unlocked. The iOS v15 root in userdata is gone; this is a fresh install.
+- OrangeFox R12.0_2 downloaded from dl.orangefox.download (zip md5 758b41a6..., recovery.img md5 024644bc... both match the API) -> `recovery/recovery.img`.
+- **New backup (from OrangeFox, 2026-11-14) in `backup/`: 105 files, 3.0 GB, every file sha256-verified against the device** (`backup/SHA256SUMS`, `partitions.txt`). All by-name partitions except userdata, super, system, vendor, product, system_ext, cust, cache, exaid, sda; plus full LUNs sdb..sdf and LUN0 GPT (`sda-gpt-primary.img` first 6x4K, `sda-gpt-backup.img` last 5x4K). adb dropped once mid-run on this host; the backup script now verifies and retries each partition.
+- `dtb/boot_unpacked/dtb` is from the **LineageOS** boot.img (not stock/PixelOS as before). Untested with the shim.
+- Kernel 0081 (CI run 39158169212, artifact expires 2027-01-16) downloaded to `xnu/out/`.
+- Missing on this host: `aarch64-linux-gnu-gcc` (shim), `ipsw` (DeviceTree extraction), Linux tools for `mkiosroot.sh`. Docker works (linux/arm64, 12 GB). IPSW: iPhone10,3 16.7.16 20H392, 5.9 GB, `https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw`.
+- Next: build the root image (Docker, or natively on macOS), ADT and shim; then flash userdata (destructive; confirm with user first).
+
 ### >>> UPDATE 2026-10-18 (read first, then the 10-17 handoff below) <<<
 
 **STATE at end of 2026-10-18 (evening):**
