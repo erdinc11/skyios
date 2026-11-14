@@ -1,0 +1,104 @@
+--- a/bsd/dev/sweet_touch.c
++++ b/bsd/dev/sweet_touch.c
+@@ -70,6 +70,7 @@
+ 	int x[TOUCH_MAX], y[TOUCH_MAX];
+ } st;
+ static int touch_sleep_chan;
++volatile int sweet_touch_dbg[3];
+ 
+ static uint32_t
+ touch_rd(vm_offset_t base, uint32_t off)
+@@ -361,6 +362,14 @@
+ 		}
+ 	}
+ 	st.active = mask;
++	for (unsigned id = 0; id < TOUCH_MAX; ++id) {
++		if (mask & (1u << id)) {
++			sweet_touch_dbg[1] = st.x[id];
++			sweet_touch_dbg[2] = st.y[id];
++			break;
++		}
++	}
++	sweet_touch_dbg[0] = mask != 0;
+ }
+ 
+ static int
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -176,6 +176,33 @@
+ 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u\n",
+ 	    fWidth, fHeight, fRowBytes, fPhys, fSurface->id, fLogicalW, fLogicalH);
+ 	return true;
++}
++
++extern "C" volatile int sweet_touch_dbg[3];
++
++static void
++sweet_fb_touch_dot(uintptr_t pixels, uint32_t width, uint32_t height, uint32_t row_bytes)
++{
++	static int enabled = -1;
++	if (enabled < 0) {
++		enabled = 0;
++		PE_parse_boot_argn("sweettouchdot", &enabled, sizeof(enabled));
++	}
++	if (!enabled || !sweet_touch_dbg[0]) {
++		return;
++	}
++	int cx = sweet_touch_dbg[1], cy = sweet_touch_dbg[2];
++	for (int d = -40; d <= 40; d++) {
++		for (int t = -2; t <= 2; t++) {
++			int pts[2][2] = { { cx + d, cy + t }, { cx + t, cy + d } };
++			for (int k = 0; k < 2; k++) {
++				int px = pts[k][0], py = pts[k][1];
++				if (px >= 0 && py >= 0 && (uint32_t)px < width && (uint32_t)py < height) {
++					((volatile uint32_t *)(pixels + (uint64_t)py * row_bytes))[px] = 0xffff0000;
++				}
++			}
++		}
++	}
+ }
+ 
+ void
+@@ -227,6 +254,9 @@
+ 		fb->presentTimed(rec);
+ 		IOFreeData(rec, SWEET_FB_SWAP_REC_SIZE);
+ 	}
++	IOLockLock(fb->fPresentLock);
++	sweet_fb_touch_dot(fb->fPixels, fb->fWidth, fb->fHeight, fb->fRowBytes);
++	IOLockUnlock(fb->fPresentLock);
+ 	if (fb->fStats && (count % 300) == 0) {
+ 		IOLockLock(fb->fLock);
+ 		uint32_t swaps = fb->fStatSwaps;
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -332,6 +332,7 @@
+ 	int fLogicalW, fLogicalH, fOffX, fOffY;
+ 	bool fDown[SWEET_TOUCH_FINGERS];
+ 	bool fEdge[SWEET_TOUCH_FINGERS];
++	uint64_t fDownAt[SWEET_TOUCH_FINGERS];
+ 	IOFixed fX[SWEET_TOUCH_FINGERS];
+ 	IOFixed fY[SWEET_TOUCH_FINGERS];
+ };
+@@ -428,6 +429,7 @@
+ 		return;
+ 	}
+ 	if (!was && down) {
++		fDownAt[finger] = now;
+ 		fEdge[finger] = x < SWEET_TOUCH_EDGE_PX || x > 1079 - SWEET_TOUCH_EDGE_PX ||
+ 		    y < SWEET_TOUCH_EDGE_PX || y > 2399 - SWEET_TOUCH_EDGE_PX;
+ 	}
+@@ -487,8 +489,12 @@
+ 	IOLockUnlock(fLock);
+ 
+ 	if (was != down) {
+-		IOLog("SWEET HID: touch %d %s at %d,%d%s\n", finger, down ? "down" : "up", x, y,
+-		    fEdge[finger] ? " edge" : "");
++		uint64_t held = 0;
++		if (!down) {
++			absolutetime_to_nanoseconds(now - fDownAt[finger], &held);
++		}
++		IOLog("SWEET HID: touch %d %s at %d,%d%s held %llu ms\n", finger, down ? "down" : "up", x, y,
++		    fEdge[finger] ? " edge" : "", held / 1000000);
+ 	}
+ 	dispatchEvent(collection);
+ 	collection->release();
