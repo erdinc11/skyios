@@ -16,9 +16,11 @@ fi
 mac=02:00:5e:77:ee:01
 echo "waiting for the phone's USB Ethernet ($mac)..." >&2
 if [ "$(uname)" = Darwin ]; then
-	# macOS: AppleUSBECM makes an enN; NAT the phone to the default route's
+	# macOS: the DriverKit AppleUserECM makes an enN whose BSD MAC is
+	# 02:00:00:00:00:00 (only IOKit's IOMACAddress is the phone's), so find
+	# it under the USB device. NAT the phone to the default route's
 	# interface with a pf rule in Apple's com.apple/* nat-anchor.
-	macif() { ifconfig | awk -v m="$mac" '/^[a-z]/{i=$1} $1=="ether" && tolower($2)==m {sub(":","",i); print i}'; }
+	macif() { ioreg -r -n 'Sweet iOS (USB Ethernet)' -l -w0 | awk -F'"' '/"BSD Name"/{print $4; exit}'; }
 	until [ -n "$(macif)" ]; do sleep 1; done
 	ifname=$(macif)
 	sudo ifconfig "$ifname" inet 192.168.7.1 netmask 255.255.255.0 up
