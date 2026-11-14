@@ -276,6 +276,7 @@ fn rpmh_init(gmu: &Gmu) -> bool {
     true
 }
 
+#[allow(dead_code)]
 fn rpmh_start(gmu: &Gmu) -> bool {
     gmu.write(GMU_RSCC_CONTROL_REQ, 1 << 1);
     let ack = gmu.poll(GMU_RSCC_CONTROL_ACK, 1 << 1, 1 << 1, 1000);
@@ -396,7 +397,7 @@ pub fn bringup(stage: u32) {
     }
     crate::log!("SWEET GPU: gmu itcm[0..2] = {:#010x} {:#010x}", gmu.read(0x1b400), gmu.read(0x1b401));
     crate::log!("SWEET GPU: stage A done (CX up, GMU registers readable)");
-    if stage >= 3 && !(rpmh_init(&gmu) && rpmh_start(&gmu)) {
+    if stage >= 3 && !rpmh_init(&gmu) {
         return;
     }
     if stage >= 2 && gmu_boot(&gmu) && stage >= 3 {
