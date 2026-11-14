@@ -1,0 +1,31 @@
+--- a/bsd/dev/sweet_touch.c
++++ b/bsd/dev/sweet_touch.c
+@@ -337,10 +337,18 @@
+ }
+ 
+ static void
+-touch_report(uint32_t mask, const int *x, const int *y)
++touch_report(uint32_t mask, int *x, int *y)
+ {
+ 	for (unsigned id = 0; id < TOUCH_MAX; ++id) {
+ 		uint32_t bit = 1u << id;
++		if ((mask & bit) && x[id] == 0 && y[id] == 0) {
++			if (!(st.active & bit)) {
++				mask &= ~bit;
++				continue;
++			}
++			x[id] = st.x[id];
++			y[id] = st.y[id];
++		}
+ 		if (mask & bit) {
+ 			if (!(st.active & bit) || x[id] != st.x[id] || y[id] != st.y[id]) {
+ 				sweet_hid_touch((int)id, 1, x[id], y[id]);
+@@ -601,7 +609,7 @@
+ 				errors = 0;
+ 			}
+ 		}
+-		touch_wait(10);
++		touch_wait(st.active ? 5 : 10);
+ 	}
+ 	touch_report(0, st.x, st.y);
+ out:
