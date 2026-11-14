@@ -361,13 +361,45 @@ fn hfi_start(gmu: &Gmu) -> bool {
     r.is_some()
 }
 
+const DTCM_WORDS: usize = 0x1000;
+
+fn dtcm_snapshot(gmu: &Gmu) -> Option<crate::xnu::Dma> {
+    let d = crate::xnu::Dma::alloc(DTCM_WORDS * 4)?;
+    for i in 0..DTCM_WORDS {
+        d.w32(4 * i, gmu.read(GMU_CM3_DTCM_START + i));
+    }
+    Some(d)
+}
+
+fn dtcm_diff(gmu: &Gmu, before: &crate::xnu::Dma) {
+    let mut shown = 0;
+    let mut changed = 0;
+    for i in 0..DTCM_WORDS {
+        let old = before.r32(4 * i);
+        let new = gmu.read(GMU_CM3_DTCM_START + i);
+        if old != new {
+            changed += 1;
+            if shown < 64 {
+                crate::log!("SWEET GPU: dtcm[{:#06x}] {old:#010x} -> {new:#010x}", 4 * i);
+                shown += 1;
+            }
+        }
+    }
+    crate::log!("SWEET GPU: dtcm {changed} words changed during OOB");
+}
+
 fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
     let Some((gx, mx)) = crate::cmddb::CmdDb::open().as_ref().and_then(arc_vote) else {
         crate::log!("SWEET GPU: no arc levels from cmd-db");
         return;
     };
     let gx_before = cc.read(GPUCC_GX_GDSCR);
+    let snap = dtcm_snapshot(gmu);
     if !gfx_rail_on(gmu, gx, mx) {
+        delay_us(10000);
+        if let Some(b) = snap.as_ref() {
+            dtcm_diff(gmu, b);
+        }
         if let Some(m) = mem {
             crate::gmumem::fault_report();
             crate::gmumem::dump(m);
