@@ -1,0 +1,52 @@
+--- a/osfmk/arm64/sweet_rs.c
++++ b/osfmk/arm64/sweet_rs.c
+@@ -8,6 +8,9 @@
+ #include <pexpert/pexpert.h>
+ #include <kern/thread.h>
+ #include <kern/kalloc.h>
++#include <vm/vm_kern.h>
++#include <arm/caches_internal.h>
++#include <arm/pmap/pmap.h>
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern kern_return_t thread_terminate(thread_t);
+@@ -19,6 +22,9 @@
+ void sweet_rs_delay_us(uint32_t us);
+ void sweet_rs_sleep_ms(uint32_t ms);
+ bool sweet_rs_spawn(void (*fn)(uintptr_t), uintptr_t arg);
++uintptr_t sweet_rs_alloc_contig(uint64_t size, uint64_t *pa);
++void sweet_rs_cache_clean(uintptr_t va, uint64_t size);
++void sweet_rs_cache_flush(uintptr_t va, uint64_t size);
+ 
+ void
+ sweet_rs_log(const char *msg)
+@@ -88,4 +94,29 @@
+ 	thread_deallocate(thread);
+ 	return true;
+ }
++
++uintptr_t
++sweet_rs_alloc_contig(uint64_t size, uint64_t *pa)
++{
++	vm_offset_t va = 0;
++	if (kmem_alloc_contig(kernel_map, &va, (vm_size_t)round_page(size), PAGE_MASK, 0, 0,
++	    KMA_KOBJECT | KMA_ZERO | KMA_NOPAGEWAIT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++		return 0;
++	}
++	*pa = kvtophys(va);
++	CleanPoC_DcacheRegion(va, (size_t)round_page(size));
++	return (uintptr_t)va;
++}
++
++void
++sweet_rs_cache_clean(uintptr_t va, uint64_t size)
++{
++	CleanPoC_DcacheRegion((vm_offset_t)va, (size_t)size);
++}
++
++void
++sweet_rs_cache_flush(uintptr_t va, uint64_t size)
++{
++	FlushPoC_DcacheRegion((vm_offset_t)va, (size_t)size);
++}
+ #endif

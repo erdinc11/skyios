@@ -11,6 +11,9 @@ mod sys {
         pub fn sweet_rs_delay_us(us: u32);
         pub fn sweet_rs_sleep_ms(ms: u32);
         pub fn sweet_rs_spawn(f: extern "C" fn(usize), arg: usize) -> bool;
+        pub fn sweet_rs_alloc_contig(size: u64, pa: *mut u64) -> usize;
+        pub fn sweet_rs_cache_clean(va: usize, size: u64);
+        pub fn sweet_rs_cache_flush(va: usize, size: u64);
     }
 }
 
@@ -91,5 +94,42 @@ impl Mmio {
         assert!(off + 4 <= self.size && off % 4 == 0);
         unsafe { core::arch::asm!("dmb oshst", options(nostack, preserves_flags)) };
         unsafe { core::ptr::write_volatile((self.base + off) as *mut u32, v) };
+    }
+}
+
+pub struct Dma {
+    pub va: usize,
+    pub pa: u64,
+    pub size: usize,
+}
+
+impl Dma {
+    pub fn alloc(size: usize) -> Option<Dma> {
+        let mut pa = 0u64;
+        let va = unsafe { sys::sweet_rs_alloc_contig(size as u64, &mut pa) };
+        (va != 0).then_some(Dma { va, pa, size })
+    }
+
+    pub fn w32(&self, off: usize, v: u32) {
+        assert!(off + 4 <= self.size && off % 4 == 0);
+        unsafe { core::ptr::write_volatile((self.va + off) as *mut u32, v) };
+    }
+
+    pub fn r32(&self, off: usize) -> u32 {
+        assert!(off + 4 <= self.size && off % 4 == 0);
+        unsafe { core::ptr::read_volatile((self.va + off) as *const u32) }
+    }
+
+    pub fn w64(&self, off: usize, v: u64) {
+        assert!(off + 8 <= self.size && off % 8 == 0);
+        unsafe { core::ptr::write_volatile((self.va + off) as *mut u64, v) };
+    }
+
+    pub fn clean(&self) {
+        unsafe { sys::sweet_rs_cache_clean(self.va, self.size as u64) };
+    }
+
+    pub fn flush(&self, off: usize, len: usize) {
+        unsafe { sys::sweet_rs_cache_flush(self.va + off, len as u64) };
     }
 }

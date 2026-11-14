@@ -109,13 +109,18 @@ const GMU_PWR_COL_INTER_FRAME_CTRL: usize = 0x1f8c0;
 const GMU_PWR_COL_CP_RESP: usize = 0x1f901;
 const GMU_CORE_FW_VERSION: usize = 0x1d3f8;
 const GMU_CHIPID: u32 = 0x0601_8000;
+const GMU_HFI_QTBL_INFO: usize = 0x1f984;
+const GMU_HFI_QTBL_ADDR: usize = 0x1f985;
+const GMU_HFI_CTRL_INIT: usize = 0x1f986;
+const GMU_HFI_CTRL_STATUS: usize = 0x1f980;
+const GMU_PWR_COL_CP_MSG: usize = 0x1f900;
 
 #[cfg(feature = "gmufw")]
 static GMU_FW: &[u8] = include_bytes!(env!("SWEET_GMU_FW"));
 #[cfg(not(feature = "gmufw"))]
 static GMU_FW: &[u8] = &[];
 
-fn gmu_boot(gmu: &Gmu) -> bool {
+fn gmu_boot(gmu: &Gmu, mem: Option<&crate::gmumem::GmuMem>) -> bool {
     if GMU_FW.is_empty() || GMU_FW.len() > 0x8000 || GMU_FW.len() % 4 != 0 {
         crate::log!("SWEET GPU: no usable GMU firmware in this kernel ({} bytes)", GMU_FW.len());
         return false;
@@ -137,6 +142,11 @@ fn gmu_boot(gmu: &Gmu) -> bool {
     gmu.write(GMU_AHB_FENCE_RANGE_0, (1 << 31) | (0xa << 18) | 0xa0);
     gmu.write(GMU_CM3_CFG, 0x4052);
     gmu.write(GMU_HFI_SFR_ADDR, GMU_CHIPID);
+    if mem.is_some() {
+        gmu.write(GMU_HFI_QTBL_ADDR, crate::gmumem::HFI_IOVA);
+        gmu.write(GMU_HFI_QTBL_INFO, 1);
+        gmu.write(GMU_PWR_COL_CP_MSG, crate::gmumem::LOG_IOVA | (crate::gmumem::REGION_SIZE / 0x1000 - 1) as u32);
+    }
     gmu.write(GMU_SYS_BUS_CONFIG, 1);
     gmu.write(GMU_ICACHE_CONFIG, 1);
     gmu.write(GMU_DCACHE_CONFIG, 1);
@@ -338,16 +348,29 @@ fn sptprac_on(gmu: &Gmu) -> bool {
     r.is_some()
 }
 
-fn stage_c(gmu: &Gmu, cc: &Mmio) {
+fn hfi_start(gmu: &Gmu) -> bool {
+    gmu.write(GMU_HFI_CTRL_INIT, 1);
+    let r = gmu.poll(GMU_HFI_CTRL_STATUS, 1, 1, 10000);
+    crate::log!("SWEET GPU: hfi ctrl status {:#x}{}", gmu.read(GMU_HFI_CTRL_STATUS), if r.is_some() { " (HFI up)" } else { " (TIMEOUT)" });
+    r.is_some()
+}
+
+fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
     let Some((gx, mx)) = crate::cmddb::CmdDb::open().as_ref().and_then(arc_vote) else {
         crate::log!("SWEET GPU: no arc levels from cmd-db");
         return;
     };
     let gx_before = cc.read(GPUCC_GX_GDSCR);
     if !gfx_rail_on(gmu, gx, mx) {
+        if mem.is_some() {
+            crate::gmumem::fault_report();
+        }
         return;
     }
     let sp = sptprac_on(gmu);
+    if mem.is_some() && hfi_start(gmu) {
+        crate::log!("SWEET GPU: stage D done (GMU memory mapped, HFI started)");
+    }
     crate::log!("SWEET GPU: gpucc gx_gdscr {gx_before:#010x} -> {:#010x}", cc.read(GPUCC_GX_GDSCR));
     if !sp || cc.read(GPUCC_GX_GDSCR) & GDSC_PWR_ON == 0 {
         crate::log!("SWEET GPU: GX not powered, skipping GPU register read");
@@ -400,7 +423,11 @@ pub fn bringup(stage: u32) {
     if stage >= 3 && !rpmh_init(&gmu) {
         return;
     }
-    if stage >= 2 && gmu_boot(&gmu) && stage >= 3 {
-        stage_c(&gmu, &cc);
+    let mem = if stage >= 4 { crate::gmumem::setup() } else { None };
+    if let Some(m) = mem.as_ref() {
+        crate::gmumem::hfi_init(m);
+    }
+    if stage >= 2 && gmu_boot(&gmu, mem.as_ref()) && stage >= 3 {
+        stage_c(&gmu, &cc, mem.as_ref());
     }
 }

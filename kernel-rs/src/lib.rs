@@ -3,6 +3,7 @@
 #[macro_use]
 mod xnu;
 mod cmddb;
+mod gmumem;
 mod gpu;
 mod smmu;
 
