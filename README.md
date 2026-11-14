@@ -55,10 +55,12 @@ You need a Redmi Note 10 Pro (`sweet`, global or Indian variant, SM7150) with an
 
 Boot OrangeFox (or any recovery with adb root) temporarily and pull at least `persist`, `modemst1`, `modemst2`, `fsg`, `fsc` and `boot`, `dtbo`, `vbmeta`. They contain per-device calibration data. Keep them off git; `.gitignore` already excludes `backup/`, `dtb/` and `recovery/`.
 
+The host tools are one Rust binary, `sweet` (`tools/rs`). Build it once with `cargo build --release --manifest-path tools/rs/Cargo.toml`; it lands in `tools/rs/target/release/sweet` (`sweet help` lists the subcommands). The commands below call it `sweet`.
+
 The shim needs the stock DTB. Unpack your phone's stock `boot.img`:
 
 ```sh
-python3 tools/unpack_bootv2.py backup/boot.img dtb/boot_unpacked   # -> dtb/boot_unpacked/dtb
+sweet unpack-bootv2 backup/boot.img dtb/boot_unpacked   # -> dtb/boot_unpacked/dtb
 ```
 
 ### 1. Build the kernel
@@ -70,7 +72,7 @@ gh workflow run xnu.yml -R YOU/ios-sweet
 gh run download RUN_ID -R YOU/ios-sweet -n xnu-kernel -D xnu/out
 ```
 
-To check a patch locally before spending a CI run, `tools/xnu-cc.py` replays the compile commands of a previous CI log for single files.
+To check a patch locally before spending a CI run, `sweet xnu-cc` replays the compile commands of a previous CI log for single files.
 
 ### 2. Build the iOS root image
 
@@ -81,17 +83,17 @@ Download the iPhone X (iPhone10,3) iOS 16.7.16 (20H392) IPSW from Apple. Then, o
 tools/mkiosroot.sh OS.dmg SystemOS.dmg AppOS.dmg ios16-root.img 16G
 sudo fsck.hfsplus -fy ios16-root.img
 sudo mount -t hfsplus -o loop,force ios16-root.img /mnt/iosroot
-sudo python3 tools/sweet-root-tweaks.py /mnt/iosroot
+sudo sweet root-tweaks /mnt/iosroot
 sudo umount /mnt/iosroot
 img2simg ios16-root.img ios16-root.simg
 ```
 
-`mkiosroot.sh` copies the OS volume and both cryptexes into one case-sensitive journaled HFS+ volume. It adds the dyld cache links, the plain system keybag and the log directories the daemons expect. `sweet-root-tweaks.py` applies the bring-up changes: it skips Setup, seeds the activation state, removes the baseband daemon, disables the watchdogs that kill slow apps and the crash-looping media paths, and so on. The script's header explains each change.
+`mkiosroot.sh` copies the OS volume and both cryptexes into one case-sensitive journaled HFS+ volume. It adds the dyld cache links, the plain system keybag and the log directories the daemons expect. `sweet root-tweaks` applies the bring-up changes: it skips Setup, seeds the activation state, removes the baseband daemon, disables the watchdogs that kill slow apps and the crash-looping media paths, adds the USB Ethernet network service, and so on. `NOTES.md` explains each change. Inside a linux/arm64 container use a static build: `cargo build --release --target aarch64-unknown-linux-musl` (see `NOTES.md`).
 
 The device tree builder copies `/product` from the real iPhone X device tree, which MobileGestalt needs. Extract it once, without downloading the whole IPSW:
 
 ```sh
-python3 tools/remotezip.py IPSW_URL DeviceTree.d22ap.im4p research/ipsw-x/dt
+sweet remotezip IPSW_URL DeviceTree.d22ap.im4p research/ipsw-x/dt
 ipsw img4 im4p extract research/ipsw-x/dt/Firmware/all_flash/DeviceTree.d22ap.im4p -o research/ipsw-x/d22ap.adt
 ```
 
@@ -100,8 +102,8 @@ ipsw img4 im4p extract research/ipsw-x/dt/Firmware/all_flash/DeviceTree.d22ap.im
 Needs `aarch64-linux-gnu-gcc` and `mkbootimg`.
 
 ```sh
-python3 tools/mkadt.py shim/out/sweet.adt --highmem
-python3 tools/mkpayload.py xnu/out/kernel.development.sweet shim/out/sweet.adt shim/out/payload.bin \
+sweet mkadt shim/out/sweet.adt --highmem
+sweet mkpayload xnu/out/kernel.development.sweet shim/out/sweet.adt shim/out/payload.bin \
     --cmdline 'debug=0xc serial=3 cpus=6 keepsyms=1 -enable_kprintf_spam -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30'
 shim/build.sh ../shim/out/payload.bin      # -> shim/out/shim-boot.img
 ```
@@ -136,11 +138,11 @@ tools/sweet-log-pull.sh logs/boot.txt      # 4 MiB console ring from the end of 
 adb reboot bootloader
 ```
 
-The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces of backboardd and SpringBoard, and the drivers' `SWEET ...` lines. `tools/sweet-crash.py` symbolicates them against the shared cache.
+The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces of backboardd and SpringBoard, and the drivers' `SWEET ...` lines. `sweet crash` symbolicates them against the shared cache.
 
 ### QEMU
 
-`tools/qemu-sweet.py` boots the same kernel on QEMU `virt` with a test RAM-disk root. It is useful for kernel-only changes; see `NOTES.md`.
+`sweet qemu` boots the same kernel on QEMU `virt` with a test RAM-disk root. It is useful for kernel-only changes; see `NOTES.md`.
 
 ## Repository layout
 
@@ -149,15 +151,16 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 | `shim/` | Bare-metal boot shim (C + asm) packed as an Android boot.img v2 |
 | `xnu/patches/` | The XNU patch series (applied in order by CI), plus staging scripts for libpthread, HFS and BearSSL |
 | `.github/workflows/xnu.yml` | Kernel CI build |
-| `tools/mkadt.py` | Generates the Apple Device Tree from sweet's MMIO layout and the iPhone X identity |
-| `tools/mkpayload.py` | Packs kernel + ADT + boot-args into the shim payload |
+| `tools/rs/` | The `sweet` host tool (Rust), one subcommand per job below |
+| `sweet mkadt` | Generates the Apple Device Tree from sweet's MMIO layout and the iPhone X identity |
+| `sweet mkpayload` | Packs kernel + ADT + boot-args into the shim payload |
 | `tools/mkiosroot.sh` | Builds the HFS+ iOS root from the IPSW images |
-| `tools/sweet-root-tweaks.py` | Bring-up changes to the root (Setup skip, activation, daemons) |
-| `tools/sweet-log-pull.sh`, `sweet-log.py` | Read the persistent kernel log from recovery |
-| `tools/sweet-crash.py` | Symbolicate console crash reports |
-| `tools/xnu-cc.py` | Local single-file compile check from a CI log |
-| `tools/qemu-sweet.py` | QEMU test boots with framebuffer text decoding |
-| `tools/adt.py`, `remotezip.py`, `unpack_bootv2.py`, `sparsediff.py` | Helpers |
+| `sweet root-tweaks` | Bring-up changes to the root (Setup skip, activation, daemons) |
+| `tools/sweet-log-pull.sh`, `sweet log` | Read the persistent kernel log from recovery |
+| `sweet crash` | Symbolicate console crash reports |
+| `sweet xnu-cc` | Local single-file compile check from a CI log |
+| `sweet qemu` | QEMU test boots with framebuffer text decoding |
+| `sweet adt`, `remotezip`, `unpack-bootv2`, `sparsediff`, `mkinit`, `patch-launchd-plist`, `check-exports`, `validate-repo`, `udp-listen`, `gen-font` | Helpers (`gen-font` regenerates `shim/font.h`) |
 | `NOTES.md` | Detailed engineering log: every boot, crash and decision, plus hardware facts |
 
 Not in git: partition backups, live device trees, recovery images, Apple firmware and root images, and downloaded or generated build trees. They contain device serials and calibration data, or Apple's copyrighted files.
