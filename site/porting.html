@@ -146,7 +146,7 @@
 <div class="table-wrap"><table>
 <tr><th>Piece</th><th>ios-sweet and its ports</th><th>HackiOS</th><th>UniXNU</th></tr>
 <tr><td>Boot</td><td>The shim (<code>shim/</code>), packed as an Android boot image</td><td>A Mu-Silicium UEFI port plus their loader (<code>uefi/</code>, <code>xnuloader/</code>)</td><td>A Mu-Silicium UEFI fork per device plus DarwinBoot</td></tr>
-<tr><td>Hardware description</td><td><code>tools/mkadt.py</code> (constants at the top), plus a few addresses in the shim</td><td>A device profile and a loader platform entry, drafted by their <code>new-device.sh</code> script from your device tree</td><td>The device repository's board file</td></tr>
+<tr><td>Hardware description</td><td><code>tools/rs/src/mkadt.rs</code> (constants at the top), plus a few addresses in the shim</td><td>A device profile and a loader platform entry, drafted by their <code>new-device.sh</code> script from your device tree</td><td>The device repository's board file</td></tr>
 <tr><td>Board drivers</td><td>Kernel patches; in ios-sweet 0060 (keys, touch), 0062 (touch power, battery), 0063 (touch protocol), 0061 (screen size), plus the early screen address in 0010 and 0012, and USB in 0072 to 0077</td><td><code>redwood_*.c</code> in the kernel tree (touch, buttons, CPU speed, GPU, Wi-Fi, audio)</td><td>Separate driver repositories, one per driver</td></tr>
 <tr><td>Guide</td><td>The README and NOTES of ios-sweet and of the port closest to you</td><td><a href="https://github.com/oosexgang/hackios-xnu-kernel/blob/main/docs/PORTING.md">docs/PORTING.md</a></td><td><a href="https://unixnu.com/porting/">unixnu.com/porting</a></td></tr>
 </table></div>

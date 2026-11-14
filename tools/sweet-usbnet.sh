@@ -1,10 +1,4 @@
 #!/bin/sh
-# Host side of the phone's USB Ethernet (kernel sweetusb=2, patches 0075-0077).
-#   tools/sweet-usbnet.sh [LOGFILE]
-# Waits for the phone's CDC-ECM interface (host MAC 02:00:5e:77:ee:01),
-# gives it 192.168.7.1/24 (the phone is 192.168.7.2), then prints the live
-# kernel console the phone streams to UDP port 5140 (and appends it to
-# LOGFILE if given). Needs sudo for the address.
 set -eu
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
@@ -16,10 +10,6 @@ fi
 mac=02:00:5e:77:ee:01
 echo "waiting for the phone's USB Ethernet ($mac)..." >&2
 if [ "$(uname)" = Darwin ]; then
-	# macOS: the DriverKit AppleUserECM makes an enN whose BSD MAC is
-	# 02:00:00:00:00:00 (only IOKit's IOMACAddress is the phone's), so find
-	# it under the USB device. NAT the phone to the default route's
-	# interface with a pf rule in Apple's com.apple/* nat-anchor.
 	macif() { ioreg -r -n 'Sweet iOS (USB Ethernet)' -l -w0 | awk -F'"' '/"BSD Name"/{print $4; exit}'; }
 	until [ -n "$(macif)" ]; do sleep 1; done
 	ifname=$(macif)
@@ -41,15 +31,9 @@ echo "$ifname up: 192.168.7.1 <-> phone 192.168.7.2; live log on udp/5140" >&2
 
 listen_udp() {
 	port=5140
-	# BSD nc -ukl locks onto the first sender: a rebooted phone (new source
-	# port) is then ignored. A plain recvfrom loop takes every datagram.
-	if command -v python3 >/dev/null 2>&1; then
-		python3 -uc 'import socket,sys
-s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-s.bind(("",'"$port"'))
-while True:
-    sys.stdout.buffer.write(s.recv(65536)); sys.stdout.flush()'
+	sweet=${SWEET:-$(dirname "$0")/rs/target/release/sweet}
+	if [ -x "$sweet" ]; then
+		"$sweet" udp-listen "$port"
 	elif command -v socat >/dev/null 2>&1; then
 		socat -u "udp-recv:$port,reuseaddr" -
 	elif command -v ncat >/dev/null 2>&1; then
