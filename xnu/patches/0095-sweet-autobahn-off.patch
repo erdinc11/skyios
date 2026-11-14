@@ -1,0 +1,88 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -9830,7 +9830,20 @@
+ 
+ 	return error;
+ }
++
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++int sweet_mkdir(const char *path, int mode);
+ 
++int
++sweet_mkdir(const char *path, int mode)
++{
++	struct vnode_attr va;
++	VATTR_INIT(&va);
++	VATTR_SET(&va, va_mode, mode & ACCESSPERMS);
++	return mkdir1at(vfs_context_kernel(), CAST_USER_ADDR_T(path), &va, AT_FDCWD, UIO_SYSSPACE);
++}
++#endif
++
+ /*
+  * mkdir_extended: Create a directory; with extended security (ACL).
+  *
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -511,6 +511,54 @@
+ 	}
+ 	(void)vnode_close(vp, FWRITE, ctx);
+ }
++
++extern int sweet_mkdir(const char *path, int mode);
++
++static void
++sweet_autobahn(void)
++{
++	static const char *dirs[] = {
++		"/Library/Preferences",
++		"/Library/Preferences/FeatureFlags",
++		"/Library/Preferences/FeatureFlags/Domain",
++	};
++	static const char path[] = "/Library/Preferences/FeatureFlags/Domain/SpringBoard.plist";
++	static const char head[] =
++	    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++	    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
++	    "<plist version=\"1.0\">\n<dict>\n";
++	static const char *flags[] = { "Autobahn", "AutobahnLegacyMigration", "AutobahnLegacyMigrationSupportingDistinctHome" };
++	unsigned int on = 0;
++	(void)PE_parse_boot_argn("sweetautobahn", &on, sizeof(on));
++	char buf[1024];
++	int len = snprintf(buf, sizeof(buf), "%s", head);
++	for (unsigned i = 0; i < sizeof(flags) / sizeof(flags[0]); i++) {
++		len += snprintf(buf + len, sizeof(buf) - (size_t)len,
++		    "\t<key>%s</key>\n\t<dict>\n\t\t<key>Enabled</key>\n\t\t<%s/>\n\t</dict>\n",
++		    flags[i], on ? "true" : "false");
++	}
++	len += snprintf(buf + len, sizeof(buf) - (size_t)len, "</dict>\n</plist>\n");
++	for (unsigned i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
++		int e = sweet_mkdir(dirs[i], 0755);
++		if (e && e != EEXIST) {
++			printf("SWEET AUTOBAHN: mkdir %s: %d\n", dirs[i], e);
++			return;
++		}
++	}
++	vfs_context_t ctx = vfs_context_kernel();
++	vnode_t vp = NULLVP;
++	int err = vnode_open(path, O_CREAT | O_TRUNC | FWRITE, 0644, 0, &vp, ctx);
++	if (err) {
++		printf("SWEET AUTOBAHN: open %s: %d\n", path, err);
++		return;
++	}
++	int resid = 0;
++	err = vn_rdwr(UIO_WRITE, vp, (caddr_t)buf, len, 0, UIO_SYSSPACE, IO_SYNC,
++	    vfs_context_ucred(ctx), &resid, vfs_context_proc(ctx));
++	(void)vnode_close(vp, FWRITE, ctx);
++	printf("SWEET AUTOBAHN: Autobahn %s (%d bytes, err %d resid %d)\n",
++	    on ? "enabled" : "disabled", len, err, resid);
++}
+ #endif
+ 
+ void
+@@ -983,6 +1031,7 @@
+ 		}
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
+ 		sweet_pbfix();
++		sweet_autobahn();
+ #endif
+ 	}
+ 
