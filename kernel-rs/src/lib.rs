@@ -2,11 +2,19 @@
 
 #[macro_use]
 mod xnu;
+mod cmddb;
 mod gpu;
 
 extern "C" fn gpu_thread(stage: usize) {
     let secs = xnu::boot_arg_u32(c"sweetgpu_delay").unwrap_or(60);
     xnu::sleep_ms(secs * 1000);
+    if stage >= 3 {
+        if let Some(db) = cmddb::CmdDb::open() {
+            for name in ["gfx.lvl", "mx.lvl", "cx.lvl"] {
+                cmddb::dump(&db, name);
+            }
+        }
+    }
     gpu::bringup(stage as u32);
 }
 
