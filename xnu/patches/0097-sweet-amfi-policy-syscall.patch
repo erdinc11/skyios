@@ -1,0 +1,57 @@
+--- a/bsd/kern/sweet_amfi.c
++++ b/bsd/kern/sweet_amfi.c
+@@ -247,8 +247,45 @@
+ 	}
+ }
+ 
++static uint64_t sweet_amfi_seen;
++
++static int
++sweet_amfi_syscall(struct proc *p, int call, user_addr_t arg)
++{
++	int error = 0;
++	switch (call) {
++	case 0x5f: {
++		uint8_t q[0x20];
++		error = copyin(arg, q, sizeof(q));
++		if (!error) {
++			uint64_t yes = 1;
++			memcpy(q + 0x18, &yes, sizeof(yes));
++			error = copyout(q, arg, sizeof(q));
++		}
++		break;
++	}
++	case 0x60: {
++		uint64_t state = 0;
++		error = copyout(&state, arg, sizeof(state));
++		break;
++	}
++	default:
++		error = ENOTSUP;
++		break;
++	}
++	uint64_t bit = 1ULL << (call & 63);
++	if (!(sweet_amfi_seen & bit)) {
++		sweet_amfi_seen |= bit;
++		char name[32];
++		proc_name(proc_pid(p), name, sizeof(name));
++		printf("SWEET AMFI: %s syscall %#x -> %d\n", name, call, error);
++	}
++	return error;
++}
++
+ static const struct mac_policy_ops sweet_amfi_mac_ops = {
+ 	.mpo_vnode_check_signature = sweet_amfi_vnode_check_signature,
++	.mpo_policy_syscall = sweet_amfi_syscall,
+ };
+ 
+ #define SWEET_PRIV_LOG_MAX      64
+@@ -295,7 +332,7 @@
+ static mac_policy_handle_t sweet_sandbox_mac_handle;
+ 
+ static struct mac_policy_conf sweet_amfi_mac_conf = {
+-	.mpc_name = "SWEET AMFI",
++	.mpc_name = "AMFI",
+ 	.mpc_fullname = "SWEET built-in Mobile File Integrity",
+ 	.mpc_ops = &sweet_amfi_mac_ops,
+ };
