@@ -187,7 +187,6 @@ const RSCC_BASE: usize = 0x23000;
 const GPU: u64 = 0x0500_0000;
 const PDC: u64 = 0x0b29_0000;
 const PDC_SEQ: u64 = 0x0b49_0000;
-const PDC_ADDRESS_OFFSET: u32 = 0x30090;
 
 const GMU_RSCC_CONTROL_REQ: usize = 0x23b07;
 const GMU_RSCC_CONTROL_ACK: usize = 0x23b08;
@@ -245,11 +244,11 @@ fn dw(m: &Mmio, reg: usize, v: u32) {
     m.write(reg * 4, v)
 }
 
-fn pdc_tcs(pdc: &Mmio, tcs: usize, data: [u32; 3]) {
+fn pdc_tcs(pdc: &Mmio, tcs: usize, gfx: u32, data: [u32; 3]) {
     dw(pdc, tcs + 1, 7);
     dw(pdc, tcs + 2, 0);
     dw(pdc, tcs, 0);
-    for (i, (addr, d)) in [0x30010, 0x30000, PDC_ADDRESS_OFFSET].into_iter().zip(data).enumerate() {
+    for (i, (addr, d)) in [0x30010, 0x30000, gfx].into_iter().zip(data).enumerate() {
         dw(pdc, tcs + 3 + 4 * i, 0x10108);
         dw(pdc, tcs + 4 + 4 * i, addr);
         dw(pdc, tcs + 5 + 4 * i, d);
@@ -257,6 +256,10 @@ fn pdc_tcs(pdc: &Mmio, tcs: usize, data: [u32; 3]) {
 }
 
 fn rpmh_init(gmu: &Gmu) -> bool {
+    let Some(gfx) = crate::cmddb::CmdDb::open().and_then(|db| db.addr("gfx.lvl")) else {
+        crate::log!("SWEET GPU: gfx.lvl address not in cmd-db");
+        return false;
+    };
     let (Some(pdc), Some(seq)) = (Mmio::map(PDC, 0x10000), Mmio::map(PDC_SEQ, 0x1000)) else {
         crate::log!("SWEET GPU: pdc map failed");
         return false;
@@ -277,12 +280,12 @@ fn rpmh_init(gmu: &Gmu) -> bool {
     for (i, w) in PDC_SEQ_MEM.into_iter().enumerate() {
         dw(&seq, i, w);
     }
-    pdc_tcs(&pdc, PDC_TCS1, [1, 0, 0]);
-    pdc_tcs(&pdc, PDC_TCS3, [2, 2, 3]);
+    pdc_tcs(&pdc, PDC_TCS1, gfx, [1, 0, 0]);
+    pdc_tcs(&pdc, PDC_TCS3, gfx, [2, 2, 3]);
     dw(&pdc, PDC_SEQ_START_ADDR, 0);
     dw(&pdc, PDC_ENABLE, 0x8000_0001);
     crate::log!(
-        "SWEET GPU: rsc/pdc programmed, rsc seq[0] {:#010x}, pdc enable {:#010x}",
+        "SWEET GPU: rsc/pdc programmed (gfx.lvl at {gfx:#x}), rsc seq[0] {:#010x}, pdc enable {:#010x}",
         gmu.rsc_read(RSC_SEQ_MEM_0_DRV0),
         pdc.read(PDC_ENABLE * 4)
     );
