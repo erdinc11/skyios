@@ -8,3 +8,4 @@ xnu/out-*/
 __pycache__/
 logs/
 /target/
+.claude/
