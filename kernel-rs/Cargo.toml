@@ -7,6 +7,9 @@ edition = "2024"
 crate-type = ["staticlib"]
 path = "src/lib.rs"
 
+[features]
+gmufw = []
+
 [profile.release]
 opt-level = 2
 panic = "abort"
