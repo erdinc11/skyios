@@ -2,6 +2,14 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> UPDATE 2026-11-14 (night): CPU clocks fixed, where the CPU goes, GPU bring-up started <<<
+
+- **CPU clock was ~300 MHz before 0084** (ring log `logs/ring-0087ns.txt`: silver perf state 6 / loop ~322 MHz, gold perf state 0 / ~299 MHz, L3 state 7). 0084 sets silver to index 9 = 1804 MHz, gold to index 13 = 2304 MHz, L3 to index 10 = 1459 MHz; the loop timing confirms 1803/2303 MHz. A/B on 0087: `sweetcpufreq=0` and `sweetfb_sync=0` both still "ngelag banget" (user).
+- **0088 SWEET TOP (boot 0089, `logs/usbnet-0089.out`)**: after the boot storm settles the system is idle (2-29% of 800%). While the user interacts: SpringBoard 114-123%, backboardd 77-172%, vmd 62-80%, kernel_task 8-62%, ReportCrash 28-43%; total 366-542% of 800%; 2.8-16.6 frames/s. The CPU renderer (backboardd + client-side drawing in SpringBoard) is the limit. vmd at ~75% hints at memory compression/swap (not investigated yet).
+- **GPU (user wants GPU rendering)**: DT facts: Adreno 618, chipid 0x06010800, regs 0x5000000 (0x40000), cx_dbgc 0x5061000, cx_misc 0x509e000, irq SPI 300; GMU 0x506a000 (0x31000), pdc cfg 0xb290000 and seq 0xb490000, irqs SPI 304 (hfi) and 305 (gmu); GPUCC 0x5090000 (0x9000); adreno SMMU 0x5040000, contexts gfx3d_user SID 0 / secure 2 / gmu_user 4 / gmu_kernel 5; zap shader a615_zap through TZ PAS id 13; quirks hfi-use-reg, secvid-set-once. Firmware pulled from the vendor partition (OrangeFox, `/dev/block/mapper/vendor`) into git-ignored `research/gpu-fw/`: a630_sqe.fw (32136 B), a618_gmu.bin (32768 B), a615_zap.{mdt,b00,b01,b02,elf}.
+- **0089 + kernel-rs gpu.rs**: Rust MMIO/boot-arg/delay hooks (`sweet_rs_io_map`, `sweet_rs_boot_arg_u32`, `sweet_rs_delay_us`), `log!` macro. With `sweetgpu=1` the probe enables GCC gpu_cfg_ahb (0x71004) if it is off, then reads GPUCC gx/cx GDSCR and CBCRs (offsets assumed from the sdm845 family, unverified). It runs at root mount, before the live log starts: read its output from the ring (`tools/sweet-log-pull.sh` in OrangeFox). Image `shim/out/shim-boot-0089.img` booted 14:07 UTC; probe output not read yet.
+- Next GPU steps (freedreno a6xx order): GPUCC/GDSC on -> GMU firmware load + HFI -> GX power + OPP through GMU -> SQE + ringbuffer -> zap shader (TZ) -> first CP NOP.
+
 ### >>> UPDATE 2026-11-14 (evening): smoother UI work, Rust in the kernel, local XNU builds, no comments <<<
 
 - **0084** (CI 43587613234): `osfmk/arm64/sweet_cpufreq.c` reads the OSM LUTs (L3 0x18321000, silver 0x18323000, gold 0x18325800; LUT 0x110 stride 32, PERF_STATE 0x920) and selects the fastest full-core entry. Boot-arg `sweetcpufreq=0|1|N`. It logs `SWEET CPUFREQ:` lines with loop-timed MHz before and after. Not seen yet: the listener missed the early boot lines on 0084.
