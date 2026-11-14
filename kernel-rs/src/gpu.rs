@@ -171,6 +171,9 @@ fn gmu_boot(gmu: &Gmu, mem: Option<&crate::gmumem::GmuMem>) -> bool {
         if ok { "OK" } else { "TIMEOUT" }
     );
     crate::log!("SWEET GPU: gmu core fw version {:#010x}", gmu.read(GMU_CORE_FW_VERSION));
+    crate::log!("SWEET GPU: gmu2host intr info right after start {:#010x}", gmu.read(0x1f992));
+    delay_us(20000);
+    crate::log!("SWEET GPU: gmu2host intr info 20 ms later {:#010x}", gmu.read(0x1f992));
     for (name, reg) in GMU_REGS {
         crate::log!("SWEET GPU: gmu {name} = {:#010x}", gmu.read(reg));
     }
@@ -362,8 +365,9 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
     };
     let gx_before = cc.read(GPUCC_GX_GDSCR);
     if !gfx_rail_on(gmu, gx, mx) {
-        if mem.is_some() {
+        if let Some(m) = mem {
             crate::gmumem::fault_report();
+            crate::gmumem::dump(m);
         }
         return;
     }

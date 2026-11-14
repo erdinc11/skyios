@@ -9,7 +9,6 @@ const SMR: usize = 4;
 const GMU_SID: u32 = 5;
 
 pub const IOVA_BASE: u32 = 0x6000_0000;
-pub const DEBUG_IOVA: u32 = 0x6000_1000;
 pub const LOG_IOVA: u32 = 0x6000_5000;
 pub const HFI_IOVA: u32 = 0x6000_9000;
 pub const REGION_SIZE: usize = 0x4000;
@@ -118,4 +117,28 @@ pub fn hfi_init(m: &GmuMem) {
         }
     }
     d.clean();
+}
+
+pub fn dump(m: &GmuMem) {
+    let d = &m.dma;
+    d.flush(TABLES, WINDOW);
+    let hfi = m.off(HFI_IOVA);
+    for i in 0..3 {
+        let h = hfi + 24 + i * 48;
+        crate::log!(
+            "SWEET GMUMEM: hfi q{i} status {} type {:#x} read {} write {} dropped {}",
+            d.r32(h),
+            d.r32(h + 8),
+            d.r32(h + 40),
+            d.r32(h + 44),
+            d.r32(h + 20)
+        );
+    }
+    for (name, base) in [("log", m.off(LOG_IOVA)), ("dbgq", hfi + 0x3000), ("dummy", m.off(IOVA_BASE))] {
+        let mut w = [0u32; 8];
+        for (j, x) in w.iter_mut().enumerate() {
+            *x = d.r32(base + 4 * j);
+        }
+        crate::log!("SWEET GMUMEM: {name} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x}", w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
+    }
 }
