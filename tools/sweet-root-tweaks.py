@@ -23,6 +23,8 @@ screen (image versions v8-v14 in NOTES.md):
                   kills), no cloud-configuration UI
   Setup           skipped: SetupDone, SetupFinishedAllSteps, SetupVersion 11,
                   mini-buddy flags off
+  network         configd service "USB Ethernet" on ue0: 192.168.7.2/24,
+                  router 192.168.7.1 (the PC, NAT), DNS 1.1.1.1 / 8.8.8.8
   activation      mobileactivationd data ark seeded; the actual Activated state
                   comes from its Hactivation branch, selected by the /chosen
                   security-status properties in tools/mkadt.py
@@ -122,6 +124,33 @@ def audio(root):
         print('StartRecorderServer off', os.path.relpath(conf, root))
 
 
+def network(root):
+    """configd service for the USB Ethernet ifnet ue0 (kernel sweetusb=2): the
+    PC is the router (192.168.7.1, NAT), the phone 192.168.7.2/24."""
+    svc, nset = 'B2D7E5A4-0001-4E77-9EE0-5357EE7E0001', 'B2D7E5A4-0002-4E77-9EE0-5357EE7E0002'
+    d = os.path.join(root, 'private/var/preferences/SystemConfiguration')
+    os.makedirs(d, exist_ok=True)
+    save(os.path.join(d, 'preferences.plist'), {
+        'CurrentSet': '/Sets/' + nset,
+        'NetworkServices': {svc: {
+            'UserDefinedName': 'USB Ethernet',
+            'Interface': {'DeviceName': 'ue0', 'Hardware': 'Ethernet', 'Type': 'Ethernet',
+                          'UserDefinedName': 'USB Ethernet'},
+            'IPv4': {'ConfigMethod': 'Manual', 'Addresses': ['192.168.7.2'],
+                     'SubnetMasks': ['255.255.255.0'], 'Router': '192.168.7.1'},
+            'DNS': {'ServerAddresses': ['1.1.1.1', '8.8.8.8']},
+            'Proxies': {'ExceptionsList': ['*.local', '169.254/16'], 'FTPPassive': 1}}},
+        'Sets': {nset: {
+            'UserDefinedName': 'Automatic',
+            'Network': {
+                'Global': {'IPv4': {'ServiceOrder': [svc]}},
+                'Service': {svc: {'__LINK__': '/NetworkServices/' + svc}}}}},
+        'System': {'Network': {'HostNames': {'LocalHostName': 'sweet'}},
+                   'System': {'ComputerName': 'sweet', 'HostName': 'sweet'}},
+    }, 0, 0, 0o644, plistlib.FMT_XML)
+    print('network service USB Ethernet (ue0 192.168.7.2/24 via 192.168.7.1)')
+
+
 def main():
     if len(sys.argv) != 2 or not os.path.isdir(os.path.join(sys.argv[1], 'System/Library/xpc')):
         sys.exit(__doc__)
@@ -130,6 +159,7 @@ def main():
     containers(root)
     activation(root)
     audio(root)
+    network(root)
     merge_pref(root, 'com.apple.migration', {
         'LastSystemVersion': BUILD,
         'DMUserDataDisposition': {'SyntheticDidUpgrade': False, 'buildVersion': BUILD}})
