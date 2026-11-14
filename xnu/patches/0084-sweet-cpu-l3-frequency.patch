@@ -28,7 +28,7 @@
  	/* Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp). */
 --- /dev/null
 +++ b/osfmk/arm64/sweet_cpufreq.c
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,167 @@
 +/*
 + * SWEET CPU / L3 frequency (SM7150 OSM, the "qcom,clk-cpu-osm-sdmmagpie"
 + * blocks; upstream Linux drives the same registers with qcom-cpufreq-hw
@@ -46,6 +46,8 @@
 + * Boot-arg sweetcpufreq: 0 leaves the firmware state, 1 (default) = max,
 + * N >= 2 = table index N - 2 at most (lower speed, less heat).
 + */
++#include <pexpert/arm64/board_config.h>
++
 +#if defined(SWEET)
 +#include <kern/misc_protos.h>
 +#include <kern/cpu_number.h>
