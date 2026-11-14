@@ -1,0 +1,70 @@
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -860,7 +860,8 @@
+ # Default runtime libraries to be linked with the kernel
+ #
+ LD_KERNEL_LIBS	   = -lcc_kext
+-LD_KERNEL_ARCHIVES = $(LDFLAGS_KERNEL_SDK) -lfirehose_kernel
++# SWEET: Rust part of the kernel (kernel-rs/, libsweet_kernel.a), built by CI.
++LD_KERNEL_ARCHIVES = $(LDFLAGS_KERNEL_SDK) -lfirehose_kernel $(SWEET_RUST_LIB)
+ # Link opensource binary library
+ ifneq ($(filter T6000 T8101 VMAPPLE T6000 T8101 VMAPPLE,$(CURRENT_MACHINE_CONFIG)),)
+ 	LDFLAGS_KERNEL_ONLY += -rdynamic -Wl,-force_load,$(KDKROOT)/System/Library/KernelSupport/lib$(CURRENT_MACHINE_CONFIG).os.$(CURRENT_KERNEL_CONFIG).a
+--- a/osfmk/conf/files.arm64
++++ b/osfmk/conf/files.arm64
+@@ -42,6 +42,7 @@
+ osfmk/arm64/arm_vm_init.c	optional config_pmap_ppl
+ osfmk/arm64/sweet_early.c	standard
+ osfmk/arm64/sweet_cpufreq.c	standard
++osfmk/arm64/sweet_rs.c	standard
+ osfmk/arm64/arm64_hypercall.c	standard
+ osfmk/arm/io_map.c		standard
+ osfmk/arm64/loose_ends.c	standard
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -52,6 +52,7 @@
+ extern void sweet_sample_start(void);
+ extern void sweet_keys_init(void);
+ extern void sweet_cpufreq_init(void);
++extern void sweet_rs_init(void);
+ extern void sweet_touch_init(void);
+ extern void sweet_usb_probe(void);
+ 
+@@ -656,6 +657,7 @@
+ 	    want, su.lun, su.first_block, su.nblocks * UFS_BLOCK >> 20,
+ 	    su.writable ? "read-write" : "read-only", su.dma_pa);
+ 	sweet_cpufreq_init();
++	sweet_rs_init();
+ 	sweet_log_start();
+ 	sweet_sample_start();
+ 	/* Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp). */
+--- /dev/null
++++ b/osfmk/arm64/sweet_rs.c
+@@ -0,0 +1,27 @@
++/*
++ * C hooks for the Rust part of the SWEET kernel (kernel-rs/ in the repo,
++ * linked as libsweet_kernel.a through LD_KERNEL_ARCHIVES). Rust calls
++ * these instead of printf/panic directly: LLVM turns printf("%s", s)
++ * into puts, which the kernel does not have.
++ */
++#include <pexpert/arm64/board_config.h>
++
++#if defined(SWEET)
++#include <kern/misc_protos.h>
++#include <kern/debug.h>
++
++void sweet_rs_log(const char *msg);
++void sweet_rs_panic(const char *msg) __abortlike;
++
++void
++sweet_rs_log(const char *msg)
++{
++	printf("%s", msg);
++}
++
++void
++sweet_rs_panic(const char *msg)
++{
++	panic("%s", msg);
++}
++#endif /* SWEET */
