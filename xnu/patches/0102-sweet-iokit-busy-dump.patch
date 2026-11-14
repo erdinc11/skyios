@@ -1,0 +1,73 @@
+--- /dev/null
++++ b/iokit/Kernel/arm/SweetBusy.cpp
+@@ -0,0 +1,45 @@
++#include <pexpert/arm64/board_config.h>
++
++#if defined(SWEET)
++#include <IOKit/IOService.h>
++#include <IOKit/IORegistryEntry.h>
++#include <IOKit/IOLib.h>
++
++extern "C" void sweet_iokit_busy_dump(void);
++
++void
++sweet_iokit_busy_dump(void)
++{
++	IOService *root = IOService::getServiceRoot();
++	IOLog("SWEET BUSY: root busy %u\n", root ? root->getBusyState() : 0);
++	IORegistryIterator *it = IORegistryIterator::iterateOver(gIOServicePlane, kIORegistryIterateRecursively);
++	if (it == NULL) {
++		return;
++	}
++	unsigned shown = 0;
++	while (IORegistryEntry *e = it->getNextObject()) {
++		IOService *s = OSDynamicCast(IOService, e);
++		if (s == NULL || s->getBusyState() == 0) {
++			continue;
++		}
++		bool leaf = true;
++		OSIterator *kids = s->getChildIterator(gIOServicePlane);
++		if (kids != NULL) {
++			while (IORegistryEntry *k = (IORegistryEntry *)kids->getNextObject()) {
++				IOService *ks = OSDynamicCast(IOService, k);
++				if (ks != NULL && ks->getBusyState() != 0) {
++					leaf = false;
++					break;
++				}
++			}
++			kids->release();
++		}
++		if (shown++ < 40) {
++			IOLog("SWEET BUSY: %s%s busy %u class %s\n", leaf ? "LEAF " : "", s->getName(),
++			    s->getBusyState(), s->getMetaClass()->getClassName());
++		}
++	}
++	it->release();
++	IOLog("SWEET BUSY: %u busy services\n", shown);
++}
++#endif
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -12,6 +12,7 @@
+ iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
+ iokit/Kernel/arm/SweetKeyStore.cpp                               optional iokitcpp
+ iokit/Kernel/arm/SweetMobileFileIntegrity.cpp                    optional iokitcpp
++iokit/Kernel/arm/SweetBusy.cpp                                   optional iokitcpp
+ iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
+ iokit/Kernel/arm/SweetSurface.cpp                                optional iokitcpp
+ iokit/Kernel/arm/SweetFramebuffer.cpp                            optional iokitcpp
+--- a/bsd/dev/sweet_sample.c
++++ b/bsd/dev/sweet_sample.c
+@@ -118,6 +118,12 @@
+ 		uint64_t now = mach_absolute_time(), span = now - last, all = 0;
+ 		last = now;
+ 		char line[512];
++		extern void sweet_iokit_busy_dump(void);
++		static unsigned ticks;
++		ticks++;
++		if (ticks == 12 || ticks == 24) {
++			sweet_iokit_busy_dump();
++		}
+ 		extern char sweet_boot_note[];
+ 		if (sweet_boot_note[0]) {
+ 			printf("SWEET BOOT NOTE: %s\n", sweet_boot_note);
