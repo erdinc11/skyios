@@ -1,18 +1,14 @@
+diff --git a/iokit/Kernel/IOUserClient.cpp b/iokit/Kernel/IOUserClient.cpp
+index 2613ab5d4..4e688dbe5 100644
 --- a/iokit/Kernel/IOUserClient.cpp
 +++ b/iokit/Kernel/IOUserClient.cpp
-@@ -2599,7 +2599,62 @@
+@@ -2599,7 +2599,55 @@ is_io_service_match_property_table_bin(
  	return internal_io_service_match_property_table(service, matching, matchingCnt, matches);
  }
  
 -static kern_return_t
 +static 
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
-+/*
-+ * SWEET IOKit trace: registry and matching calls made by the processes
-+ * named in boot-arg sweetiolog (comma separated, default "backboardd";
-+ * "-" turns it off) are printed as "IOK name: ...", at most 400 lines per
-+ * boot, to find out what a daemon looks for before it gives up.
-+ */
 +static char sweet_iolog_names[128];
 +static int sweet_iolog_parsed;
 +static uint32_t sweet_iolog_lines;
@@ -46,7 +42,6 @@
 +	return false;
 +}
 +
-+/* Compact XML of a matching dictionary, at most 240 characters. */
 +static void
 +sweet_iolog_dict(const char *name, const char *what, OSObject *dict, const char *result)
 +{
@@ -64,7 +59,7 @@
  internal_io_service_get_matching_services(
  	mach_port_t main_port,
  	const char * matching,
-@@ -2619,7 +2674,23 @@
+@@ -2619,7 +2667,23 @@ internal_io_service_get_matching_services(
  
  	if ((dict = OSDynamicCast( OSDictionary, obj))) {
  		IOTaskRegistryCompatibilityMatching(current_task(), dict);
@@ -89,7 +84,7 @@
  		kr = kIOReturnSuccess;
  	} else {
  		kr = kIOReturnBadArgument;
-@@ -2704,6 +2775,13 @@
+@@ -2704,6 +2768,13 @@ internal_io_service_get_matching_service(
  		IOTaskRegistryCompatibilityMatching(current_task(), dict);
  		*service = IOService::copyMatchingService( dict );
  		kr = *service ? kIOReturnSuccess : kIOReturnNotFound;
@@ -103,7 +98,7 @@
  	} else {
  		kr = kIOReturnBadArgument;
  	}
-@@ -2807,6 +2885,14 @@
+@@ -2807,6 +2878,14 @@ internal_io_service_add_notification(
  			continue;
  		}
  		IOTaskRegistryCompatibilityMatching(current_task(), dict);
@@ -118,7 +113,7 @@
  
  		if ((sym == gIOPublishNotification)
  		    || (sym == gIOFirstPublishNotification)) {
-@@ -3274,6 +3360,15 @@
+@@ -3274,6 +3353,15 @@ is_io_registry_entry_from_path(
  	}
  
  	entry = IORegistryEntry::fromPath( path );
@@ -134,7 +129,7 @@
  
  	if (!entry && IOTaskRegistryCompatibility(current_task())) {
  		OSDictionary * matching;
-@@ -4083,6 +4178,14 @@
+@@ -4083,6 +4171,14 @@ is_io_registry_entry_get_child_iterator(
  
  	*iterator = IOUserIterator::withIterator(entry->getChildIterator(
  		    IORegistryEntry::getPlane( plane )));
@@ -149,7 +144,7 @@
  
  	return kIOReturnSuccess;
  }
-@@ -4298,6 +4401,15 @@
+@@ -4298,6 +4394,15 @@ is_io_service_open_extended(
  #endif
  		res = service->newUserClient( owningTask, (void *) owningTask,
  		    connect_type, propertiesDict, &client );

@@ -1,16 +1,8 @@
---- a/osfmk/conf/files.arm64
-+++ b/osfmk/conf/files.arm64
-@@ -41,6 +41,7 @@
- osfmk/arm/arm_init.c	optional config_pmap_ppl
- osfmk/arm64/arm_vm_init.c	optional config_pmap_ppl
- osfmk/arm64/sweet_early.c	standard
-+osfmk/arm64/sweet_cpufreq.c	standard
- osfmk/arm64/arm64_hypercall.c	standard
- osfmk/arm/io_map.c		standard
- osfmk/arm64/loose_ends.c	standard
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index b441464cf..af791f932 100644
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
-@@ -51,6 +51,7 @@
+@@ -29,6 +29,7 @@ extern int hz;
  static void sweet_log_start(void);
  extern void sweet_sample_start(void);
  extern void sweet_keys_init(void);
@@ -18,34 +10,20 @@
  extern void sweet_touch_init(void);
  extern void sweet_usb_probe(void);
  
-@@ -654,6 +655,7 @@
+@@ -615,6 +616,7 @@ sweet_ufs_init(void)
  	printf("SWEET UFS: \"%s\" on LUN %u: first block 0x%llx, %llu MiB, %s, DMA at 0x%llx\n",
  	    want, su.lun, su.first_block, su.nblocks * UFS_BLOCK >> 20,
  	    su.writable ? "read-write" : "read-only", su.dma_pa);
 +	sweet_cpufreq_init();
  	sweet_log_start();
  	sweet_sample_start();
- 	/* Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp). */
+ 	sweet_keys_init();
+diff --git a/osfmk/arm64/sweet_cpufreq.c b/osfmk/arm64/sweet_cpufreq.c
+new file mode 100644
+index 000000000..157948d46
 --- /dev/null
 +++ b/osfmk/arm64/sweet_cpufreq.c
-@@ -0,0 +1,167 @@
-+/*
-+ * SWEET CPU / L3 frequency (SM7150 OSM, the "qcom,clk-cpu-osm-sdmmagpie"
-+ * blocks; upstream Linux drives the same registers with qcom-cpufreq-hw
-+ * v1 and osm-l3). The boot firmware programs the lookup tables and leaves
-+ * each domain at its boot performance state; nothing in XNU ever raised
-+ * it, so every core ran at the ABL's speed. This picks the fastest
-+ * full-core-count entry of each table and asks for it.
-+ *
-+ * Per domain: ENABLE 0x0 (bit 0), LUT rows of 32 bytes at 0x110 (freq:
-+ * bits 31:30 source, 18:16 core count, 7:0 L-value; source 0 = 300 MHz
-+ * PLL-off rate, else 19.2 MHz * L) and 0x114 (voltage, mV in 11:0), the
-+ * table ends where a frequency repeats; PERF_STATE 0x920 = wanted index.
-+ * The hardware limits block (LMh) still throttles on its own.
-+ *
-+ * Boot-arg sweetcpufreq: 0 leaves the firmware state, 1 (default) = max,
-+ * N >= 2 = table index N - 2 at most (lower speed, less heat).
-+ */
+@@ -0,0 +1,149 @@
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(SWEET)
@@ -73,8 +51,8 @@
 +static const struct {
 +	const char *name;
 +	uint32_t    pa;
-+	uint32_t    cores;      /* core count of a non-boost entry; 0 = any */
-+	int         probe_cpu;  /* cpu to time a loop on, -1 = none */
++	uint32_t    cores;
++	int         probe_cpu;
 +} cf_dom[] = {
 +	{ "l3", 0x18321000u, 0, -1 },
 +	{ "silver", 0x18323000u, 6, 0 },
@@ -89,7 +67,6 @@
 +	return v;
 +}
 +
-+/* Rough clock of the calling core: a 1-cycle dependent loop, in MHz. */
 +static uint64_t
 +cf_loop_mhz(void)
 +{
@@ -195,4 +172,16 @@
 +		thread_deallocate(thread);
 +	}
 +}
-+#endif /* SWEET */
++#endif
+diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
+index b0dad4927..34a3125d7 100644
+--- a/osfmk/conf/files.arm64
++++ b/osfmk/conf/files.arm64
+@@ -41,6 +41,7 @@ osfmk/arm/arm_timer.c		standard
+ osfmk/arm/arm_init.c	optional config_pmap_ppl
+ osfmk/arm64/arm_vm_init.c	optional config_pmap_ppl
+ osfmk/arm64/sweet_early.c	standard
++osfmk/arm64/sweet_cpufreq.c	standard
+ osfmk/arm64/arm64_hypercall.c	standard
+ osfmk/arm/io_map.c		standard
+ osfmk/arm64/loose_ends.c	standard

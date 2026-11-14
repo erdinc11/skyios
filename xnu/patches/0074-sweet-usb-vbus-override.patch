@@ -1,15 +1,11 @@
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+index 09a0b06bd..1eaf60a91 100644
 --- a/bsd/dev/sweet_usb.c
 +++ b/bsd/dev/sweet_usb.c
-@@ -146,6 +146,19 @@
+@@ -117,6 +117,13 @@ sweet_usb_probe(void)
  #define DEPCMDPAR0(n)   (0xc808 + 0x10 * (n))
  #define DEPCMD(n)       (0xc80c + 0x10 * (n))
  
-+/*
-+ * Qualcomm wrapper registers ("QSCRATCH", core base + 0xf8800). The
-+ * controller only connects (pull-up on D+) while it sees a valid VBUS
-+ * session; Linux dwc3-qcom forces that in software when the charger
-+ * reports a cable (dwc3_qcom_vbus_override_enable).
-+ */
 +#define QSCRATCH_PA             0x0a6f8800
 +#define QSCRATCH_HS_PHY_CTRL    0x10
 +#define   UTMI_OTG_VBUS_VALID   (1u << 20)
@@ -20,7 +16,7 @@
  #define DCTL_RUN_STOP   (1u << 31)
  #define DCTL_CSFTRST    (1u << 30)
  #define DSTS_DEVCTRLHLT (1u << 22)
-@@ -491,6 +504,18 @@
+@@ -448,6 +455,18 @@ sweet_usb_gadget_start(vm_offset_t dwc)
  	dwc_wr(DALEPENA, 0x3);
  	ud_start_setup();
  

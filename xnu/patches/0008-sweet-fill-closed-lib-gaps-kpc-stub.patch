@@ -1,19 +1,8 @@
 diff --git a/config/MASTER.arm64.sweet b/config/MASTER.arm64.sweet
-index 347efee..4c384ed 100644
+index be1fb2693..c17add40f 100644
 --- a/config/MASTER.arm64.sweet
 +++ b/config/MASTER.arm64.sweet
-@@ -2,8 +2,8 @@
- # sweet (Redmi Note 10 Pro, SM7150): MASTER.arm64.MacOSX plus the open-source
- # arm64 assembly and pmap (nos_arm_asm, nos_arm_pmap). Apple's own SoC configs
- # link those from the KDK's closed lib<SOC>.os.<CONFIG>.a instead, which is
--# arm64e and Apple-silicon specific. kpc is dropped: it programs Apple's PMU
--# (and kperf does not build without it).
-+# arm64e and Apple-silicon specific. kperf/kpc stay (xnu does not build without
-+# kperf); osfmk/arm64/kpc.c is a stub with no hardware counters.
- #
- #
- # Mach Operating System
-@@ -60,7 +60,7 @@
+@@ -40,7 +40,7 @@
  #  LIBKERN_RELEASE =[ LIBKERN_BASE zlib ]
  #  LIBKERN_DEV =    [ LIBKERN_BASE zlib iotracking ]
  #  LIBKERN_DEBUG =  [ LIBKERN_BASE zlib iotracking ]
@@ -23,42 +12,39 @@ index 347efee..4c384ed 100644
  #  PERF_DBG_DEV =   [ PERF_DBG_BASE lock_stats zleaks alternate_debugger sched_hygiene_debug config_debug_syscall_rejection config_iotrace ]
  #  PERF_DBG_DEBUG = [ PERF_DBG_BASE lock_stats zleaks alternate_debugger sched_hygiene_debug config_debug_syscall_rejection config_iotrace ]
 diff --git a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
-index fc2096f..00568d3 100644
+index fc2096fa0..4c3e8733f 100644
 --- a/osfmk/arm/pmap/pmap.c
 +++ b/osfmk/arm/pmap/pmap.c
-@@ -4676,8 +4676,9 @@ pmap_page_protect_options_with_flush_range(
+@@ -4676,8 +4676,8 @@ pmap_page_protect_options_with_flush_range(
  			}
  #endif
  			if (remove && (options & PMAP_OPTIONS_COMPRESSOR)) {
 -				panic("pmap_page_protect: attempt to compress ppnum 0x%x owned by iommu %p, pve_p=%p",
 -				    ppnum, ptep_get_iommu(pte_p), pve_p);
-+				/* ptep_get_iommu() only exists in Apple's PPL builds: report the raw PV entry */
 +				panic("pmap_page_protect: attempt to compress ppnum 0x%x owned by iommu pte %p, pve_p=%p",
 +				    ppnum, pte_p, pve_p);
  			}
  			goto protect_skip_pve_pass1;
  		}
-@@ -5816,6 +5817,9 @@ pmap_construct_pte(
+@@ -5816,6 +5816,8 @@ pmap_construct_pte(
  	return pte;
  }
  
-+/* defined further down; used by pmap_enter_options_internal() */
 +MARK_AS_PMAP_TEXT static void pmap_phys_write_disable(vm_address_t va);
 +
  MARK_AS_PMAP_TEXT kern_return_t
  pmap_enter_options_internal(
  	pmap_t pmap,
-@@ -11623,7 +11627,8 @@ pmap_cs_lockdown_pages(vm_address_t kva, vm_size_t size, bool ppl_writable)
+@@ -11623,7 +11625,7 @@ pmap_cs_lockdown_pages(vm_address_t kva, vm_size_t size, bool ppl_writable)
  #if XNU_MONITOR
  	pmap_ppl_lockdown_pages(kva, size, PVH_FLAG_LOCKDOWN_CS, ppl_writable);
  #else
 -	pmap_ppl_lockdown_pages(kva, size, 0, ppl_writable);
-+	/* No PPL: nothing can lock pages down (pmap_ppl_lockdown_pages is PPL-only) */
 +#pragma unused(kva, size, ppl_writable)
  #endif
  }
  
-@@ -11633,7 +11638,7 @@ pmap_cs_unlockdown_pages(vm_address_t kva, vm_size_t size, bool ppl_writable)
+@@ -11633,7 +11635,7 @@ pmap_cs_unlockdown_pages(vm_address_t kva, vm_size_t size, bool ppl_writable)
  #if XNU_MONITOR
  	pmap_ppl_unlockdown_pages(kva, size, PVH_FLAG_LOCKDOWN_CS, ppl_writable);
  #else
@@ -68,83 +54,59 @@ index fc2096f..00568d3 100644
  }
  
 diff --git a/osfmk/arm/pmap/pmap_misc.c b/osfmk/arm/pmap/pmap_misc.c
-index b820595..a6d23fa 100644
+index b82059552..401631485 100644
 --- a/osfmk/arm/pmap/pmap_misc.c
 +++ b/osfmk/arm/pmap/pmap_misc.c
-@@ -38,6 +38,19 @@
+@@ -38,6 +38,14 @@
   */
  
  
 +#if SCHED_HYGIENE_DEBUG && (DEVELOPMENT || DEBUG) && !XNU_MONITOR
-+/*
-+ * sweet: pmap.h declares this out of line for these configs, but the only
-+ * definition ships in Apple's closed per-SoC pmap. Without the PPL there is
-+ * no extra state to check.
-+ */
 +bool
 +pmap_pending_preemption(void)
 +{
 +	return _pmap_pending_preemption_real();
 +}
-+#endif /* SCHED_HYGIENE_DEBUG && (DEVELOPMENT || DEBUG) && !XNU_MONITOR */
++#endif
 +
  void
  pmap_abandon_measurement(void)
  {
 diff --git a/osfmk/arm64/amcc_rorgn_common.c b/osfmk/arm64/amcc_rorgn_common.c
 new file mode 100644
-index 0000000..963cdc1
+index 000000000..403a809c9
 --- /dev/null
 +++ b/osfmk/arm64/amcc_rorgn_common.c
-@@ -0,0 +1,9 @@
-+/*
-+ * sweet: files.arm64 builds this for nos_arm_asm, but the source only ships
-+ * in Apple's closed per-SoC library. It implements the AMCC read-only region
-+ * (KTRR/CTRR kernel text lockdown), which needs Apple memory controller
-+ * hardware; nothing references it on SWEET (no KERNEL_INTEGRITY_KTRR/CTRR).
-+ */
+@@ -0,0 +1,3 @@
 +#include <stdint.h>
 +
 +static const uint8_t sweet_no_amcc_rorgn __attribute__((unused)) = 0;
 diff --git a/osfmk/arm64/amcc_rorgn_ppl.c b/osfmk/arm64/amcc_rorgn_ppl.c
 new file mode 100644
-index 0000000..963cdc1
+index 000000000..403a809c9
 --- /dev/null
 +++ b/osfmk/arm64/amcc_rorgn_ppl.c
-@@ -0,0 +1,9 @@
-+/*
-+ * sweet: files.arm64 builds this for nos_arm_asm, but the source only ships
-+ * in Apple's closed per-SoC library. It implements the AMCC read-only region
-+ * (KTRR/CTRR kernel text lockdown), which needs Apple memory controller
-+ * hardware; nothing references it on SWEET (no KERNEL_INTEGRITY_KTRR/CTRR).
-+ */
+@@ -0,0 +1,3 @@
 +#include <stdint.h>
 +
 +static const uint8_t sweet_no_amcc_rorgn __attribute__((unused)) = 0;
 diff --git a/osfmk/arm64/caches_asm.s b/osfmk/arm64/caches_asm.s
-index f2c2a00..e777b77 100644
+index f2c2a00bc..89e099ca5 100644
 --- a/osfmk/arm64/caches_asm.s
 +++ b/osfmk/arm64/caches_asm.s
 @@ -212,6 +212,7 @@ L_ipui_loop:
  	.globl EXT(CleanPoC_Dcache)
  	.globl EXT(clean_mmu_dcache)
  LEXT(CleanPoC_Dcache)
-+LEXT(clean_mmu_dcache)		/* sweet: was exported without a label */
++LEXT(clean_mmu_dcache)
  #if  defined(APPLE_ARM64_ARCH_FAMILY)
  	dsb		sy
  	ret
-@@ -342,6 +343,23 @@ LEXT(CleanPoC_DcacheRegion_Force)
+@@ -342,6 +343,16 @@ LEXT(CleanPoC_DcacheRegion_Force)
  	b		EXT(CleanPoC_DcacheRegion_internal)
  #endif /* APPLE_ARM64_ARCH_FAMILY */
  
 +#if !defined(APPLE_ARM64_ARCH_FAMILY)
-+/*
-+ *	void CleanPoC_DcacheRegion_Force_nopreempt(vm_offset_t va, size_t length)
-+ *	void CleanPoC_DcacheRegion_Force_nopreempt_nohid(vm_offset_t va, size_t length)
-+ *
-+ *		sweet: the Apple variants toggle HID bits around DC CVAC; generic
-+ *		ARMv8 has no such bits, so both are the plain region clean.
-+ */
 +	.text
 +	.align 2
 +	.globl EXT(CleanPoC_DcacheRegion_Force_nopreempt)
@@ -152,24 +114,17 @@ index f2c2a00..e777b77 100644
 +LEXT(CleanPoC_DcacheRegion_Force_nopreempt)
 +LEXT(CleanPoC_DcacheRegion_Force_nopreempt_nohid)
 +	b		EXT(CleanPoC_DcacheRegion_internal)
-+#endif /* !APPLE_ARM64_ARCH_FAMILY */
++#endif
 +
  /*
   *	void FlushPoC_Dcache(void)
   *
 diff --git a/osfmk/arm64/kpc.c b/osfmk/arm64/kpc.c
 new file mode 100644
-index 0000000..1ac5f54
+index 000000000..7766d09ef
 --- /dev/null
 +++ b/osfmk/arm64/kpc.c
-@@ -0,0 +1,159 @@
-+/*
-+ * sweet: arm64 kpc backend. Apple's osfmk/arm64/kpc.c programs the Apple
-+ * PMU (implementation-defined system registers) and ships only in the KDK's
-+ * closed per-SoC library. xnu does not build without kperf, and kperf needs
-+ * kpc, so this backend reports no counters at all: every class is empty and
-+ * every configuration request fails cleanly.
-+ */
+@@ -0,0 +1,152 @@
 +
 +#include <mach/mach_types.h>
 +#include <machine/machine_routines.h>
@@ -323,30 +278,25 @@ index 0000000..1ac5f54
 +{
 +}
 diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
-index c803e4e..c90ec1a 100644
+index 76582da51..ed2fa3572 100644
 --- a/osfmk/arm64/machine_routines.c
 +++ b/osfmk/arm64/machine_routines.c
-@@ -2164,6 +2164,18 @@ ml_get_decrementer(void)
+@@ -2164,6 +2164,13 @@ ml_get_decrementer(void)
  	return dec;
  }
  
 +#if defined(SWEET)
-+/*
-+ * sweet: arm_vm_init() calls this unconditionally; Apple's definition (it
-+ * enters the PPL/monitor) ships only in the closed per-SoC library. There is
-+ * no monitor on SWEET.
-+ */
 +void
 +ml_enable_monitor(void)
 +{
 +}
-+#endif /* SWEET */
++#endif
 +
  boolean_t
  ml_get_timer_pending(void)
  {
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
-index f8d0d2e..ccbb188 100644
+index 85fad269f..8f2dec495 100644
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
 @@ -198,8 +198,8 @@ Lskip_cpu_reset_handler:

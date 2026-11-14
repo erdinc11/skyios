@@ -1,6 +1,8 @@
+diff --git a/config/MASTER.arm64.sweet b/config/MASTER.arm64.sweet
+index e54b225c5..55728756a 100644
 --- a/config/MASTER.arm64.sweet
 +++ b/config/MASTER.arm64.sweet
-@@ -31,7 +31,7 @@
+@@ -11,7 +11,7 @@
  #  BSD_RELEASE =    [ BSD_BASE ]
  #  BSD_DEV =        [ BSD_BASE config_vnguard ]
  #  BSD_DEBUG =      [ BSD_BASE config_vnguard ]

@@ -1,38 +1,9 @@
---- a/iokit/conf/files.arm64
-+++ b/iokit/conf/files.arm64
-@@ -12,3 +12,4 @@
- iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
- iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
- iokit/Kernel/arm/SweetKeyStore.cpp                               optional iokitcpp
-+iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
---- a/iokit/KernelConfigTables.cpp
-+++ b/iokit/KernelConfigTables.cpp
-@@ -52,6 +52,11 @@
-     "     'IOProviderClass' = IOResources;"
-     "     'IOMatchCategory' = AppleKeyStore;"
-     "   },"
-+    "   {"
-+    "     'IOClass'         = IOWatchdog;"
-+    "     'IOProviderClass' = IOResources;"
-+    "     'IOMatchCategory' = IOWatchdog;"
-+    "   },"
- #endif
-     "   {"
-     "     'IOClass'         = IOPanicPlatform;"
+diff --git a/iokit/Kernel/arm/SweetWatchdog.cpp b/iokit/Kernel/arm/SweetWatchdog.cpp
+new file mode 100644
+index 000000000..4661c96e4
 --- /dev/null
 +++ b/iokit/Kernel/arm/SweetWatchdog.cpp
-@@ -0,0 +1,94 @@
-+/*
-+ * Built-in IOWatchdog for SWEET.
-+ *
-+ * watchdogd (launchd job with _PanicOnCrash) opens IOServiceMatching(
-+ * "IOWatchdog") with type 1 and exits when it is missing, which panics the
-+ * system. On Apple hardware the kext arms a SoC watchdog that resets the
-+ * device unless watchdogd keeps checking in. SWEET has no reset path, so
-+ * this service accepts every call (check-in 1, enable/disable userspace
-+ * monitoring 3/4, 0/5, struct calls 2 and 9) and does nothing; each
-+ * selector is logged the first time it is used.
-+ */
+@@ -0,0 +1,83 @@
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(SWEET)
@@ -83,7 +54,7 @@
 +	return kIOReturnSuccess;
 +}
 +
-+static uint64_t sweet_wdt_logged;       /* selectors already logged (< 64) */
++static uint64_t sweet_wdt_logged;
 +
 +IOReturn
 +IOWatchdogUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
@@ -115,4 +86,29 @@
 +	}
 +	return kIOReturnSuccess;
 +}
-+#endif /* SWEET */
++#endif
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index c5c7ef725..22f1605f9 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -52,6 +52,11 @@ const char * gIOKernelConfigTables =
+     "     'IOProviderClass' = IOResources;"
+     "     'IOMatchCategory' = AppleKeyStore;"
+     "   },"
++    "   {"
++    "     'IOClass'         = IOWatchdog;"
++    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = IOWatchdog;"
++    "   },"
+ #endif
+     "   {"
+     "     'IOClass'         = IOPanicPlatform;"
+diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
+index 65615e33b..e31d20772 100644
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -11,3 +11,4 @@ iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitc
+ iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
+ iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
+ iokit/Kernel/arm/SweetKeyStore.cpp                               optional iokitcpp
++iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp

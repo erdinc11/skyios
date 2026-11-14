@@ -1,22 +1,11 @@
---- a/libkern/conf/files
-+++ b/libkern/conf/files
-@@ -109,6 +109,9 @@
- libkern/crypto/sweet_sha1.c	optional crypto
- libkern/crypto/sweet_dec32be.c	optional crypto
- libkern/crypto/sweet_enc32be.c	optional crypto
-+libkern/crypto/sweet_sha2big.c	optional crypto
-+libkern/crypto/sweet_dec64be.c	optional crypto
-+libkern/crypto/sweet_enc64be.c	optional crypto
- libkern/crypto/corecrypto_aesxts.c		optional crypto
- libkern/crypto/corecrypto_rand.c		optional crypto
- libkern/crypto/corecrypto_rsa.c		    optional crypto
+diff --git a/libkern/conf/Makefile.template b/libkern/conf/Makefile.template
+index 6e8adc52d..2331ca0e7 100644
 --- a/libkern/conf/Makefile.template
 +++ b/libkern/conf/Makefile.template
-@@ -53,6 +53,15 @@
+@@ -51,6 +51,14 @@ sweet_sha1.o_CFLAGS_ADD += -mgeneral-regs-only
  sweet_dec32be.o_CFLAGS_ADD += -mgeneral-regs-only
  sweet_enc32be.o_CFLAGS_ADD += -mgeneral-regs-only
  corecrypto_sha1.o_CFLAGS_ADD += -mgeneral-regs-only
-+# BearSSL SHA-384/512 for SHA384_*/SHA512_* (corecrypto_sha2.c).
 +sweet_sha2big.o_INCFLAGS = $(SWEET_AES_INC)
 +sweet_dec64be.o_INCFLAGS = $(SWEET_AES_INC)
 +sweet_enc64be.o_INCFLAGS = $(SWEET_AES_INC)
@@ -28,20 +17,25 @@
  endif
  
  # Runtime support functions don't interact well with LTO (9294679)
+diff --git a/libkern/conf/files b/libkern/conf/files
+index 4423c8414..b9d424f9f 100644
+--- a/libkern/conf/files
++++ b/libkern/conf/files
+@@ -109,6 +109,9 @@ libkern/crypto/sweet_enc32le.c	optional crypto
+ libkern/crypto/sweet_sha1.c	optional crypto
+ libkern/crypto/sweet_dec32be.c	optional crypto
+ libkern/crypto/sweet_enc32be.c	optional crypto
++libkern/crypto/sweet_sha2big.c	optional crypto
++libkern/crypto/sweet_dec64be.c	optional crypto
++libkern/crypto/sweet_enc64be.c	optional crypto
+ libkern/crypto/corecrypto_aesxts.c		optional crypto
+ libkern/crypto/corecrypto_rand.c		optional crypto
+ libkern/crypto/corecrypto_rsa.c		    optional crypto
+diff --git a/libkern/crypto/corecrypto_sha2.c b/libkern/crypto/corecrypto_sha2.c
+index 5a1174df0..4c4ecb4b4 100644
 --- a/libkern/crypto/corecrypto_sha2.c
 +++ b/libkern/crypto/corecrypto_sha2.c
-@@ -38,7 +38,9 @@
- /*
-  * SWEET has no corecrypto kext, so g_crypto_funcs stays NULL. SHA-256 uses
-  * XNU's built-in implementation directly, as the SWEET PRNG does; this also
-- * serves code-signing page hashes. SHA-384/512 have no built-in provider.
-+ * serves code-signing page hashes. SHA-384/512 use BearSSL's portable
-+ * implementation (libkern/crypto/sweet_sha2big.c), its context stored in
-+ * the caller's SHA384_CTX/SHA512_CTX.
-  */
- #include <corecrypto/ccsha2.h>
- #define SHA256_DI()                     (&ccsha256_ltc_di)
-@@ -82,6 +84,51 @@
+@@ -77,6 +77,51 @@ SHA256_Final(void *digest, SHA256_CTX *ctx)
  	ccdigest_final(di, ctx->ctx, digest);
  }
  
@@ -88,38 +82,44 @@
 +	br_sha512_out(BR_CTX(ctx), digest);
 +}
 +
-+#else /* !ARM64_BOARD_CONFIG_SWEET */
++#else
 +
  void
  SHA384_Init(SHA384_CTX *ctx)
  {
-@@ -147,6 +194,8 @@
+@@ -142,6 +187,8 @@ SHA512_Final(void *digest, SHA512_CTX *ctx)
  	ccdigest_final(di, ctx->ctx, digest);
  }
  
-+#endif /* !ARM64_BOARD_CONFIG_SWEET */
++#endif
 +
  #else
  
  /* As these are part of the KPI, we need to stub them out for any kernel configuration that does not support SHA2. */
---- /dev/null
-+++ b/libkern/crypto/sweet_sha2big.c
-@@ -0,0 +1,4 @@
-+/* BearSSL sources are fetched at an immutable commit by 0020-stage-bearssl.sh. */
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
-+#include "sweet_bearssl/src/hash/sha2big.c"
-+#endif
+diff --git a/libkern/crypto/sweet_dec64be.c b/libkern/crypto/sweet_dec64be.c
+new file mode 100644
+index 000000000..3b3b2d5fa
 --- /dev/null
 +++ b/libkern/crypto/sweet_dec64be.c
-@@ -0,0 +1,4 @@
-+/* BearSSL sources are fetched at an immutable commit by 0020-stage-bearssl.sh. */
+@@ -0,0 +1,3 @@
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +#include "sweet_bearssl/src/codec/dec64be.c"
 +#endif
+diff --git a/libkern/crypto/sweet_enc64be.c b/libkern/crypto/sweet_enc64be.c
+new file mode 100644
+index 000000000..c2251d2d4
 --- /dev/null
 +++ b/libkern/crypto/sweet_enc64be.c
-@@ -0,0 +1,4 @@
-+/* BearSSL sources are fetched at an immutable commit by 0020-stage-bearssl.sh. */
+@@ -0,0 +1,3 @@
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +#include "sweet_bearssl/src/codec/enc64be.c"
++#endif
+diff --git a/libkern/crypto/sweet_sha2big.c b/libkern/crypto/sweet_sha2big.c
+new file mode 100644
+index 000000000..28ae36cb7
+--- /dev/null
++++ b/libkern/crypto/sweet_sha2big.c
+@@ -0,0 +1,3 @@
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++#include "sweet_bearssl/src/hash/sha2big.c"
 +#endif

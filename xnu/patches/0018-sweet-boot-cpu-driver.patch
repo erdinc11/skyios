@@ -1,13 +1,9 @@
 diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
 new file mode 100644
+index 000000000..0decd9b67
 --- /dev/null
 +++ b/iokit/Kernel/arm/SweetCPU.cpp
-@@ -0,0 +1,171 @@
-+/*
-+ * Single-CPU bring-up for sweet using XNU's legacy IOCPU interface.
-+ * The architected timer and SGI1 already enter through pe_fiq/sleh_irq.
-+ * Secondary CPU startup and system suspend require separate platform work.
-+ */
+@@ -0,0 +1,162 @@
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(SWEET)
@@ -82,7 +78,6 @@ new file mode 100644
 +		panic("SWEET CPU: PMI routing is not implemented");
 +	}
 +
-+	/* Re-enter the boot CPU through cpu_machine_init -> PE_cpu_machine_init. */
 +	result = processor_start(machProcessor);
 +	if (result != KERN_SUCCESS || getCPUState() != kIOCPUStateRunning) {
 +		panic("SWEET CPU: processor_start failed: %d", result);
@@ -92,7 +87,6 @@ new file mode 100644
 +	registerService();
 +	IOService::publishResource(gIOAllCPUInitializedKey, kOSBooleanTrue);
 +
-+	/* Announce completion only after registration, startup and SGI validation. */
 +	ml_set_max_cpus(topology->max_cpu_id + 1);
 +	IOLog("SWEET CPU: boot CPU %u registered, SGI1 verified, initialization complete\n",
 +	    getCPUNumber());
@@ -116,7 +110,6 @@ new file mode 100644
 +	assert(ml_get_interrupts_enabled());
 +	ml_broadcast_cpu_event(CPU_BOOTED, getCPUNumber());
 +
-+	/* A real GIC interrupt clears SIGPdisabled in cpu_signal_handler. */
 +	uint64_t deadline;
 +	nanoseconds_to_deadline(NSEC_PER_SEC, &deadline);
 +	signalCPU(this);
@@ -132,7 +125,6 @@ new file mode 100644
 +void
 +SweetCPU::signalCPU(IOCPU *target)
 +{
-+	/* Only the boot CPU is registered by this driver. */
 +	if (target != this || cpu_number() != (int)getCPUNumber()) {
 +		panic("SWEET CPU: secondary CPU signalling is not implemented");
 +	}
@@ -173,11 +165,12 @@ new file mode 100644
 +{
 +	return cpuName;
 +}
-+#endif /* SWEET */
++#endif
 diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index e58bad1d7..011582b76 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -41,6 +41,12 @@
+@@ -41,6 +41,12 @@ const char * gIOKernelConfigTables =
      "     'IONameMatch'     = 'xiaomi,sweet';"
      "     'IOProbeScore'    = 10000:32;"
      "   },"
@@ -191,11 +184,12 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
      "   {"
      "     'IOClass'         = IOPanicPlatform;"
 diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
+index 256296d17..68b5baf08 100644
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
-@@ -8,3 +8,5 @@
+@@ -7,3 +7,5 @@ iokit/Kernel/IOPMrootDomain.cpp    					optional iokitcpp
+ iokit/Kernel/arm/AppleARMSMP.cpp    					optional iokitcpp
  
- # SWEET device-tree platform (empty translation unit on other boards)
  iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
 +
 +iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp

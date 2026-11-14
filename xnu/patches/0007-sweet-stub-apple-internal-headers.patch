@@ -1,18 +1,8 @@
 diff --git a/config/MASTER.arm64.sweet b/config/MASTER.arm64.sweet
-index 6c63bbd..347efee 100644
+index 41d0591cb..be1fb2693 100644
 --- a/config/MASTER.arm64.sweet
 +++ b/config/MASTER.arm64.sweet
-@@ -2,7 +2,8 @@
- # sweet (Redmi Note 10 Pro, SM7150): MASTER.arm64.MacOSX plus the open-source
- # arm64 assembly and pmap (nos_arm_asm, nos_arm_pmap). Apple's own SoC configs
- # link those from the KDK's closed lib<SOC>.os.<CONFIG>.a instead, which is
--# arm64e and Apple-silicon specific. kpc is dropped: it programs Apple's PMU.
-+# arm64e and Apple-silicon specific. kpc is dropped: it programs Apple's PMU
-+# (and kperf does not build without it).
- #
- #
- # Mach Operating System
-@@ -59,7 +60,7 @@
+@@ -40,7 +40,7 @@
  #  LIBKERN_RELEASE =[ LIBKERN_BASE zlib ]
  #  LIBKERN_DEV =    [ LIBKERN_BASE zlib iotracking ]
  #  LIBKERN_DEBUG =  [ LIBKERN_BASE zlib iotracking ]
@@ -23,14 +13,10 @@ index 6c63bbd..347efee 100644
  #  PERF_DBG_DEBUG = [ PERF_DBG_BASE lock_stats zleaks alternate_debugger sched_hygiene_debug config_debug_syscall_rejection config_iotrace ]
 diff --git a/osfmk/arm64/ppl/sart.h b/osfmk/arm64/ppl/sart.h
 new file mode 100644
-index 0000000..a8cd7b6
+index 000000000..40fc152b6
 --- /dev/null
 +++ b/osfmk/arm64/ppl/sart.h
-@@ -0,0 +1,13 @@
-+/*
-+ * sweet: Apple's SART (IOMMU for NVMe/ANS) header is not in the open
-+ * source drop. There is no SART on Qualcomm hardware; bootstrap is a no-op.
-+ */
+@@ -0,0 +1,9 @@
 +#ifndef _ARM64_PPL_SART_H_
 +#define _ARM64_PPL_SART_H_
 +
@@ -39,17 +25,13 @@ index 0000000..a8cd7b6
 +{
 +}
 +
-+#endif /* _ARM64_PPL_SART_H_ */
++#endif
 diff --git a/osfmk/arm64/ppl/uat.h b/osfmk/arm64/ppl/uat.h
 new file mode 100644
-index 0000000..4a790c2
+index 000000000..7218e8443
 --- /dev/null
 +++ b/osfmk/arm64/ppl/uat.h
-@@ -0,0 +1,13 @@
-+/*
-+ * sweet: Apple's UAT (GPU unified address translator) header is not in the
-+ * open source drop. No UAT on Qualcomm hardware; bootstrap is a no-op.
-+ */
+@@ -0,0 +1,9 @@
 +#ifndef _ARM64_PPL_UAT_H_
 +#define _ARM64_PPL_UAT_H_
 +
@@ -58,22 +40,17 @@ index 0000000..4a790c2
 +{
 +}
 +
-+#endif /* _ARM64_PPL_UAT_H_ */
++#endif
 diff --git a/osfmk/arm64/tunables/tunables.s b/osfmk/arm64/tunables/tunables.s
 new file mode 100644
-index 0000000..711cdef
+index 000000000..45c461b80
 --- /dev/null
 +++ b/osfmk/arm64/tunables/tunables.s
-@@ -0,0 +1,7 @@
-+/*
-+ * sweet: Apple's per-SoC CPU tunables (implementation-defined HID/ACC
-+ * register settings applied in start.s) are not in the open source drop,
-+ * and none of them exist on Cortex-A76/A55. APPLY_TUNABLES does nothing.
-+ */
+@@ -0,0 +1,2 @@
 +.macro APPLY_TUNABLES midr, tmp1, tmp2
 +.endmacro
 diff --git a/osfmk/kern/task.c b/osfmk/kern/task.c
-index 24ed326..67c5f79 100644
+index 24ed3268f..492b5906a 100644
 --- a/osfmk/kern/task.c
 +++ b/osfmk/kern/task.c
 @@ -1510,7 +1510,9 @@ task_create_internal(
@@ -82,7 +59,7 @@ index 24ed326..67c5f79 100644
  
 +#if KPC
  	new_task->t_kpc = 0;
-+#endif /* KPC */
++#endif
  
  	new_task->pidsuspended = FALSE;
  	new_task->frozen = FALSE;

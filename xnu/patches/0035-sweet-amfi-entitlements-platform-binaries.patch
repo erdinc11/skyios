@@ -1,47 +1,24 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 4abef7bbb..26a9cbd5b 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -691,6 +691,12 @@
+@@ -691,6 +691,11 @@ bsd_init(void)
  	bsd_init_kprintf("calling vfsinit\n");
  	vfsinit();
  
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
-+	/* AMFI's MAC policy is built in on SWEET (bsd/kern/sweet_amfi.c). */
 +	extern void sweet_amfi_policy_register(void);
 +	sweet_amfi_policy_register();
 +#endif
 +
  #if SWEET_HFS
- 	/* HFS is built in on SWEET: register it like its kext would, before mounting root. */
  	extern void sweet_hfs_register(void);
+ 	sweet_hfs_register();
+diff --git a/bsd/kern/sweet_amfi.c b/bsd/kern/sweet_amfi.c
+index 5b7bea773..4d1483b36 100644
 --- a/bsd/kern/sweet_amfi.c
 +++ b/bsd/kern/sweet_amfi.c
-@@ -5,12 +5,19 @@
-  * provides entitlements through the closed CoreEntitlements library. SWEET
-  * has neither, and code signing reaches it on every exec (ubc_cs_blob_add).
-  *
-- * This provider honestly reports that no entitlements exist: code signature
-- * blobs get no OSEntitlements object (csb_entitlements stays NULL, which the
-- * kernel already handles), every entitlement query fails and every copy
-- * returns nothing. Nothing is granted. Code signature and page hash
-- * validation stay with the kernel. Trust caches remain unavailable (no
-- * Image4), so the TrustCache interface is left at version 0.
-+ * Entitlements: when a code signature is added, its XML entitlements blob
-+ * (already checked against the code directory) is parsed into a
-+ * SweetEntitlements object (iokit/Kernel/arm/SweetEntitlements.cpp), set as
-+ * the blob's csb_entitlements, and every query is answered from it. DER-only
-+ * signatures get none. Code signature and page hash validation stay with the
-+ * kernel. Trust caches remain unavailable (no Image4), so the TrustCache
-+ * interface is left at version 0.
-+ *
-+ * Platform binaries: AMFI marks binaries whose cdhash is in a trust cache
-+ * as platform binaries from its vnode_check_signature MAC hook. Without
-+ * trust caches, the SWEET policy below marks every binary on the root
-+ * filesystem instead (the iOS system binaries are ad-hoc signed and are
-+ * platform binaries only through the static trust cache).
-  *
-  * Interfaces no kernel path uses on SWEET (they serve other Apple kexts)
-  * panic with a clear message instead of being NULL.
-@@ -20,19 +27,45 @@
+@@ -3,8 +3,31 @@
  #include <kern/startup.h>
  #include <libkern/amfi/amfi.h>
  #include <mach/kern_return.h>
@@ -53,7 +30,6 @@
 +#include <sys/vnode.h>
 +#include <security/mac_policy.h>
 +
-+/* iokit/Kernel/arm/SweetEntitlements.cpp */
 +void *sweet_entitlements_create(const CS_GenericBlob *blob, size_t blob_len);
 +void *sweet_entitlements_copy_dict(const void *ent);
 +bool sweet_entitlements_copy_xml(const void *ent, CS_GenericBlob **out);
@@ -63,10 +39,8 @@
 +unsigned int sweet_entitlements_count(const void *ent);
 +extern void osobject_release(void *object);
 +
-+/* boot-arg sweet_amfi_debug=1: log the entitlements attached to each signature. */
 +static TUNABLE(uint32_t, sweet_amfi_debug, "sweet_amfi_debug", 0);
 +
-+/* The entitlements object of a process's main binary, or NULL. */
 +static void *
 +sweet_proc_entitlements(proc_t proc)
 +{
@@ -76,9 +50,7 @@
  
  static void
  sweet_amfi_entitlements_invalidate(__unused void *os_entitlements)
- {
--	/* No OSEntitlements objects are ever created. */
-+	/* Queries already require a valid signature (csblob_get_entitlements). */
+@@ -12,9 +35,9 @@ sweet_amfi_entitlements_invalidate(__unused void *os_entitlements)
  }
  
  static void *
@@ -90,7 +62,7 @@
  }
  
  static CEError_t
-@@ -51,10 +84,9 @@
+@@ -33,10 +56,9 @@ sweet_amfi_entitlements_get_transmuted(__unused void *os_entitlements,
  }
  
  static bool
@@ -103,17 +75,10 @@
  }
  
  static bool
-@@ -85,60 +117,100 @@
+@@ -66,6 +88,37 @@ sweet_amfi_adjust_with_monitor(__unused void *os_entitlements,
  	return KERN_NOT_SUPPORTED;
  }
  
-+/*
-+ * Attach the parsed XML entitlements to a code signature being added. This
-+ * must happen in the vnode_check_signature MAC hook, like AMFI does: later,
-+ * converting a 4K-page signature to multilevel hashes drops the XML blob.
-+ * Nothing is granted when the blob is missing, unreadable or does not match
-+ * its code directory hash.
-+ */
 +static void
 +sweet_amfi_attach_entitlements(struct cs_blob *code_signing_blob)
 +{
@@ -126,7 +91,7 @@
 +		return;
 +	}
 +	if (xml == NULL) {
-+		return;                 /* no XML entitlements */
++		return;
 +	}
 +	void *ent = sweet_entitlements_create(xml, xml_len);
 +	if (ent == NULL) {
@@ -135,24 +100,20 @@
 +		return;
 +	}
 +	if (sweet_amfi_debug) {
-+		/* The test keys only exist in tools/mkinit.py test signatures. */
 +		printf("SWEET AMFI: %s: %u entitlements (test: bool %d string %d array %d)\n",
 +		    csblob_get_identity(code_signing_blob), sweet_entitlements_count(ent),
 +		    sweet_entitlements_bool(ent, "com.apple.private.sweet.test-bool"),
 +		    sweet_entitlements_string(ent, "com.apple.private.sweet.test-string", "hello"),
 +		    sweet_entitlements_string(ent, "com.apple.private.sweet.test-array", "two"));
 +	}
-+	csblob_os_entitlements_set(code_signing_blob, ent);    /* takes a reference */
++	csblob_os_entitlements_set(code_signing_blob, ent);
 +	osobject_release(ent);
 +}
 +
  static kern_return_t
  sweet_amfi_adjust_without_monitor(__unused void *os_entitlements,
      __unused struct cs_blob *code_signing_blob)
- {
--	/* Leave the blob without an entitlements context: it has none. */
-+	/* Entitlements were attached in sweet_amfi_vnode_check_signature. */
- 	return KERN_SUCCESS;
+@@ -74,51 +127,52 @@ sweet_amfi_adjust_without_monitor(__unused void *os_entitlements,
  }
  
  static kern_return_t
@@ -227,7 +188,7 @@
  }
  
  static const amfi_t sweet_amfi = {
-@@ -170,7 +242,52 @@
+@@ -148,7 +202,46 @@ static void
  sweet_amfi_register(void)
  {
  	amfi_interface_register(&sweet_amfi);
@@ -236,11 +197,6 @@
  }
  STARTUP(EARLY_BOOT, STARTUP_RANK_MIDDLE, sweet_amfi_register);
 +
-+/*
-+ * Every signed binary on the root filesystem is a platform binary. New
-+ * signatures (ubc_cs_blob_add passes its writable copy; revalidation passes
-+ * the read-only blob itself) get their entitlements here.
-+ */
 +static int
 +sweet_amfi_vnode_check_signature(struct vnode *vp, __unused struct label *label,
 +    __unused cpu_type_t cpu_type, struct cs_blob *cs_blob,
@@ -270,7 +226,6 @@
 +
 +static mac_policy_handle_t sweet_amfi_mac_handle;
 +
-+/* Called from bsd_init once MAC policies can register, before any exec. */
 +void sweet_amfi_policy_register(void);
 +
 +void
@@ -280,27 +235,13 @@
 +	printf("SWEET AMFI: platform binary policy %s (%d)\n",
 +	    error ? "NOT registered" : "registered", error);
 +}
- #endif /* ARM64_BOARD_CONFIG_SWEET */
---- a/iokit/conf/files.arm64
-+++ b/iokit/conf/files.arm64
-@@ -10,3 +10,4 @@
- iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
- 
- iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
-+iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
+ #endif
+diff --git a/iokit/Kernel/arm/SweetEntitlements.cpp b/iokit/Kernel/arm/SweetEntitlements.cpp
+new file mode 100644
+index 000000000..e95cfa4d0
 --- /dev/null
 +++ b/iokit/Kernel/arm/SweetEntitlements.cpp
-@@ -0,0 +1,184 @@
-+/*
-+ * Entitlements for the SWEET built-in AMFI interface (bsd/kern/sweet_amfi.c).
-+ *
-+ * Apple's AMFI keeps a CoreEntitlements context per code signature; that
-+ * library is closed. Here each signature with an XML entitlements blob gets
-+ * a SweetEntitlements object: the blob parsed into an OSDictionary (the
-+ * representation IOKit and the kernel KPIs hand out) plus the original XML,
-+ * which csops(CS_OPS_ENTITLEMENTS_BLOB) returns. The blob was already
-+ * checked against the code directory by csblob_get_entitlements().
-+ */
+@@ -0,0 +1,166 @@
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(SWEET)
@@ -317,7 +258,7 @@
 +
 +public:
 +	OSDictionary *dict;
-+	CS_GenericBlob *xml;            /* the signature's blob, header included */
++	CS_GenericBlob *xml;
 +	size_t xml_len;
 +
 +	bool init(void) APPLE_KEXT_OVERRIDE;
@@ -350,7 +291,6 @@
 +}
 +
 +extern "C" {
-+/* Parsed entitlements for one XML blob (header included), or NULL. Retained. */
 +void *
 +sweet_entitlements_create(const CS_GenericBlob *blob, size_t blob_len)
 +{
@@ -360,7 +300,6 @@
 +		return NULL;
 +	}
 +
-+	/* OSUnserializeXML needs a terminating NUL inside the buffer. */
 +	size_t text_len = blob_len - sizeof(CS_GenericBlob);
 +	char *text = (char *)kalloc_data(text_len + 1, Z_WAITOK);
 +	if (text == NULL) {
@@ -394,7 +333,6 @@
 +	return ent;
 +}
 +
-+/* The entitlements as an OSDictionary. Retained. */
 +void *
 +sweet_entitlements_copy_dict(const void *obj)
 +{
@@ -406,7 +344,6 @@
 +	return ent->dict;
 +}
 +
-+/* A kalloc_data copy of the XML blob; the caller frees it (blob length). */
 +bool
 +sweet_entitlements_copy_xml(const void *obj, CS_GenericBlob **out)
 +{
@@ -423,7 +360,6 @@
 +	return true;
 +}
 +
-+/* name is true (a boolean entitlement). */
 +bool
 +sweet_entitlements_bool(const void *obj, const char *name)
 +{
@@ -431,7 +367,6 @@
 +	return ent != NULL && ent->dict->getObject(name) == kOSBooleanTrue;
 +}
 +
-+/* name is the string value, or an array containing it. */
 +bool
 +sweet_entitlements_string(const void *obj, const char *name, const char *value)
 +{
@@ -454,7 +389,6 @@
 +	return false;
 +}
 +
-+/* Number of entitlements. */
 +unsigned int
 +sweet_entitlements_count(const void *obj)
 +{
@@ -462,7 +396,6 @@
 +	return ent != NULL ? ent->dict->getCount() : 0;
 +}
 +
-+/* The value of name, or NULL. Retained. */
 +void *
 +sweet_entitlements_copy_object(const void *obj, const char *name)
 +{
@@ -474,4 +407,13 @@
 +	return v;
 +}
 +}
-+#endif /* SWEET */
++#endif
+diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
+index 68b5baf08..90da4084b 100644
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -9,3 +9,4 @@ iokit/Kernel/arm/AppleARMSMP.cpp    					optional iokitcpp
+ iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
+ 
+ iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
++iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp

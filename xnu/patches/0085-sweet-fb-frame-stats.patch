@@ -1,17 +1,18 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 9343ce424..e0d6a7daf 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -116,6 +116,10 @@
- 	uint32_t      fFlushTicks;    /* vsync ticks between panel copies */
- 	bool          fPowerOff;      /* RequestPowerChange(0) */
- 	uint32_t      fFadeStep;      /* fade-out steps done while off */
-+	/* Frame statistics, logged every 5 s while frames change (sweetfb_stats). */
+@@ -72,6 +72,9 @@ public:
+ 	uint32_t      fFlushTicks;
+ 	bool          fPowerOff;
+ 	uint32_t      fFadeStep;
 +	bool          fStats;
 +	uint32_t      fStatSwaps, fStatPresents;
 +	uint64_t      fStatPresentAbs, fStatPresentMaxAbs;
  
  	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
  	void addClient(IOMobileFramebufferUserClient *client);
-@@ -195,6 +199,9 @@
+@@ -151,6 +154,9 @@ AppleCLCD::start(IOService *provider)
  	uint32_t hz = 10;
  	PE_parse_boot_argn("sweetfb_hz", &hz, sizeof(hz));
  	fFlushTicks = (hz == 0 || hz >= 60) ? 1 : 60 / hz;
@@ -21,7 +22,7 @@
  	fVsync->setTimeoutUS(SWEET_FB_VSYNC_US);
  
  	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
-@@ -253,8 +260,32 @@
+@@ -208,8 +214,32 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  	}
  	IOLockUnlock(fb->fLock);
  	if (rec != NULL) {
@@ -54,7 +55,7 @@
  	}
  	sender->setTimeoutUS(SWEET_FB_VSYNC_US);
  }
-@@ -302,6 +333,7 @@
+@@ -250,6 +280,7 @@ AppleCLCD::swap(const uint8_t *rec)
  	IOLockLock(fLock);
  	memcpy(fPending, rec, SWEET_FB_SWAP_REC_SIZE);
  	fDirty = true;

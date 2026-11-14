@@ -1,16 +1,8 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 0decd9b67..370b06b68 100644
 --- a/iokit/Kernel/arm/SweetCPU.cpp
 +++ b/iokit/Kernel/arm/SweetCPU.cpp
-@@ -1,7 +1,7 @@
- /*
-- * Single-CPU bring-up for sweet using XNU's legacy IOCPU interface.
-+ * A55 SMP bring-up for sweet using XNU's legacy IOCPU interface and PSCI.
-  * The architected timer and SGI1 already enter through pe_fiq/sleh_irq.
-- * Secondary CPU startup and system suspend require separate platform work.
-+ * CPU_OFF, suspend and the A76 cores still require separate platform work.
-  */
- #include <pexpert/arm64/board_config.h>
- 
-@@ -14,13 +14,38 @@
+@@ -9,13 +9,37 @@
  #include <machine/atomic.h>
  #include <kern/clock.h>
  #include <kern/processor.h>
@@ -25,7 +17,6 @@
 +static SweetCPU *sweet_cpus[MAX_CPUS];
 +static uint32_t sweet_cpus_registered;
 +
-+/* SMCCC 1.0: x0 is the signed PSCI result; do not assume x1-x17 survive. */
 +static int32_t
 +sweet_psci_cpu_on(uint64_t target, uint64_t entry, uint64_t context)
 +{
@@ -42,14 +33,14 @@
  class SweetCPU : public IOCPU {
  	OSDeclareDefaultStructors(SweetCPU);
  	const OSSymbol *cpuName = NULL;
-+	uint32_t initialized = 0; /* release/acquire publication after initCPU sends SGI */
++	uint32_t initialized = 0;
  
  public:
 +	static void startAll(void *arg, wait_result_t result);
  	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
  	void free(void) APPLE_KEXT_OVERRIDE;
  	void initCPU(bool boot) APPLE_KEXT_OVERRIDE;
-@@ -37,17 +62,21 @@
+@@ -32,17 +56,21 @@ bool
  SweetCPU::start(IOService *provider)
  {
  	const ml_topology_info_t *topology = ml_get_topology_info();
@@ -76,11 +67,10 @@
  	}
  	if (!IOCPU::start(provider)) {
  		return false;
-@@ -77,21 +106,75 @@
+@@ -72,19 +100,71 @@ SweetCPU::start(IOService *provider)
  		panic("SWEET CPU: PMI routing is not implemented");
  	}
  
--	/* Re-enter the boot CPU through cpu_machine_init -> PE_cpu_machine_init. */
 -	result = processor_start(machProcessor);
 -	if (result != KERN_SUCCESS || getCPUState() != kIOCPUStateRunning) {
 -		panic("SWEET CPU: processor_start failed: %d", result);
@@ -98,7 +88,6 @@
 +	return true;
 +}
 +
-+/* Do not wait in a nub's start(): matching can be asynchronous or serialized. */
 +void
 +SweetCPU::startAll(void *arg __unused, wait_result_t result __unused)
 +{
@@ -121,7 +110,6 @@
 +		}
 +		IOSleep(1);
 +	}
-+	/* The supplied ADT has cpu0 as the boot CPU and ascending A55 nodes. */
 +	if (topology->boot_cpu->cpu_id != 0 || topology->boot_cpu->phys_id != 0) {
 +		panic("SWEET CPU: expected boot MPIDR 0 and logical CPU 0");
 +	}
@@ -131,7 +119,6 @@
 +		if (kr != KERN_SUCCESS) {
 +			panic("SWEET CPU: cpu=%u processor_start failed: %d", i, kr);
 +		}
-+		/* processor_start() is asynchronous for secondaries in this XNU. */
 +		nanoseconds_to_deadline(5 * NSEC_PER_SEC, &deadline);
 +		while (__atomic_load_n(&cpu->initialized, __ATOMIC_ACQUIRE) == 0 ||
 +		    !sweet_cpu_signal_is_enabled(i)) {
@@ -145,14 +132,12 @@
 +		IOLog("SWEET CPU: cpu=%u mpidr=0x%x came alive; SGI1 OK\n",
 +		    i, topology->cpus[i].phys_id);
  	}
-+	/* Publish exactly once, after every selected CPU has completed initCPU(). */
  	ml_cpu_init_completed();
 -	cpusRunning();
 -	registerService();
 +	__atomic_load_n(&sweet_cpus[topology->boot_cpu->cpu_id], __ATOMIC_ACQUIRE)->cpusRunning();
  	IOService::publishResource(gIOAllCPUInitializedKey, kOSBooleanTrue);
 -
--	/* Announce completion only after registration, startup and SGI validation. */
  	ml_set_max_cpus(topology->max_cpu_id + 1);
 -	IOLog("SWEET CPU: boot CPU %u registered, SGI1 verified, initialization complete\n",
 -	    getCPUNumber());
@@ -163,7 +148,7 @@
  }
  
  void
-@@ -105,33 +188,33 @@
+@@ -98,31 +178,29 @@ void
  SweetCPU::initCPU(bool boot)
  {
  	if (!boot) {
@@ -175,12 +160,8 @@
 +
  	ml_broadcast_cpu_event(CPU_BOOTED, getCPUNumber());
  
--	/* A real GIC interrupt clears SIGPdisabled in cpu_signal_handler. */
 -	uint64_t deadline;
 -	nanoseconds_to_deadline(NSEC_PER_SEC, &deadline);
-+	/* Secondary startup runs at splsched: queue the self-IPI and return.
-+	 * startAll waits for its delivery after the startup thread unmasks IRQs.
-+	 * Waiting here with DAIF.I set would deadlock every secondary. */
  	signalCPU(this);
 -	while (!ml_cpu_signal_is_enabled()) {
 -		if (mach_absolute_time() > deadline) {
@@ -198,7 +179,6 @@
  void
  SweetCPU::signalCPU(IOCPU *target)
  {
--	/* Only the boot CPU is registered by this driver. */
 -	if (target != this || cpu_number() != (int)getCPUNumber()) {
 -		panic("SWEET CPU: secondary CPU signalling is not implemented");
 +	const ml_topology_info_t *topology = ml_get_topology_info();
@@ -207,12 +187,11 @@
 +		panic("SWEET CPU: invalid SGI target %u", logical);
  	}
 -	uint64_t mpidr = __builtin_arm_rsr64("MPIDR_EL1");
-+	/* Use the TARGET affinity, including Aff1, never the sender's MPIDR. */
 +	uint64_t mpidr = topology->cpus[logical].phys_id;
  	unsigned int aff0 = mpidr & 0xff;
  	if (aff0 >= 16) {
  		panic("SWEET CPU: SGI target requires unsupported range selector");
-@@ -146,9 +229,25 @@
+@@ -137,9 +215,23 @@ SweetCPU::signalCPU(IOCPU *target)
  }
  
  kern_return_t
@@ -221,7 +200,6 @@
  {
 -	return KERN_NOT_SUPPORTED;
 +	const ml_topology_cpu_t *cpu = &ml_get_topology_info()->cpus[getCPUNumber()];
-+	/* cpu_start() passes NULL,NULL: x20/x21 are set by LowResetVectorBase. */
 +	if (start_paddr != 0 || arg_paddr != 0 || cpu->phys_id == 0 ||
 +	    __atomic_load_n(&initialized, __ATOMIC_ACQUIRE) != 0) {
 +		panic("SWEET CPU: cpu=%u unsupported restart", getCPUNumber());
@@ -232,7 +210,6 @@
 +	__builtin_arm_dsb(DSB_SY);
 +	int32_t rc = sweet_psci_cpu_on(cpu->phys_id, entry, getCPUNumber());
 +	IOLog("SWEET CPU: cpu=%u PSCI CPU_ON rc=%d\n", getCPUNumber(), rc);
-+	/* cpu_start() discards PE_cpu_start's return; do not silently carry on. */
 +	if (rc != 0) {
 +		panic("SWEET CPU: cpu=%u NOT alive: PSCI CPU_ON rc=%d", getCPUNumber(), rc);
 +	}
@@ -240,15 +217,15 @@
  }
  
  void
+diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
+index 94e91306b..31aa734d9 100644
 --- a/osfmk/arm64/cpu.c
 +++ b/osfmk/arm64/cpu.c
-@@ -922,6 +922,19 @@
+@@ -922,6 +922,17 @@ cpu_start(int cpu)
  
  		flush_dcache((vm_offset_t)&CpuDataEntries[cpu], sizeof(cpu_data_entry_t), FALSE);
  		flush_dcache((vm_offset_t)cpu_data_ptr, sizeof(cpu_data_t), FALSE);
 +#if defined(SWEET)
-+		/* The reset stub loads these through physical addresses with caches off.
-+		 * Use VA range cleans to PoC, including on coherent-I/O builds. */
 +		extern uint8_t bootstrap_pagetables[BOOTSTRAP_TABLE_SIZE];
 +		CleanPoC_DcacheRegion_Force((vm_offset_t)CpuDataEntries, sizeof(CpuDataEntries));
 +		CleanPoC_DcacheRegion_Force((vm_offset_t)cpu_data_ptr, sizeof(cpu_data_t));
@@ -262,12 +239,11 @@
  #if defined(KERNEL_INTEGRITY_CTRR)
  
  		/* First CPU being started within a cluster goes ahead to lock CTRR for cluster;
-@@ -950,6 +963,21 @@
+@@ -949,6 +960,19 @@ cpu_start(int cpu)
+ 	return KERN_SUCCESS;
  }
  
- 
 +#if defined(SWEET)
-+/* Bring-up observer: the self-SGI clears SIGPdisabled after IRQs unmask. */
 +boolean_t sweet_cpu_signal_is_enabled(unsigned int cpu);
 +boolean_t
 +sweet_cpu_signal_is_enabled(unsigned int cpu)
@@ -280,18 +256,18 @@
 +}
 +#endif
 +
-+
+ 
  void
  cpu_timebase_init(boolean_t from_boot)
- {
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+index ed2fa3572..8e65dec63 100644
 --- a/osfmk/arm64/machine_routines.c
 +++ b/osfmk/arm64/machine_routines.c
-@@ -954,6 +954,16 @@
+@@ -954,6 +954,15 @@ ml_parse_cpu_topology(void)
  	const boolean_t cpus_boot_arg_present = PE_parse_boot_argn("cpus", &cpu_boot_arg, sizeof(cpu_boot_arg));
  	const boolean_t cpumask_boot_arg_present = PE_parse_boot_argn("cpumask", &cpumask_boot_arg, sizeof(cpumask_boot_arg));
  
 +#if defined(SWEET)
-+	/* Opt in to SMP. Never expose the A76s to this A55-only configuration. */
 +	if (!cpus_boot_arg_present || cpu_boot_arg == 0) {
 +		cpu_boot_arg = 1;
 +	}
@@ -303,12 +279,11 @@
  	// The cpus=N and cpumask=N boot args cannot be used simultaneously. Flag this
  	// so that we trigger a panic later in the boot process, once serial is enabled.
  	if (cpus_boot_arg_present && cpumask_boot_arg_present) {
-@@ -1077,8 +1087,14 @@
+@@ -1077,8 +1086,13 @@ ml_parse_cpu_topology(void)
  		}
  #endif
  
 +#if defined(SWEET)
-+		/* Aff1 encodes the core on SM7150, not an Apple cluster ID. */
 +		cpu->die_cluster_id = (int)ml_readprop(child, "die-cluster-id", 0);
 +		cpu->cluster_core_id = (int)ml_readprop(child, "cluster-core-id", cpu->phys_id >> 8);
 +#else
@@ -318,29 +293,26 @@
  
  		cluster->num_cpus++;
  		cluster->cpu_mask |= 1ULL << cpu->cpu_id;
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index 3999c7ad3..a51031b01 100644
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -143,8 +143,8 @@
+@@ -143,8 +143,8 @@ LEXT(reset_vector)
  	adrp	x19, EXT(ResetHandlerData)@page			// Get address of the reset handler data
  	add		x19, x19, EXT(ResetHandlerData)@pageoff
  	mrs		x15, MPIDR_EL1						// Load MPIDR to get CPU number
 -#if HAS_CLUSTER
 -	and		x0, x15, #0xFFFF					// CPU number in Affinity0, cluster ID in Affinity1
 +#if HAS_CLUSTER || defined(SWEET)
-+	and		x0, x15, #0xFFFF					// Full Aff1:Aff0 (SWEET: core in Aff1)
++	and		x0, x15, #0xFFFF
  #else
  	and		x0, x15, #0xFF						// CPU number is in MPIDR Affinity Level 0
  #endif
-@@ -279,6 +279,56 @@
+@@ -279,6 +279,47 @@ LEXT(LowExceptionVectorBase)
  LEXT(bootstrap_instructions)
  
  #endif /* defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR) */
 +#if defined(SWEET)
-+/* PSCI CPU_ON entry (physical): x0=context_id, no stack, MMU/caches off.
-+ * Keep this separate from __start (which requires x0=boot_args PA).
-+ * Firmware may return at EL1 or EL2; check before accessing EL1 state.
-+ * The EL2 path assumes no resident hypervisor and CNTVOFF_EL2=0 on boot.
-+ */
 +	.align 2
 +	.globl EXT(sweet_secondary_entry)
 +LEXT(sweet_secondary_entry)
@@ -353,7 +325,6 @@
 +	adrp	x1, EXT(LowExceptionVectorBase)@page
 +	add		x1, x1, EXT(LowExceptionVectorBase)@pageoff
 +	msr		VBAR_EL2, x1
-+	/* No stage 2, AArch64 EL1, no EL2 interrupt or FP/debug traps. */
 +	mov		x1, #(1 << 31)
 +	msr		HCR_EL2, x1
 +	msr		VTTBR_EL2, xzr
@@ -362,38 +333,34 @@
 +	mov		x1, #3
 +	msr		CNTHCTL_EL2, x1
 +	msr		CNTVOFF_EL2, xzr
-+	/* Permit ICC_SRE_EL1 and GIC CPU interface system-register access. */
 +	mrs		x1, ICC_SRE_EL2
 +	orr		x1, x1, #1
 +	orr		x1, x1, #8
 +	msr		ICC_SRE_EL2, x1
-+	/* Known Armv8 SCTLR RES1 bits, M/C/I off, little endian. */
 +	MOV64	x1, 0x30d00800
 +	msr		SCTLR_EL1, x1
 +	isb
 +	adrp	x1, Lsweet_secondary_el1@page
 +	add		x1, x1, Lsweet_secondary_el1@pageoff
 +	msr		ELR_EL2, x1
-+	mov		x1, #0x3c5			// DAIF masked, AArch64 EL1h
++	mov		x1, #0x3c5
 +	msr		SPSR_EL2, x1
 +	eret
 +Lsweet_secondary_bad_el:
 +	b		.
 +Lsweet_secondary_el1:
-+	/* x0 is deliberately unused; reset_vector selects CPU data by MPIDR. */
 +	msr		SPSel, #1
 +	b		EXT(LowResetVectorBase)
-+#endif /* SWEET */
++#endif
 +
  	.align 2
  	.globl EXT(resume_idle_cpu)
  LEXT(resume_idle_cpu)
-@@ -743,6 +793,12 @@
+@@ -735,6 +776,11 @@ common_start:
  	ic		iallu
  #endif
  
 +#if defined(SWEET)
-+	/* Complete local TLB/I-cache invalidation before enabling the MMU. */
 +	dsb		sy
 +	isb
 +#endif
@@ -401,13 +368,14 @@
  	/* If x21 is not 0, then this is either the start_cpu path or
  	 * the resume_idle_cpu path.  cpu_ttep should already be
  	 * populated, so just switch to the kernel_pmap now.
+diff --git a/pexpert/pexpert/arm64/SWEET.h b/pexpert/pexpert/arm64/SWEET.h
+index 813de1878..400b593e4 100644
 --- a/pexpert/pexpert/arm64/SWEET.h
 +++ b/pexpert/pexpert/arm64/SWEET.h
-@@ -17,6 +17,9 @@
+@@ -7,6 +7,8 @@
  
  #define SWEET                     1
  
-+/* Six homogeneous A55s; cpus=N is clamped here until A76/AMP is audited. */
 +#define SWEET_SMP_MAX_CPUS         6
 +
  #define ARM_ARCH_TIMER

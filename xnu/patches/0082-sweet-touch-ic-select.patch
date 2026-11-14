@@ -1,14 +1,11 @@
+diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+index 576cfd4f9..650cb2c28 100644
 --- a/bsd/dev/sweet_touch.c
 +++ b/bsd/dev/sweet_touch.c
-@@ -602,6 +602,18 @@
+@@ -564,6 +564,13 @@ touch_thread(void *arg, wait_result_t result)
  	st.probing = false;
  	bool goodix = !ge && gid[0] == '9' && gid[1] == '8' && gid[2] == '9' && gid[3] == '6';
  	bool fts = !fe1 && !fe2 && fid1 == 0x54 && fid2 == 0x52;
-+	/*
-+	 * Some boards answer both probes (a Goodix-looking ID at 0x5d and
-+	 * 54:52 at 0x38): boot-arg sweettouchic=1 (GT9896) or 2 (Focaltech)
-+	 * picks the IC the board really has.
-+	 */
 +	unsigned force = 0;
 +	(void)PE_parse_boot_argn("sweettouchic", &force, sizeof(force));
 +	if (goodix && fts && (force == TOUCH_GOODIX || force == TOUCH_FTS)) {

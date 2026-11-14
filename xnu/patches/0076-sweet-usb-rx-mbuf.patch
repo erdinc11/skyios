@@ -1,14 +1,10 @@
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+index 130f263df..f20e7d743 100644
 --- a/bsd/dev/sweet_usb.c
 +++ b/bsd/dev/sweet_usb.c
-@@ -498,10 +498,19 @@
- 	uint32_t len = UD_FRAME_MAX - (t[2] & 0xffffff);
+@@ -450,9 +450,13 @@ ud_rx_done(void)
  	ud_sync(UD_RX, UD_FRAME_MAX);
  	if (ud.ifp != NULL && len >= ETHER_HDR_LEN && len <= ETHER_MAX_LEN) {
-+		/*
-+		 * One mbuf with a 2 KiB cluster holds any frame. (mbuf_allocpacket
-+		 * may return a first mbuf of length 0: stripping the header from
-+		 * it panicked "Failed mbuf validity check: len -14".)
-+		 */
  		mbuf_t m = NULL;
 -		if (mbuf_allocpacket(MBUF_DONTWAIT, len, NULL, &m) == 0 &&
 -		    mbuf_copyback(m, 0, len, (const void *)(ud.dma + UD_RX), MBUF_DONTWAIT) == 0) {

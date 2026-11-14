@@ -1,34 +1,28 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index bcc82da8c..4ca42e22a 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -61,7 +61,17 @@
+@@ -30,7 +30,9 @@ enum {
  #define SWEET_FB_NOTIFY_TYPES           8
  #define SWEET_FB_NOTIFY_VSYNC           5
  #define SWEET_FB_VSYNC_US               16667
--#define SWEET_FB_DOT_PITCH              395     /* ppi, 6.67" 1080x2400 */
-+#define SWEET_FB_DOT_PITCH              458     /* ppi, as the iPhone X panel */
-+/*
-+ * The iOS userland only has status bar / layout data for real iPhone
-+ * screens (UIKit: "No status bar visual provider for screen", the red
-+ * rdar://45025538 bar for 360x800 points). The display is therefore
-+ * presented as the iPhone X panel, 1125x2436 (375x812 points @3x), and the
-+ * centered 1080x2400 part of it is shown on the 1080x2400 panel.
-+ * Boot-arg sweetfb_native=1 presents the real panel size instead.
-+ */
+-#define SWEET_FB_DOT_PITCH              395
++#define SWEET_FB_DOT_PITCH              458
 +#define SWEET_FB_LOGICAL_W              1125
 +#define SWEET_FB_LOGICAL_H              2436
  #define SWEET_FB_FORMAT_BGRA            0x42475241
  
  class IOMobileFramebuffer : public IOService {
-@@ -84,6 +94,8 @@
+@@ -53,6 +55,8 @@ class AppleCLCD : public IOMobileFramebuffer {
  public:
  	uint64_t      fPhys;
  	uint32_t      fWidth, fHeight, fRowBytes;
-+	uint32_t      fLogicalW, fLogicalH;     /* size reported to userland */
-+	int32_t       fOffX, fOffY;             /* logical origin of the panel */
- 	uintptr_t     fPixels;          /* kernel mapping of the panel memory */
++	uint32_t      fLogicalW, fLogicalH;
++	int32_t       fOffX, fOffY;
+ 	uintptr_t     fPixels;
  	IOMemoryMap  *fMap;
- 	SweetSurface *fSurface;         /* the panel memory as an IOSurface */
-@@ -144,6 +156,16 @@
+ 	SweetSurface *fSurface;
+@@ -113,6 +117,16 @@ AppleCLCD::start(IOService *provider)
  		IOLog("SWEET FB: no boot framebuffer\n");
  		return false;
  	}
@@ -45,7 +39,7 @@
  	fLock = IOLockAlloc();
  	fClients = OSArray::withCapacity(4);
  	fSurface = sweet_surface_create_physical(fPhys, fWidth, fHeight, fRowBytes, SWEET_FB_FORMAT_BGRA);
-@@ -169,8 +191,8 @@
+@@ -138,8 +152,8 @@ AppleCLCD::start(IOService *provider)
  	setProperty("external", false);
  	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
  	registerService();
@@ -56,11 +50,10 @@
  	return true;
  }
  
-@@ -309,6 +331,19 @@
+@@ -270,6 +284,18 @@ AppleCLCD::present(const uint8_t *rec)
  		if (dx < 0 || dy < 0) {
  			dx = dy = 0;
  		}
-+		/* Logical (presented) display coordinates -> panel coordinates. */
 +		dx -= fOffX;
 +		dy -= fOffY;
 +		if (dx < 0) {
@@ -76,7 +69,7 @@
  		if (w > (int32_t)s->width - sx) {
  			w = (int32_t)s->width - sx;
  		}
-@@ -444,8 +479,8 @@
+@@ -404,8 +430,8 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
  		outCount = 1;
  		break;
  	case kSweetFBGetDisplaySize:
@@ -87,9 +80,11 @@
  		outCount = 2;
  		break;
  	case kSweetFBIsMainDisplay:
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index 5e5d01c03..ad11b07f9 100644
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
 +++ b/iokit/Kernel/arm/hid/SweetHID.cpp
-@@ -359,6 +359,7 @@
+@@ -328,6 +328,7 @@ protected:
  	virtual UInt32 getProductID() APPLE_KEXT_OVERRIDE { return 2; }
  private:
  	IOLock *fLock;
@@ -97,7 +92,7 @@
  	bool fDown[SWEET_TOUCH_FINGERS];
  	IOFixed fX[SWEET_TOUCH_FINGERS];
  	IOFixed fY[SWEET_TOUCH_FINGERS];
-@@ -422,6 +423,12 @@
+@@ -387,6 +388,12 @@ SweetHIDTouch::start(IOService *provider)
  	if (!fLock || !IOHIDEventService::start(provider)) {
  		return false;
  	}
@@ -107,16 +102,15 @@
 +	fLogicalH = native ? 2400 : 2436;
 +	fOffX = (fLogicalW - 1080) / 2;
 +	fOffY = (fLogicalH - 2400) / 2;
- 	/* The digitizer covers the main display (backboardd maps it 1:1). */
  	setProperty("DisplayIntegrated", kOSBooleanTrue);
- 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
-@@ -447,8 +454,9 @@
+ 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);
+ 	setProperty("SurfaceHeight", (unsigned long long)(151 << 16), 32);
+@@ -411,8 +418,8 @@ SweetHIDTouch::touch(int finger, bool down, int x, int y)
  
  	IOLockLock(fLock);
  	bool was = fDown[finger];
 -	IOFixed nx = (IOFixed)(((int64_t)x << 16) / 1080);
 -	IOFixed ny = (IOFixed)(((int64_t)y << 16) / 2400);
-+	/* Panel pixels -> the presented 1125x2436 display (SweetFramebuffer.cpp). */
 +	IOFixed nx = (IOFixed)(((int64_t)(x + fOffX) << 16) / fLogicalW);
 +	IOFixed ny = (IOFixed)(((int64_t)(y + fOffY) << 16) / fLogicalH);
  	bool moved = down && (nx != fX[finger] || ny != fY[finger]);

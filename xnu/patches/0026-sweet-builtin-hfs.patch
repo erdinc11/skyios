@@ -1,35 +1,29 @@
-diff --git a/config/MASTER b/config/MASTER
---- a/config/MASTER
-+++ b/config/MASTER
-@@ -113,6 +113,7 @@
- #	4.4 filesystems
+diff --git a/bsd/conf/Makefile.template b/bsd/conf/Makefile.template
+index 820d0e883..084b2475f 100644
+--- a/bsd/conf/Makefile.template
++++ b/bsd/conf/Makefile.template
+@@ -50,6 +50,12 @@ SWEET_PTHREAD_INC = -I$(SWEET_PTHREAD_ROOT) -I$(SWEET_PTHREAD_ROOT)/private -I$(
+ sweet_pthread_init.o_INCFLAGS = $(SWEET_PTHREAD_INC)
+ sweet_pthread_support.o_INCFLAGS = $(SWEET_PTHREAD_INC)
+ sweet_pthread_synch.o_INCFLAGS = $(SWEET_PTHREAD_INC)
++
++SWEET_HFS_ROOT = $(SRCROOT)/bsd/sweet_hfs
++SWEET_HFS_OBJS = BTree.o BTreeAllocate.o BTreeMiscOps.o BTreeNodeOps.o BTreeNodeReserve.o BTreeScanner.o BTreeTreeOps.o BTreeWrapper.o CatalogUtilities.o FileExtentMapping.o FileIDsServices.o MacOSStubs.o UnicodeWrappers.o VolumeAllocation.o hfs_attrlist.o hfs_btreeio.o hfs_catalog.o hfs_chash.o hfs_cnode.o hfs_cprotect.o hfs_endian.o hfs_extents.o hfs_fsinfo.o hfs_hotfiles.o hfs_journal.o hfs_link.o hfs_lookup.o hfs_notification.o hfs_quota.o hfs_readwrite.o hfs_resize.o hfs_search.o hfs_vfsops.o hfs_vfsutils.o hfs_vnops.o hfs_xattr.o rangelist.o hfs_encodinghint.o hfs_encodings.o sweet_hfs_iokit.o
++$(foreach o,$(SWEET_HFS_OBJS),$(eval $(o)_CFLAGS_ADD += -include $(SWEET_HFS_ROOT)/sweet_hfs_compat.h -I$(SWEET_HFS_ROOT) -I$(SWEET_HFS_ROOT)/core))
++hfs_encodings.o_CFLAGS_ADD += -Dhfs_allocated=hfs_encodings_allocated
++hfs_encodinghint.o_CFLAGS_ADD += -Dhfs_allocated=hfs_encodings_allocated
+ endif
+ 
  #
- options		MOCKFS		# Boot from an executable	# <mockfs>
-+options		SWEET_HFS	# Built-in Apple OSS HFS (SWEET)	# <sweet_hfs>
- options		FIFO		# fifo support			# <fifo>
- options		FDESC		# fdesc_fs support		# <fdesc>
- options		DEVFS		# devfs support			# <devfs>
-diff --git a/config/MASTER.arm64.sweet b/config/MASTER.arm64.sweet
---- a/config/MASTER.arm64.sweet
-+++ b/config/MASTER.arm64.sweet
-@@ -31,7 +31,7 @@
- #  BSD_RELEASE =    [ BSD_BASE ]
- #  BSD_DEV =        [ BSD_BASE config_vnguard ]
- #  BSD_DEBUG =      [ BSD_BASE config_vnguard ]
--#  FILESYS_BASE =   [ devfs fdesc fifo mockfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_ext_resolver config_searchfs config_volfs config_appledouble nullfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
-+#  FILESYS_BASE =   [ devfs fdesc fifo mockfs sweet_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_ext_resolver config_searchfs config_volfs config_appledouble nullfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
- #  FILESYS_RELEASE= [ FILESYS_BASE ]
- #  FILESYS_DEV =    [ FILESYS_BASE config_iocount_trace ]
- #  FILESYS_DEBUG =  [ FILESYS_BASE config_iocount_trace ]
 diff --git a/bsd/conf/files b/bsd/conf/files
+index 6bbb6e225..5cf072456 100644
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
-@@ -382,6 +382,49 @@
+@@ -382,6 +382,48 @@ bsd/kern/kern_credential.c		standard
  bsd/kern/kern_crossarch.c		standard
  bsd/kern/kern_cs.c			standard
  bsd/kern/sweet_amfi.c			standard
 +
-+# Apple OSS hfs-627.100.6, staged by xnu/patches/0026-stage-hfs.sh
 +bsd/sweet_hfs/core/BTree.c		optional sweet_hfs
 +bsd/sweet_hfs/core/BTreeAllocate.c		optional sweet_hfs
 +bsd/sweet_hfs/core/BTreeMiscOps.c		optional sweet_hfs
@@ -74,34 +68,15 @@ diff --git a/bsd/conf/files b/bsd/conf/files
  bsd/kern/kern_csr.c			optional config_csr
  bsd/kern/kern_debug.c			standard
  bsd/kern/kern_symfile.c			standard
-diff --git a/bsd/conf/Makefile.template b/bsd/conf/Makefile.template
---- a/bsd/conf/Makefile.template
-+++ b/bsd/conf/Makefile.template
-@@ -51,6 +51,15 @@
- sweet_pthread_init.o_INCFLAGS = $(SWEET_PTHREAD_INC)
- sweet_pthread_support.o_INCFLAGS = $(SWEET_PTHREAD_INC)
- sweet_pthread_synch.o_INCFLAGS = $(SWEET_PTHREAD_INC)
-+
-+# Apple OSS HFS built in (bsd/sweet_hfs): compiled like the kext, see sweet_hfs_compat.h.
-+# The compat header must come after the kernel's -D options, hence _CFLAGS_ADD.
-+SWEET_HFS_ROOT = $(SRCROOT)/bsd/sweet_hfs
-+SWEET_HFS_OBJS = BTree.o BTreeAllocate.o BTreeMiscOps.o BTreeNodeOps.o BTreeNodeReserve.o BTreeScanner.o BTreeTreeOps.o BTreeWrapper.o CatalogUtilities.o FileExtentMapping.o FileIDsServices.o MacOSStubs.o UnicodeWrappers.o VolumeAllocation.o hfs_attrlist.o hfs_btreeio.o hfs_catalog.o hfs_chash.o hfs_cnode.o hfs_cprotect.o hfs_endian.o hfs_extents.o hfs_fsinfo.o hfs_hotfiles.o hfs_journal.o hfs_link.o hfs_lookup.o hfs_notification.o hfs_quota.o hfs_readwrite.o hfs_resize.o hfs_search.o hfs_vfsops.o hfs_vfsutils.o hfs_vnops.o hfs_xattr.o rangelist.o hfs_encodinghint.o hfs_encodings.o sweet_hfs_iokit.o
-+$(foreach o,$(SWEET_HFS_OBJS),$(eval $(o)_CFLAGS_ADD += -include $(SWEET_HFS_ROOT)/sweet_hfs_compat.h -I$(SWEET_HFS_ROOT) -I$(SWEET_HFS_ROOT)/core))
-+# HFSEncodings is a separate kext on Apple with its own allocation counter.
-+hfs_encodings.o_CFLAGS_ADD += -Dhfs_allocated=hfs_encodings_allocated
-+hfs_encodinghint.o_CFLAGS_ADD += -Dhfs_allocated=hfs_encodings_allocated
- endif
- 
- #
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 4df41ba1f..11c4c357c 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -691,6 +691,12 @@
+@@ -691,6 +691,11 @@ bsd_init(void)
  	bsd_init_kprintf("calling vfsinit\n");
  	vfsinit();
  
 +#if SWEET_HFS
-+	/* HFS is built in on SWEET: register it like its kext would, before mounting root. */
 +	extern void sweet_hfs_register(void);
 +	sweet_hfs_register();
 +#endif
@@ -110,6 +85,7 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
  	/* Initial proc_uuid_policy subsystem */
  	bsd_init_kprintf("calling proc_uuid_policy_init()\n");
 diff --git a/bsd/miscfs/mockfs/mockfs_vfsops.c b/bsd/miscfs/mockfs/mockfs_vfsops.c
+index 8aa3ea5d9..1529f9318 100644
 --- a/bsd/miscfs/mockfs/mockfs_vfsops.c
 +++ b/bsd/miscfs/mockfs/mockfs_vfsops.c
 @@ -38,6 +38,9 @@
@@ -122,16 +98,10 @@ diff --git a/bsd/miscfs/mockfs/mockfs_vfsops.c b/bsd/miscfs/mockfs/mockfs_vfsops
  
  static LCK_GRP_DECLARE(mockfs_mtx_grp, "mockfs-mutex");
  
-@@ -61,6 +64,43 @@
+@@ -61,6 +64,36 @@ int mockfs_init(__unused struct vfsconf * vfsc);
   *
   * Returns 0 on success, or an error.
   */
-+/*
-+ * mockfs_check_macho:
-+ *   mockfs serves the whole root device as one executable, so it would claim
-+ *   any device. Accept only a Mach-O (thin or fat) image, so that a device
-+ *   holding a real filesystem is left to the next filesystem in mountroot.
-+ */
 +static int
 +mockfs_check_macho(vnode_t rvp)
 +{
@@ -156,7 +126,6 @@ diff --git a/bsd/miscfs/mockfs/mockfs_vfsops.c b/bsd/miscfs/mockfs/mockfs_vfsops
 +		}
 +	}
 +	if (bp) {
-+		/* Do not leave a DEV_BSIZE block cached for the next filesystem's reads. */
 +		buf_markinvalid(bp);
 +		buf_brelse(bp);
 +	}
@@ -166,14 +135,12 @@ diff --git a/bsd/miscfs/mockfs/mockfs_vfsops.c b/bsd/miscfs/mockfs/mockfs_vfsops
  int
  mockfs_mountroot(mount_t mp, vnode_t rvp, __unused vfs_context_t ctx)
  {
-@@ -72,9 +112,12 @@
+@@ -72,9 +105,10 @@ mockfs_mountroot(mount_t mp, vnode_t rvp, __unused vfs_context_t ctx)
  	dk_memdev_info_t memdev_info;
  
  	/*
 -	 * TODO: Validate that the device at least LOOKS like a mach-o (has a sane header); this would prevent us
 -	 *   from causing EBADMACHO panics further along the boot path.
-+	 * Validate that the device at least LOOKS like a mach-o (has a sane header); this prevents us from
-+	 *   claiming devices that hold real filesystems, and from causing EBADMACHO panics further along the boot path.
  	 */
 +	if ((rvalue = mockfs_check_macho(rvp))) {
 +		return rvalue;
@@ -183,16 +150,10 @@ diff --git a/bsd/miscfs/mockfs/mockfs_vfsops.c b/bsd/miscfs/mockfs/mockfs_vfsops
  	 * There are no M_MOCKFS* definitions at the moment, just use M_TEMP.
 diff --git a/bsd/sweet_hfs/sweet_hfs_compat.h b/bsd/sweet_hfs/sweet_hfs_compat.h
 new file mode 100644
+index 000000000..4d60e3776
 --- /dev/null
 +++ b/bsd/sweet_hfs/sweet_hfs_compat.h
-@@ -0,0 +1,26 @@
-+/*
-+ * Compile Apple's HFS kext sources inside SWEET the way the kext is built:
-+ * with the kext (KPI) view of the kernel headers, and with only HFS's own
-+ * kext-config.h deciding features. The kernel's -DCONFIG_* options are not
-+ * visible to a kext build, so the ones HFS tests are cleared first. SWEET
-+ * has no AppleKeyStore, so content protection stays off.
-+ */
+@@ -0,0 +1,18 @@
 +#ifndef SWEET_HFS_COMPAT_H
 +#define SWEET_HFS_COMPAT_H
 +#undef BSD_KERNEL_PRIVATE
@@ -209,30 +170,14 @@ new file mode 100644
 +#undef HFS_COMPRESSION
 +#include "core/kext-config.h"
 +
-+/* Built in, not a loadable kext (see sweet_hfs_iokit.c). */
 +#define OSKextGetCurrentLoadTag sweet_hfs_current_load_tag
 +#endif
 diff --git a/bsd/sweet_hfs/sweet_hfs_iokit.c b/bsd/sweet_hfs/sweet_hfs_iokit.c
 new file mode 100644
+index 000000000..cd4b70da6
 --- /dev/null
 +++ b/bsd/sweet_hfs/sweet_hfs_iokit.c
-@@ -0,0 +1,132 @@
-+/*
-+ * Built-in replacement for HFS's IOKit glue (core/hfs_iokit.cpp and
-+ * hfs_encodings/hfs_encodings_kext.cpp) on SWEET.
-+ *
-+ * On Apple platforms HFS is a kext: IOKit matches its IOService on
-+ * IOResources and start() registers the filesystem. SWEET links HFS into
-+ * the kernel instead, so bsd_init calls sweet_hfs_register() right after
-+ * vfsinit(), before the root filesystem is mounted. The registration is the
-+ * kext's start() sequence.
-+ *
-+ * The helpers that query IOKit storage keep their answers for SWEET, which
-+ * has no IOStorageFamily and therefore no IOMedia objects: nothing is
-+ * ejectable and no media carries an external journal. The platform expert
-+ * publishes no serial number. Content protection (AppleKeyStore) is not
-+ * built (sweet_hfs_compat.h).
-+ */
+@@ -0,0 +1,114 @@
 +#include <libkern/OSKextLib.h>
 +#include <pexpert/pexpert.h>
 +#include <sys/sysctl.h>
@@ -271,7 +216,6 @@ new file mode 100644
 +	PE_parse_boot_argn("hfs_corruption_panics", &hfs_corruption_panics, sizeof(hfs_corruption_panics));
 +#endif
 +
-+	/* The HFSEncodings kext's start(): its converters must exist before any mount. */
 +	hfs_converterinit();
 +
 +	struct vnodeopv_desc *op_descs[] = {
@@ -320,7 +264,6 @@ new file mode 100644
 +	printf("SWEET HFS: hfs-627.100.6 registered\n");
 +}
 +
-+/* Built in, not a loadable kext: there is no kext to retain per mount. */
 +OSKextLoadTag
 +sweet_hfs_current_load_tag(void)
 +{
@@ -349,3 +292,28 @@ new file mode 100644
 +	serial_number_str[0] = '\0';
 +	return KERN_NOT_SUPPORTED;
 +}
+diff --git a/config/MASTER b/config/MASTER
+index 07147cb31..4fde79478 100644
+--- a/config/MASTER
++++ b/config/MASTER
+@@ -113,6 +113,7 @@ options		CONFIG_WORKLOOP_DEBUG	# <config_workloop_debug>
+ #	4.4 filesystems
+ #
+ options		MOCKFS		# Boot from an executable	# <mockfs>
++options		SWEET_HFS	# Built-in Apple OSS HFS (SWEET)	# <sweet_hfs>
+ options		FIFO		# fifo support			# <fifo>
+ options		FDESC		# fdesc_fs support		# <fdesc>
+ options		DEVFS		# devfs support			# <devfs>
+diff --git a/config/MASTER.arm64.sweet b/config/MASTER.arm64.sweet
+index a06e0323f..e54b225c5 100644
+--- a/config/MASTER.arm64.sweet
++++ b/config/MASTER.arm64.sweet
+@@ -11,7 +11,7 @@
+ #  BSD_RELEASE =    [ BSD_BASE ]
+ #  BSD_DEV =        [ BSD_BASE config_vnguard ]
+ #  BSD_DEBUG =      [ BSD_BASE config_vnguard ]
+-#  FILESYS_BASE =   [ devfs fdesc fifo mockfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_ext_resolver config_searchfs config_volfs config_appledouble nullfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
++#  FILESYS_BASE =   [ devfs fdesc fifo mockfs sweet_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_ext_resolver config_searchfs config_volfs config_appledouble nullfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
+ #  FILESYS_RELEASE= [ FILESYS_BASE ]
+ #  FILESYS_DEV =    [ FILESYS_BASE config_iocount_trace ]
+ #  FILESYS_DEBUG =  [ FILESYS_BASE config_iocount_trace ]

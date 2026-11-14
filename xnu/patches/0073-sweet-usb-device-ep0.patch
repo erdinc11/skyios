@@ -1,6 +1,8 @@
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+index 84ee521a7..09a0b06bd 100644
 --- a/bsd/dev/sweet_usb.c
 +++ b/bsd/dev/sweet_usb.c
-@@ -13,10 +13,19 @@
+@@ -1,10 +1,19 @@
  #if defined(ARM64_BOARD_CONFIG_SWEET)
  #include <sys/param.h>
  #include <sys/systm.h>
@@ -20,15 +22,7 @@
  
  #define GCC_PA                  0x00100000
  #define GCC_SIZE                0x00090000
-@@ -56,6 +65,7 @@
- 	uint32_t gdscr, cbcr[sizeof(usb_cbcr) / sizeof(usb_cbcr[0])];
- 	bool clocks_on = true;
- 
-+	/* sweetusb=0 off, 1 (default) report state only, 2 also start the USB device */
- 	PE_parse_boot_argn("sweetusb", &enabled, sizeof(enabled));
- 	if (!enabled) {
- 		return;
-@@ -91,6 +101,9 @@
+@@ -78,6 +87,9 @@ sweet_usb_probe(void)
  	printf("SWEET USB: DWC3 GEVNTADR 0x%08x%08x GEVNTSIZ 0x%08x GEVNTCOUNT 0x%08x GHWPARAMS0 0x%08x\n",
  	    usb_rd(dwc, 0xc404), usb_rd(dwc, 0xc400), usb_rd(dwc, 0xc408), usb_rd(dwc, 0xc40c),
  	    usb_rd(dwc, 0xc140));
@@ -38,23 +32,11 @@
  	if (cbcr[5] & CBCR_CLK_OFF) {
  		printf("SWEET USB: ahb2phy clock off; QUSB2 PHY not read\n");
  		return;
-@@ -105,4 +118,386 @@
+@@ -89,4 +101,360 @@ sweet_usb_probe(void)
  	printf("SWEET USB: QUSB2 PLL_STATUS 0x%08x PWR_CTRL1 0x%08x PORT_TUNE1 0x%08x TEST1 0x%08x\n",
  	    usb_rd(phy, 0x1a0), usb_rd(phy, 0x210), usb_rd(phy, 0x240), usb_rd(phy, 0x254));
  }
 +
-+/*
-+ * Step 2: USB device mode with only the default control endpoint, enough
-+ * for the host to enumerate the phone (boot-arg sweetusb=2). ABL leaves
-+ * the DWC3 powered, clocked, in device mode and halted, with the PHY set
-+ * up, so only the device controller is restarted: soft reset, an event
-+ * buffer in our memory, endpoint 0, run. Events are polled from a kernel
-+ * thread (no interrupt), like the UFS driver. DMA is not cache coherent
-+ * (DT qcom,gsi-disable-io-coherency): buffers are cleaned/invalidated.
-+ * Register layout and the control-transfer state machine follow the
-+ * Synopsys DWC3 databook as used by Linux drivers/usb/dwc3 (gadget.c,
-+ * ep0.c).
-+ */
 +#define GCTL            0xc110
 +#define GEVNTADRLO      0xc400
 +#define GEVNTADRHI      0xc404
@@ -90,13 +72,12 @@
 +#define TRBCTL_STATUS3  (4u << 4)
 +#define TRBCTL_DATA     (5u << 4)
 +
-+/* DMA area layout */
-+#define UD_EVT          0x0000          /* event buffer, 4 KiB */
++#define UD_EVT          0x0000
 +#define UD_EVT_SIZE     0x1000
-+#define UD_TRB_OUT      0x1000          /* ep0 OUT TRB */
-+#define UD_TRB_IN       0x1010          /* ep0 IN TRB */
-+#define UD_SETUP        0x1040          /* 8-byte setup packet */
-+#define UD_DATA         0x1100          /* ep0 data stage, 512 bytes */
++#define UD_TRB_OUT      0x1000
++#define UD_TRB_IN       0x1010
++#define UD_SETUP        0x1040
++#define UD_DATA         0x1100
 +#define UD_SIZE         0x4000
 +
 +static struct {
@@ -106,7 +87,7 @@
 +	uint32_t    evt_pos;
 +	int         sleep_chan;
 +	enum { EP0_SETUP, EP0_DATA, EP0_WAIT_STATUS2, EP0_WAIT_STATUS3, EP0_STATUS } state;
-+	bool        data_in;        /* data stage direction */
++	bool        data_in;
 +	uint32_t    events;
 +} ud;
 +
@@ -161,7 +142,6 @@
 +	return -1;
 +}
 +
-+/* One TRB on physical endpoint ep (0 = ep0 OUT, 1 = ep0 IN). */
 +static void
 +ud_start(unsigned ep, uint32_t buf, uint32_t len, uint32_t ctl)
 +{
@@ -195,14 +175,13 @@
 +	ud_start_setup();
 +}
 +
-+/* Descriptors. VID 0x1209 / PID 0x0001 = pid.codes test ID, not a product. */
 +static const uint8_t ud_dev_desc[18] = {
 +	18, 1, 0x00, 0x02, 0x00, 0x00, 0x00, 64,
 +	0x09, 0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 3, 1,
 +};
 +static const uint8_t ud_cfg_desc[18] = {
-+	9, 2, 18, 0, 1, 1, 0, 0x80, 250,                /* config: 1 interface, 500 mA */
-+	9, 4, 0, 0, 0, 0xff, 0x00, 0x00, 0,             /* vendor interface, no endpoints */
++	9, 2, 18, 0, 1, 1, 0, 0x80, 250,
++	9, 4, 0, 0, 0, 0xff, 0x00, 0x00, 0,
 +};
 +static const char *const ud_strings[] = { NULL, "ios-sweet", "Sweet iOS (USB bring-up)", "0001" };
 +
@@ -210,7 +189,7 @@
 +ud_string(unsigned idx, uint8_t *out)
 +{
 +	if (idx == 0) {
-+		out[0] = 4; out[1] = 3; out[2] = 0x09; out[3] = 0x04;   /* en-US */
++		out[0] = 4; out[1] = 3; out[2] = 0x09; out[3] = 0x04;
 +		return 4;
 +	}
 +	if (idx >= sizeof(ud_strings) / sizeof(ud_strings[0])) {
@@ -240,26 +219,26 @@
 +
 +	printf("SWEET USB: setup %02x %02x %04x len %u\n", type, req, value, length);
 +	ud.data_in = (type & 0x80) != 0;
-+	if ((type & 0x60) != 0) {       /* only standard requests */
++	if ((type & 0x60) != 0) {
 +		ok = false;
-+	} else if (req == 6) {          /* GET_DESCRIPTOR */
++	} else if (req == 6) {
 +		switch (value >> 8) {
 +		case 1: memcpy(data, ud_dev_desc, sizeof(ud_dev_desc)); n = sizeof(ud_dev_desc); break;
 +		case 2: memcpy(data, ud_cfg_desc, sizeof(ud_cfg_desc)); n = sizeof(ud_cfg_desc); break;
 +		case 3: n = ud_string(value & 0xff, data); ok = n != 0; break;
 +		default: ok = false; break;
 +		}
-+	} else if (req == 5) {          /* SET_ADDRESS: takes effect now (DWC3 handles the timing) */
++	} else if (req == 5) {
 +		uint32_t dcfg = dwc_rd(DCFG) & ~(0x7fu << 3);
 +		dwc_wr(DCFG, dcfg | ((uint32_t)(value & 0x7f) << 3));
 +		printf("SWEET USB: address %u\n", value & 0x7f);
-+	} else if (req == 9) {          /* SET_CONFIGURATION */
++	} else if (req == 9) {
 +		printf("SWEET USB: configured (%u)\n", value);
-+	} else if (req == 8) {          /* GET_CONFIGURATION */
++	} else if (req == 8) {
 +		data[0] = 1; n = 1;
-+	} else if (req == 0) {          /* GET_STATUS */
++	} else if (req == 0) {
 +		data[0] = 0; data[1] = 0; n = 2;
-+	} else if (req == 11) {         /* SET_INTERFACE */
++	} else if (req == 11) {
 +	} else {
 +		ok = false;
 +	}
@@ -268,7 +247,7 @@
 +		return;
 +	}
 +	if (length == 0) {
-+		ud.state = EP0_WAIT_STATUS2;    /* status stage on XferNotReady */
++		ud.state = EP0_WAIT_STATUS2;
 +		return;
 +	}
 +	ud.state = EP0_DATA;
@@ -278,21 +257,20 @@
 +		}
 +		ud_start(1, UD_DATA, n, TRBCTL_DATA);
 +	} else {
-+		ud_start(0, UD_DATA, 64, TRBCTL_DATA);  /* OUT data is not used here */
++		ud_start(0, UD_DATA, 64, TRBCTL_DATA);
 +	}
 +}
 +
 +static void
 +ud_event(uint32_t ev)
 +{
-+	if (ev & 1) {                   /* device event */
++	if (ev & 1) {
 +		uint32_t type = (ev >> 8) & 0xf;
-+		if (type == 1) {        /* USB reset */
++		if (type == 1) {
 +			dwc_wr(DCFG, dwc_rd(DCFG) & ~(0x7fu << 3));
 +			printf("SWEET USB: bus reset\n");
-+		} else if (type == 2) { /* connect done */
++		} else if (type == 2) {
 +			uint32_t speed = dwc_rd(DSTS) & 7;
-+			/* ep0 max packet: 64 at high/full speed (modify action) */
 +			ud_epcmd(0, DEPCMD_SETEPCONFIG, (0u << 1) | (64u << 3) | (2u << 30),
 +			    (1u << 8) | (1u << 10) | (0u << 25), 0);
 +			ud_epcmd(1, DEPCMD_SETEPCONFIG, (0u << 1) | (64u << 3) | (2u << 30),
@@ -309,13 +287,7 @@
 +	if (ep > 1) {
 +		return;
 +	}
-+	/*
-+	 * Control transfer state machine (Linux dwc3 ep0.c): SETUP completes ->
-+	 * request handled; the data stage (if any) is started right away; the
-+	 * status stage is started when the controller reports XferNotReady
-+	 * with status "control status"; its completion re-arms SETUP.
-+	 */
-+	if (type == 1) {                /* XferComplete */
++	if (type == 1) {
 +		switch (ud.state) {
 +		case EP0_SETUP:
 +			ud_sync(UD_SETUP, 8);
@@ -332,7 +304,7 @@
 +		}
 +		return;
 +	}
-+	if (type == 3 && status == 2) { /* XferNotReady, control status phase */
++	if (type == 3 && status == 2) {
 +		if (ud.state == EP0_WAIT_STATUS2 || ud.state == EP0_WAIT_STATUS3) {
 +			uint32_t ctl = ud.state == EP0_WAIT_STATUS3 ? TRBCTL_STATUS3 : TRBCTL_STATUS2;
 +			ud.state = EP0_STATUS;
@@ -379,7 +351,6 @@
 +	}
 +	ud.dma_pa = ptoa_64(pn);
 +
-+	/* Device controller soft reset (PHY and global setup stay as ABL left them). */
 +	dwc_wr(DCTL, DCTL_CSFTRST);
 +	int i;
 +	for (i = 0; i < 500 && (dwc_rd(DCTL) & DCTL_CSFTRST); i++) {
@@ -393,17 +364,14 @@
 +
 +	dwc_wr(GEVNTADRLO, (uint32_t)(ud.dma_pa + UD_EVT));
 +	dwc_wr(GEVNTADRHI, (uint32_t)((ud.dma_pa + UD_EVT) >> 32));
-+	dwc_wr(GEVNTSIZ, (1u << 31) | UD_EVT_SIZE);     /* interrupt masked: polled */
++	dwc_wr(GEVNTSIZ, (1u << 31) | UD_EVT_SIZE);
 +	dwc_wr(GEVNTCOUNT, dwc_rd(GEVNTCOUNT) & 0xffff);
 +	ud.evt_pos = 0;
 +
-+	/* High speed, address 0 */
 +	uint32_t dcfg = dwc_rd(DCFG) & ~(7u | (0x7fu << 3));
 +	dwc_wr(DCFG, dcfg | 0);
-+	/* Events: disconnect, USB reset, connect done */
 +	dwc_wr(DEVTEN, 0x7);
 +
-+	/* Endpoint 0 OUT/IN: start config, control type, max packet 512 until connect done. */
 +	if (ud_epcmd(0, DEPCMD_DEPSTARTCFG, 0, 0, 0) ||
 +	    ud_epcmd(0, DEPCMD_SETEPCONFIG, (0u << 1) | (512u << 3), (1u << 8) | (1u << 10) | (0u << 25), 0) ||
 +	    ud_epcmd(0, DEPCMD_SETTRANSFRESOURCE, 1, 0, 0) ||
@@ -424,4 +392,4 @@
 +		thread_deallocate(thread);
 +	}
 +}
- #endif /* ARM64_BOARD_CONFIG_SWEET */
+ #endif

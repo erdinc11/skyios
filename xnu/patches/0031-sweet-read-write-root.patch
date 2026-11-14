@@ -1,35 +1,12 @@
---- a/bsd/vfs/vfs_subr.c
-+++ b/bsd/vfs/vfs_subr.c
-@@ -1257,6 +1257,18 @@
- 
- 		mp = vfs_rootmountalloc_internal(vfsp, "root_device");
- 		mp->mnt_devvp = rootvp;
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
-+		/*
-+		 * SWEET has no data volume: /private/var lives on the root, so
-+		 * boot-arg rootrw=1 mounts it read-write from the start.
-+		 */
-+		{
-+			uint32_t rootrw = 0;
-+			if (PE_parse_boot_argn("rootrw", &rootrw, sizeof(rootrw)) && rootrw) {
-+				mp->mnt_flag &= ~MNT_RDONLY;
-+			}
-+		}
-+#endif
- 
- 		if (vfsp->vfc_mountroot) {
- 			error = (*vfsp->vfc_mountroot)(mp, rootvp, ctx);
+diff --git a/bsd/sweet_hfs/core/hfs_vfsutils.c b/bsd/sweet_hfs/core/hfs_vfsutils.c
+index 5734b670c..d0d6a39eb 100644
 --- a/bsd/sweet_hfs/core/hfs_vfsutils.c
 +++ b/bsd/sweet_hfs/core/hfs_vfsutils.c
-@@ -202,10 +202,22 @@
+@@ -202,10 +202,18 @@ OSErr hfs_MountHFSPlusVolume(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp,
  	/* don't mount a writable volume if its dirty, it must be cleaned by fsck_hfs */
  	if ((hfsmp->hfs_flags & HFS_READ_ONLY) == 0 && hfsmp->jnl == NULL &&
  	    (SWAP_BE32(vhp->attributes) & kHFSVolumeUnmountedMask) == 0) {
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
-+		/*
-+		 * SWEET never unmounts its root (no clean shutdown yet), and
-+		 * there is no fsck_hfs before the root mount: take it anyway.
-+		 */
 +		if (vfs_flags(hfsmp->hfs_mp) & MNT_ROOTFS) {
 +			printf("hfs_mounthfsplus: SWEET: mounting dirty non-journaled root read-write\n");
 +		} else {
@@ -44,3 +21,22 @@
  	}
  
  	/* Make sure we can live with the physical block size. */
+diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
+index 125d3eee0..5c3c9c0bf 100644
+--- a/bsd/vfs/vfs_subr.c
++++ b/bsd/vfs/vfs_subr.c
+@@ -1257,6 +1257,14 @@ vfs_mountroot(void)
+ 
+ 		mp = vfs_rootmountalloc_internal(vfsp, "root_device");
+ 		mp->mnt_devvp = rootvp;
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++		{
++			uint32_t rootrw = 0;
++			if (PE_parse_boot_argn("rootrw", &rootrw, sizeof(rootrw)) && rootrw) {
++				mp->mnt_flag &= ~MNT_RDONLY;
++			}
++		}
++#endif
+ 
+ 		if (vfsp->vfc_mountroot) {
+ 			error = (*vfsp->vfc_mountroot)(mp, rootvp, ctx);

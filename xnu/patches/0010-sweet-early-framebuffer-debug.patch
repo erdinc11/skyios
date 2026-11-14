@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
-index e26a1d7..e3579f1 100644
+index e26a1d70f..e3579f110 100644
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
 @@ -56,6 +56,7 @@
@@ -66,7 +66,7 @@ index e26a1d7..e3579f1 100644
  
  	if (debug_boot_arg) {
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index d89b0f1..d0c710d 100644
+index d89b0f19c..6087fa636 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -41,6 +41,7 @@
@@ -77,25 +77,23 @@ index d89b0f1..d0c710d 100644
  #include <arm/cpu_data_internal.h>
  #include <arm/misc_protos.h>
  #include <pexpert/arm64/boot.h>
-@@ -2145,6 +2146,8 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2145,6 +2146,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  
  	ml_enable_monitor();
  
-+	/* The framebuffer VA=PA mapping belongs to the outgoing TTBR0. */
 +	sweet_early_disable();
  	set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
  
  	flush_mmu_tlb();
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
-index ccbb188..777aca4 100644
+index 8f2dec495..3999c7ad3 100644
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -463,6 +463,25 @@ LEXT(start_first_cpu)
+@@ -463,6 +463,24 @@ LEXT(start_first_cpu)
  	mov		x20, x0
  	mov		x21, #0
  
 +#if defined(SWEET)
-+	/* Stage 0: white 64x32 band, no stack or page tables needed. */
 +	MOV64	x0, (0x9c000000 + 2368 * 4320)
 +	mov		w1, #-1
 +	mov		x2, #32
@@ -116,18 +114,11 @@ index ccbb188..777aca4 100644
  	// Set low reset vector before attempting any loads
  	adrp	x0, EXT(LowExceptionVectorBase)@page
  	add		x0, x0, EXT(LowExceptionVectorBase)@pageoff
-@@ -609,6 +628,23 @@ Lkernelcache_base_found:
+@@ -609,6 +627,16 @@ Lkernelcache_base_found:
  	lsr		x5,  x24, #(ARM_TT_L2_SHIFT)
  	create_bootstrap_mapping x14, x15, x5, x3, x2, x9, x10, x11, x12, x13
  
 +#if defined(SWEET)
-+	/*
-+	 * Splash framebuffer: one 32MB Normal-NC block in the EXISTING V=P
-+	 * L2 table. Both framebuffer and RAM use L1 index 0; another call to
-+	 * create_bootstrap_mapping would replace the RAM L2 table.
-+	 * SWEET uses 16K pages and all bring-up RAM is below 4GB, so the first
-+	 * V=P L2 page is bootstrap_pagetables + 2*PGBYTES.
-+	 */
 +	MOV64	x10, 0x9c000000
 +	MOV64	x11, (ARM_TTE_TYPE_BLOCK | ARM_TTE_VALID | ARM_TTE_BLOCK_SH(SH_OUTER_MEMORY) | ARM_TTE_BLOCK_ATTRINDX(CACHE_ATTRINDX_WRITECOMB) | ARM_TTE_BLOCK_AF | ARM_TTE_BLOCK_PNX | ARM_TTE_BLOCK_NX)
 +	orr		x11, x11, x10
@@ -142,16 +133,10 @@ index ccbb188..777aca4 100644
  
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 new file mode 100644
-index 0000000..8f4c808
+index 000000000..e8d52ba41
 --- /dev/null
 +++ b/osfmk/arm64/sweet_early.c
-@@ -0,0 +1,130 @@
-+/*
-+ * Redmi Note 10 Pro bootstrap console. No allocation, locks, ADT parsing or
-+ * per-CPU state: panic() can reach this before a current thread exists.
-+ * start.s maps the splash framebuffer VA=PA as Normal Non-Cacheable memory.
-+ * Stop using that mapping before arm_vm_init tears down bootstrap TTBR0.
-+ */
+@@ -0,0 +1,123 @@
 +#include <arm64/sweet_early.h>
 +
 +#if defined(SWEET)
@@ -170,7 +155,6 @@ index 0000000..8f4c808
 +
 +extern unsigned char iso_font[256 * 16];
 +
-+/* Initialized data must remain writable until disable, including panics. */
 +static unsigned int early_row, early_col;
 +static unsigned int early_started, early_disabled, early_panicking;
 +
@@ -275,14 +259,13 @@ index 0000000..8f4c808
 +	early_disabled = 1;
 +	__asm__ volatile("dsb sy" ::: "memory");
 +}
-+#endif /* SWEET */
++#endif
 diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
 new file mode 100644
-index 0000000..fbbc827
+index 000000000..75a8d0fe5
 --- /dev/null
 +++ b/osfmk/arm64/sweet_early.h
-@@ -0,0 +1,22 @@
-+/* Early screen diagnostics, valid only while the bootstrap TTBR0 is live. */
+@@ -0,0 +1,21 @@
 +#ifndef _ARM64_SWEET_EARLY_H_
 +#define _ARM64_SWEET_EARLY_H_
 +
@@ -305,7 +288,7 @@ index 0000000..fbbc827
 +
 +#endif
 diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
-index c40d57b..b0dad49 100644
+index c40d57bcc..b0dad4927 100644
 --- a/osfmk/conf/files.arm64
 +++ b/osfmk/conf/files.arm64
 @@ -40,6 +40,7 @@ osfmk/arm64/dbgwrap.c		standard
@@ -317,7 +300,7 @@ index c40d57b..b0dad49 100644
  osfmk/arm/io_map.c		standard
  osfmk/arm64/loose_ends.c	standard
 diff --git a/osfmk/kern/debug.c b/osfmk/kern/debug.c
-index 0a00656..437adb1 100644
+index 0a00656a0..d0969a1ac 100644
 --- a/osfmk/kern/debug.c
 +++ b/osfmk/kern/debug.c
 @@ -84,6 +84,9 @@
@@ -330,12 +313,11 @@ index 0a00656..437adb1 100644
  #include <IOKit/IOBSD.h>
  
  #if !(MACH_KDP && CONFIG_KDP_INTERACTIVE_DEBUGGING)
-@@ -1069,6 +1072,11 @@ panic_trap_to_debugger(const char *panic_format_str, va_list *panic_args, unsign
+@@ -1069,6 +1072,10 @@ panic_trap_to_debugger(const char *panic_format_str, va_list *panic_args, unsign
  {
  #pragma clang diagnostic pop
  
 +#if defined(SWEET)
-+	/* No CPU/thread/debugger state is required for this first panic copy. */
 +	sweet_early_panic(panic_format_str, panic_args);
 +#endif
 +

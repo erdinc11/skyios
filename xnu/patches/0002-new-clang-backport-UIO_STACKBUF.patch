@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/decmpfs.c b/bsd/kern/decmpfs.c
-index 95192dd..ff8c5e3 100644
+index 95192dd62..ff8c5e3f1 100644
 --- a/bsd/kern/decmpfs.c
 +++ b/bsd/kern/decmpfs.c
 @@ -515,7 +515,7 @@ decmpfs_fetch_compressed_header(vnode_t vp, decmpfs_cnode *cp, decmpfs_header **
@@ -12,7 +12,7 @@ index 95192dd..ff8c5e3 100644
  
  	/*
 diff --git a/bsd/kern/kpi_socket.c b/bsd/kern/kpi_socket.c
-index 003cfb0..735eaf3 100644
+index 003cfb074..735eaf38c 100644
 --- a/bsd/kern/kpi_socket.c
 +++ b/bsd/kern/kpi_socket.c
 @@ -727,7 +727,7 @@ sock_receive_internal(socket_t sock, struct msghdr *msg, mbuf_t *data,
@@ -25,7 +25,7 @@ index 003cfb0..735eaf3 100644
  	if (sock == NULL) {
  		return EINVAL;
 diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
-index 9de68e1..66a3528 100644
+index 9de68e13c..66a3528a9 100644
 --- a/bsd/kern/sys_generic.c
 +++ b/bsd/kern/sys_generic.c
 @@ -303,7 +303,7 @@ dofileread(vfs_context_t ctx, struct fileproc *fp,
@@ -65,7 +65,7 @@ index 9de68e1..66a3528 100644
  	int spacetype = IS_64BIT_PROCESS(p) ? UIO_USERSPACE64 : UIO_USERSPACE32;
  
 diff --git a/bsd/kern/uipc_syscalls.c b/bsd/kern/uipc_syscalls.c
-index f2bd38e..50625c0 100644
+index f2bd38e5c..561c193b1 100644
 --- a/bsd/kern/uipc_syscalls.c
 +++ b/bsd/kern/uipc_syscalls.c
 @@ -3561,7 +3561,7 @@ sendfile(proc_ref_t p, struct sendfile_args *uap, __unused int *retval)
@@ -73,12 +73,12 @@ index f2bd38e..50625c0 100644
  		unsigned int    nbufs = SFUIOBUFS, i;
  		uio_t   auio;
 -		uio_stackbuf_t    uio_buf[UIO_SIZEOF(SFUIOBUFS)]; /* 1 KB !!! */
-+		UIO_STACKBUF(uio_buf, SFUIOBUFS); /* 1 KB !!! */
++		UIO_STACKBUF(uio_buf, SFUIOBUFS);
  		size_t  uiolen;
  		user_ssize_t    rlen;
  		off_t   pgoff;
 diff --git a/bsd/nfs/nfs_serv.c b/bsd/nfs/nfs_serv.c
-index 6ae9b6b..8bda864 100644
+index 6ae9b6bc3..8bda8643a 100644
 --- a/bsd/nfs/nfs_serv.c
 +++ b/bsd/nfs/nfs_serv.c
 @@ -769,7 +769,7 @@ nfsrv_readlink(
@@ -127,18 +127,13 @@ index 6ae9b6b..8bda864 100644
  	int len, nlen, rem, xfer, error, attrerr, gotfh, gotattr;
  	int siz, dircount, maxcount, fullsiz, eofflag, dirlen, nentries, isdotdot;
 diff --git a/bsd/sys/uio_internal.h b/bsd/sys/uio_internal.h
-index 74a2036..63e9f27 100644
+index 74a2036cf..d81cc3d34 100644
 --- a/bsd/sys/uio_internal.h
 +++ b/bsd/sys/uio_internal.h
-@@ -172,6 +172,14 @@ __END_DECLS
+@@ -172,6 +172,9 @@ __END_DECLS
  
  typedef char __attribute__((aligned(_Alignof(union iovecs)))) uio_stackbuf_t;
  
-+/*
-+ * UIO_STACKBUF - declare a correctly sized and aligned stack buffer for
-+ *	uio_createwithbuffer(). Backported from later xnu: newer clang rejects
-+ *	arrays of the over-aligned uio_stackbuf_t.
-+ */
 +#define UIO_STACKBUF(name, niov) \
 +	uint64_t name[(UIO_SIZEOF(niov) + sizeof(uint64_t) - 1) / sizeof(uint64_t)]
 +
@@ -146,7 +141,7 @@ index 74a2036..63e9f27 100644
  	( (a_uio_t)->uio_segflg == UIO_USERSPACE32 || (a_uio_t)->uio_segflg == UIO_PHYS_USERSPACE32 || \
  	  (a_uio_t)->uio_segflg == UIO_USERISPACE32 )
 diff --git a/bsd/vfs/vfs_attrlist.c b/bsd/vfs/vfs_attrlist.c
-index cbaa0b2..963acec 100644
+index cbaa0b221..963acecba 100644
 --- a/bsd/vfs/vfs_attrlist.c
 +++ b/bsd/vfs/vfs_attrlist.c
 @@ -878,7 +878,7 @@ static int
@@ -195,7 +190,7 @@ index cbaa0b2..963acec 100644
  	int eofflag;
  	uint64_t options;
 diff --git a/bsd/vfs/vfs_lookup.c b/bsd/vfs/vfs_lookup.c
-index a05c8e7..94b4383 100644
+index a05c8e767..94b438308 100644
 --- a/bsd/vfs/vfs_lookup.c
 +++ b/bsd/vfs/vfs_lookup.c
 @@ -1670,7 +1670,7 @@ lookup_handle_symlink(struct nameidata *ndp, vnode_t *new_dp, bool *new_dp_has_i
@@ -208,7 +203,7 @@ index a05c8e7..94b4383 100644
  	u_int linklen = 0;
  	struct componentname *cnp = &ndp->ni_cnd;
 diff --git a/bsd/vfs/vfs_quota.c b/bsd/vfs/vfs_quota.c
-index d047621..f3e1dac 100644
+index d0476214e..f3e1daca6 100644
 --- a/bsd/vfs/vfs_quota.c
 +++ b/bsd/vfs/vfs_quota.c
 @@ -382,7 +382,7 @@ dqfileopen(struct quotafile *qfp, int type)
@@ -248,7 +243,7 @@ index d047621..f3e1dac 100644
  	if (dq->dq_id == 0) {
  		dq->dq_flags &= ~DQ_MOD;
 diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
-index 66b3cb7..125d3ee 100644
+index 66b3cb702..125d3eee0 100644
 --- a/bsd/vfs/vfs_subr.c
 +++ b/bsd/vfs/vfs_subr.c
 @@ -11021,7 +11021,7 @@ rmdir_remove_orphaned_appleDouble(vnode_t vp, vfs_context_t ctx, int * restart_f
@@ -261,7 +256,7 @@ index 66b3cb7..125d3ee 100644
  	void *dir_pos;
  	void *dir_end;
 diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
-index 23ee4d5..90e68bb 100644
+index 23ee4d5fa..90e68bb47 100644
 --- a/bsd/vfs/vfs_syscalls.c
 +++ b/bsd/vfs/vfs_syscalls.c
 @@ -7264,7 +7264,7 @@ readlinkat_internal(vfs_context_t ctx, int fd, vnode_t lnk_vp, user_addr_t path,
@@ -355,7 +350,7 @@ index 23ee4d5..90e68bb 100644
  	if (uap->options & (XATTR_NOFOLLOW | XATTR_NOSECURITY | XATTR_NODEFAULT)) {
  		return EINVAL;
 diff --git a/bsd/vfs/vfs_vnops.c b/bsd/vfs/vfs_vnops.c
-index 5b51e9c..3a94ed4 100644
+index 5b51e9c46..3a94ed476 100644
 --- a/bsd/vfs/vfs_vnops.c
 +++ b/bsd/vfs/vfs_vnops.c
 @@ -964,7 +964,7 @@ vn_rdwr_64(
@@ -368,7 +363,7 @@ index 5b51e9c..3a94ed4 100644
  	context.vc_thread = current_thread();
  	context.vc_ucred = cred;
 diff --git a/security/mac_vfs_subr.c b/security/mac_vfs_subr.c
-index 97028c0..ae73f62 100644
+index 97028c06b..ae73f6215 100644
 --- a/security/mac_vfs_subr.c
 +++ b/security/mac_vfs_subr.c
 @@ -167,7 +167,7 @@ mac_vnop_setxattr(struct vnode *vp, const char *name, char *buf, size_t len)

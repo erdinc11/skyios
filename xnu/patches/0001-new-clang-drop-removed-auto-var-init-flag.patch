@@ -1,5 +1,5 @@
 diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
-index 5bd6f23..8460893 100644
+index 5bd6f23dd..84608939c 100644
 --- a/makedefs/MakeInc.def
 +++ b/makedefs/MakeInc.def
 @@ -306,7 +306,6 @@ CFLAGS_GEN = $(DEBUG_CFLAGS) -nostdinc \

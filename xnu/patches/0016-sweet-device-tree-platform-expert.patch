@@ -1,41 +1,9 @@
-diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
---- a/iokit/KernelConfigTables.cpp
-+++ b/iokit/KernelConfigTables.cpp
-@@ -34,6 +34,14 @@
- 
- const char * gIOKernelConfigTables =
-     "("
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
-+    "   {"
-+    "     'IOClass'         = SweetPlatformExpert;"
-+    "     'IOProviderClass' = IOPlatformExpertDevice;"
-+    "     'IONameMatch'     = 'xiaomi,sweet';"
-+    "     'IOProbeScore'    = 10000:32;"
-+    "   },"
-+#endif
-     "   {"
-     "     'IOClass'         = IOPanicPlatform;"
-     "     'IOProviderClass' = IOPlatformExpertDevice;"
-diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
---- a/iokit/conf/files.arm64
-+++ b/iokit/conf/files.arm64
-@@ -5,3 +5,6 @@
- 
- # SMP
- iokit/Kernel/arm/AppleARMSMP.cpp    					optional iokitcpp
-+
-+# SWEET device-tree platform (empty translation unit on other boards)
-+iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
 diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
 new file mode 100644
+index 000000000..215f4a4f0
 --- /dev/null
 +++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-@@ -0,0 +1,86 @@
-+/*
-+ * Minimal device-tree platform expert for Redmi Note 10 Pro (sweet).
-+ * Uses XNU's normal platform, power-domain and nub initialization. Hardware
-+ * interrupt and power-management services are supplied by separate drivers.
-+ */
+@@ -0,0 +1,76 @@
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(SWEET)
@@ -84,11 +52,6 @@ new file mode 100644
 +void
 +SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
 +{
-+	/*
-+	 * The stock implementation requires an Apple NVRAM /options node.
-+	 * SWEET has no NVRAM controller; publish real CPU/device nodes without
-+	 * inventing one. createNubs adds the topology's logical CPU/cluster IDs.
-+	 */
 +	IORegistryEntry *cpus = root->childFromPath("cpus", gIODTPlane);
 +	if (cpus != NULL) {
 +		createNubs(this, IODTFindMatchingEntries(cpus, kIODTExclusive, NULL));
@@ -116,4 +79,33 @@ new file mode 100644
 +	strlcpy(name, "Redmi Note 10 Pro", (size_t)maxLength);
 +	return true;
 +}
-+#endif /* SWEET */
++#endif
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index 2b14eda8f..e58bad1d7 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -34,6 +34,14 @@
+ 
+ const char * gIOKernelConfigTables =
+     "("
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    "   {"
++    "     'IOClass'         = SweetPlatformExpert;"
++    "     'IOProviderClass' = IOPlatformExpertDevice;"
++    "     'IONameMatch'     = 'xiaomi,sweet';"
++    "     'IOProbeScore'    = 10000:32;"
++    "   },"
++#endif
+     "   {"
+     "     'IOClass'         = IOPanicPlatform;"
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
+diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
+index f731d43a3..256296d17 100644
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -5,3 +5,5 @@ iokit/Kernel/IOPMrootDomain.cpp    					optional iokitcpp
+ 
+ # SMP
+ iokit/Kernel/arm/AppleARMSMP.cpp    					optional iokitcpp
++
++iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp

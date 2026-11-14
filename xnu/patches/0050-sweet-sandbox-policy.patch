@@ -1,19 +1,11 @@
+diff --git a/bsd/kern/sweet_amfi.c b/bsd/kern/sweet_amfi.c
+index b2b52d790..1d85b6692 100644
 --- a/bsd/kern/sweet_amfi.c
 +++ b/bsd/kern/sweet_amfi.c
-@@ -272,10 +272,54 @@
+@@ -224,10 +224,44 @@ sweet_amfi_vnode_check_signature(struct vnode *vp, __unused struct label *label,
  	return 0;
  }
  
-+/*
-+ * Policy "Sandbox": libsystem_sandbox calls __mac_syscall("Sandbox", op,
-+ * arg). Without a policy of that name every call fails with ENOPOLICY and
-+ * launchd reports mach lookups as "error = 159: Sandbox restriction"
-+ * (backboardd cannot reach mobilegestalt or iohideventsystem; tccd:
-+ * "profile not found"). SWEET runs without a sandbox: operations succeed
-+ * (checks allow, profile init is accepted); the few that must return
-+ * data (container paths, extension tokens) fail with ENOENT. The first
-+ * use of each operation number is logged.
-+ */
 +static uint64_t sweet_sandbox_seen;
 +
 +static int
@@ -26,10 +18,10 @@
 +		printf("SWEET Sandbox: %s op %d\n", name, call);
 +	}
 +	switch (call) {
-+	case 4:         /* container path (audit token / pid) */
-+	case 5:         /* extension issue */
-+	case 6:         /* extension consume */
-+	case 0x43:      /* container expected */
++	case 4:
++	case 5:
++	case 6:
++	case 0x43:
 +		return ENOENT;
 +	default:
 +		return 0;
@@ -55,7 +47,7 @@
  static struct mac_policy_conf sweet_amfi_mac_conf = {
  	.mpc_name = "SWEET AMFI",
  	.mpc_fullname = "SWEET built-in Mobile File Integrity",
-@@ -293,5 +337,8 @@
+@@ -244,5 +278,8 @@ sweet_amfi_policy_register(void)
  	int error = mac_policy_register(&sweet_amfi_mac_conf, &sweet_amfi_mac_handle, NULL);
  	printf("SWEET AMFI: platform binary policy %s (%d)\n",
  	    error ? "NOT registered" : "registered", error);
@@ -63,4 +55,4 @@
 +	printf("SWEET Sandbox: permissive policy %s (%d)\n",
 +	    error ? "NOT registered" : "registered", error);
  }
- #endif /* ARM64_BOARD_CONFIG_SWEET */
+ #endif

@@ -1,11 +1,12 @@
+diff --git a/bsd/net/rtsock.c b/bsd/net/rtsock.c
+index 8d5b33576..f6b3e5158 100644
 --- a/bsd/net/rtsock.c
 +++ b/bsd/net/rtsock.c
-@@ -510,6 +510,25 @@
+@@ -510,6 +510,24 @@ route_output(struct mbuf *m, struct socket *so)
  		SIN6(info.rti_info[RTAX_DST])->sin6_addr.s6_addr16[1] = 0;
  	}
  
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
-+	/* SWEET: which process changes IPv4 routes (network bring-up). */
 +	if ((rtm->rtm_type == RTM_ADD || rtm->rtm_type == RTM_DELETE || rtm->rtm_type == RTM_CHANGE) &&
 +	    info.rti_info[RTAX_DST] != NULL && info.rti_info[RTAX_DST]->sa_family == AF_INET) {
 +		static int sweet_rt_logged;
@@ -26,14 +27,15 @@
  	switch (rtm->rtm_type) {
  	case RTM_ADD:
  		if (info.rti_info[RTAX_GATEWAY] == NULL) {
+diff --git a/bsd/netinet/in.c b/bsd/netinet/in.c
+index 7ea298703..15919d75b 100644
 --- a/bsd/netinet/in.c
 +++ b/bsd/netinet/in.c
-@@ -1210,6 +1210,20 @@
+@@ -1210,6 +1210,19 @@ in_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp,
  	/* In case it's NULL, make sure it came from the kernel */
  	VERIFY(so != NULL || p == kernproc);
  
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
-+	/* SWEET: which process sets IPv4 addresses on which interface. */
 +	if ((cmd == SIOCAIFADDR || cmd == SIOCDIFADDR) && ifp != NULL) {
 +		static int sweet_in_logged;
 +		if (sweet_in_logged++ < 100) {
