@@ -2,6 +2,14 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> UPDATE 2026-11-15 (later): os_log readable; wallpaper root cause = no "AMFI" MAC policy <<<
+
+- **Reading os_log from a pulled logarchive works:** Mandiant macos-UnifiedLogs (`git clone https://github.com/mandiant/macos-UnifiedLogs`; `cd examples; DEVELOPER_DIR=/Applications/Xcode-26.5.0.app/Contents/Developer SDKROOT=$(xcrun --sdk macosx --show-sdk-path) CC=$(xcrun -f clang) cargo build --release -p unifiedlog_iterator`; the CLT SDK 27 linker fails with tapi arm64e.x1), then `unifiedlog_iterator -m log-archive -i research/root/la/0081m.logarchive -o out.jsonl` = 1.9 M messages. macOS `log show` refuses this archive ("partial or missing metadata", 1970 timestamps). Built in the scratchpad, not committed.
+- **Observed in the 0081m log:** lsd: `amfi_interface_query_bootarg_state returned error Policy not found`, `Failed to read extension point cache ... com.apple.extensionKit.errorDomain Code=12 "Unable to find AMFI"`, then for EVERY appex `Extension cache does not have an entry for <point>` / `does not correspond to a known extension point` / `Ignoring app extension`. That covers posters (CollectionsPoster, PhotosPosterProvider, LegacyPoster, ...), widgets, Messages, intents and more. PosterBoard: `extension point not found for query`. pkd: `could not create extension point record ... -10814`. So the empty poster gallery (and black wallpaper even with Autobahn off) comes from the missing AMFI policy, not from PosterBoard.
+- libmis `__mac_syscall("AMFI", n, arg)`: 0x5f cdhash_in_trustcache (arg {cdhash[20], pad, u64 result@0x18}), **0x60 query_bootarg_state (u64 out)**, 0x61/0x62 get local signing private/public key, 0x63 set public key, 0x64 authorize local signing; launch constraints use posix_spawnattr_setmacpolicyinfo_np("AMFI").
+- **xnu 0097:** the built-in policy formerly named "SWEET AMFI" is now **"AMFI"** with mpo_policy_syscall: 0x60 -> 0, 0x5f -> result 1, others ENOTSUP; logs `SWEET AMFI: <proc> syscall <n> -> <err>` once per call number. Image `shim/out/shim-boot-0097.img` (GPU off, `sweetautobahn=1` restores Autobahn to enabled). Not yet booted.
+- The Autobahn override file (0095) stays on disk; sweetautobahn=1 rewrites it with Enabled true.
+
 ### >>> UPDATE 2026-11-15: cmd-db read; idle CPU hogs found; PosterBoard (wallpaper) crash diagnosed <<<
 
 - **cmd-db works (boot 0091c, `logs/usbnet-0091c.out`, kernel-rs commit 4a32eb9):** cmd-db at 0x85f20000, 0x1078 bytes. gfx.lvl = [0,16,64,128,192,256,320,384,416], mx.lvl = [0,16,192,320,384], cx.lvl = [0,16,64,128,192,256,384]. GPU stage A+B again OK (0xbabeface). Next GPU step is still stage C (RSC/PDC, OOB BOOT_SLUMBER, SPTPRAC, first GPU register).
