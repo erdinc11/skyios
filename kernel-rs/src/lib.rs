@@ -4,11 +4,17 @@
 mod xnu;
 mod gpu;
 
+extern "C" fn gpu_thread(_arg: usize) {
+    let secs = xnu::boot_arg_u32(c"sweetgpu_delay").unwrap_or(60);
+    xnu::sleep_ms(secs * 1000);
+    gpu::bringup();
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn sweet_rs_init() {
     xnu::log(c"SWEET RS: kernel Rust online\n");
     if xnu::boot_arg_u32(c"sweetgpu").unwrap_or(0) != 0 {
-        gpu::probe();
+        xnu::spawn(gpu_thread, 0);
     }
 }
 

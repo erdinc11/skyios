@@ -9,6 +9,8 @@ mod sys {
         pub fn sweet_rs_io_map(pa: u64, size: u64) -> usize;
         pub fn sweet_rs_boot_arg_u32(name: *const c_char, out: *mut u32) -> bool;
         pub fn sweet_rs_delay_us(us: u32);
+        pub fn sweet_rs_sleep_ms(ms: u32);
+        pub fn sweet_rs_spawn(f: extern "C" fn(usize), arg: usize) -> bool;
     }
 }
 
@@ -57,6 +59,14 @@ pub fn boot_arg_u32(name: &CStr) -> Option<u32> {
 
 pub fn delay_us(us: u32) {
     unsafe { sys::sweet_rs_delay_us(us) }
+}
+
+pub fn sleep_ms(ms: u32) {
+    unsafe { sys::sweet_rs_sleep_ms(ms) }
+}
+
+pub fn spawn(f: extern "C" fn(usize), arg: usize) -> bool {
+    unsafe { sys::sweet_rs_spawn(f, arg) }
 }
 
 pub struct Mmio {
