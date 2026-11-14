@@ -2,6 +2,17 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> UPDATE 2026-11-15: cmd-db read; idle CPU hogs found; PosterBoard (wallpaper) crash diagnosed <<<
+
+- **cmd-db works (boot 0091c, `logs/usbnet-0091c.out`, kernel-rs commit 4a32eb9):** cmd-db at 0x85f20000, 0x1078 bytes. gfx.lvl = [0,16,64,128,192,256,320,384,416], mx.lvl = [0,16,192,320,384], cx.lvl = [0,16,64,128,192,256,384]. GPU stage A+B again OK (0xbabeface). Next GPU step is still stage C (RSC/PDC, OOB BOOT_SLUMBER, SPTPRAC, first GPU register).
+- **Idle CPU hogs (observed, SWEET TOP + sweetsample on 0091d):**
+  - `vmd` (= visual voicemail daemon, not VM) uses ~100% (one core) all the time. Its samples sit in `-[CoreTelephonyClientMux _connect_sync]` -> `_xpc_connection_bootstrap_look_up_slow`. It loops on CoreTelephony lookups because CommCenter was removed. launchd ~31% is most likely the other side of those lookups (guess).
+  - bluetoothd and fairplayd.H2 were exec'd ~390 times per boot (no hardware).
+  - **Patch 0091 (commits 243c0b0, 615e43f):** boot-arg `sweetnoexec=a,b,...` (default `bluetoothd,fairplayd.H2,vmd`). kern_exec refuses these names with EACCES. Boot 0091d (default without vmd): bluetoothd/fairplayd execs gone, launchd still 31%, vmd still 100%. **Image `shim/out/shim-boot-0091e.img` (vmd also blocked) is built, not yet booted.** Local kernel `xnu/out-0091-local/`.
+- **Touch:** in 0091c the GT9896 path reports 0 errors at 100 Hz polling; the sluggish feel is the CPU renderer (6-7 fps during interaction, backboardd up to 330%), plus the hogs above.
+- **No wallpaper = PosterBoard crashes on every boot (all logs since 0081m):** SIGTRAP in `-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]` (BSAssert line 3431 "Invalid condition not satisfying: !_stateLock_switcherConfiguration"), from prewarm -> executeUpdate -> `_stateLock_updateExtensions:...`. Flag ivar 0xe9 (set-up done) is only set after the first-time setup; ivar 0x98 (switcher configuration) is filled by the lazy getter `_stateLock_switcherConfiguration`. So something in our environment calls the getter before the first setup (not identified). Possible fixes: find the early caller (sweetscan/sample PosterBoard), or binary-patch the cbnz at 0x1c1777ab4 (unslid) in the cache, which needs an image change. The second PosterBoard launch does not crash, but no poster extension is ever exec'd.
+- Symbolicate: `research/tools-dl/ipsw dyld a2s research/root/dyld/dyld_shared_cache_arm64 <addr - slide>` (ipsw is not on PATH any more).
+
 ### >>> UPDATE 2026-11-14 (late night): GPU stage B works, the GMU firmware runs <<<
 
 - **The first locally built kernel boots on the phone** (Xcode 26.5, `xnu/out-0090-local/`, image `shim/out/shim-boot-0090b.img`, booted 14:33 UTC): lock screen, USB link, live log.
