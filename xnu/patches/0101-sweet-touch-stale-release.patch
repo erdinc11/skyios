@@ -1,0 +1,28 @@
+--- a/bsd/dev/sweet_touch.c
++++ b/bsd/dev/sweet_touch.c
+@@ -601,7 +601,8 @@
+ 	st.kind = goodix ? TOUCH_GOODIX : TOUCH_FTS;
+ 	printf("SWEET TOUCH: selected %s, 1080x2400, poll=10ms irq-hint=%d\n",
+ 	    goodix ? "GT9896 Yellowstone" : "Focaltech 54:52", st.irq_hint);
+-	unsigned errors = 0, total_errors = 0, ticks = 0;
++	unsigned errors = 0, total_errors = 0, ticks = 0, stale = 0, stale_releases = 0;
++	uint32_t seen_frames = 0;
+ 	while (!st.dead) {
+ 		if (!st.irq_hint || st.active || !(touch_rd(st.gpio, TOUCH_GPIO_IO(9)) & 1u) ||
+ 		    (++ticks % 10u) == 0) {
+@@ -622,6 +623,15 @@
+ 			} else {
+ 				errors = 0;
+ 			}
++		}
++		if (st.frames != seen_frames || !st.active) {
++			seen_frames = st.frames;
++			stale = 0;
++		} else if (++stale == 12) {
++			stale_releases++;
++			printf("SWEET TOUCH: no frame for 120 ms with a finger down; releasing (%u so far)\n",
++			    stale_releases);
++			touch_report(0, st.x, st.y);
+ 		}
+ 		if ((++st.polls % 1000u) == 0) {
+ 			printf("SWEET TOUCH: %u polls, %u frames, %u errors, head %#x, active %#x\n",
