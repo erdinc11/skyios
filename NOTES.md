@@ -2,6 +2,11 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> MILESTONE 2026-11-15: Adreno 618 GX powered, first GPU register read (boot 0103g) <<<
+
+- `logs/live-0103g.txt`, image `shim/out/shim-boot-0103g.img` (sweetgpu=4): `oob boot_slumber (gx idx 8, mx idx 4): ACK intr info 0x40000000`, `sptprac status 0x00000028 (on)`, `hfi ctrl status 0x1 (HFI up)`, `gpucc gx_gdscr 0x00222001 -> 0xf8222000`, `rbbm_status 0x00000001`. The fix was GMU_RPMH_CTRL (see below). Phone stays up.
+- Next GPU steps (a6xx_hfi_start legacy v1 + a6xx_hw_init): HFI messages GMU_INIT / FW_VERSION / perf table (DCVS from the phone OPPs) / bus table; GPU side: RBBM_SW_RESET, VBIF/GBIF and UCHE setup, SQE firmware (research/gpu-fw/a630_sqe.fw) into a GPU buffer mapped in the GPU SMMU context (gfx3d_user SID 0, needs its own page tables), CP_SQE_INSTR_BASE, ringbuffer + CP_ME_INIT, zap shader via TZ (PAS id 13) or skip secure mode, then a first CP_NOP / scratch write to prove command execution.
+
 ### >>> UPDATE 2026-11-15 (later): os_log readable; wallpaper root cause = no "AMFI" MAC policy <<<
 
 - **Reading os_log from a pulled logarchive works:** Mandiant macos-UnifiedLogs (`git clone https://github.com/mandiant/macos-UnifiedLogs`; `cd examples; DEVELOPER_DIR=/Applications/Xcode-26.5.0.app/Contents/Developer SDKROOT=$(xcrun --sdk macosx --show-sdk-path) CC=$(xcrun -f clang) cargo build --release -p unifiedlog_iterator`; the CLT SDK 27 linker fails with tapi arm64e.x1), then `unifiedlog_iterator -m log-archive -i research/root/la/0081m.logarchive -o out.jsonl` = 1.9 M messages. macOS `log show` refuses this archive ("partial or missing metadata", 1970 timestamps). Built in the scratchpad, not committed.
