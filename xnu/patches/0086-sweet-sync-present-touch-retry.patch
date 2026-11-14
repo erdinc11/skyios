@@ -1,0 +1,150 @@
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -118,6 +118,8 @@
+ 	uint32_t      fFadeStep;      /* fade-out steps done while off */
+ 	/* Frame statistics, logged every 5 s while frames change (sweetfb_stats). */
+ 	bool          fStats;
++	bool          fSync;          /* copy in SwapEnd (sweetfb_sync, default 1) */
++	IOLock       *fPresentLock;   /* one panel copy at a time */
+ 	uint32_t      fStatSwaps, fStatPresents;
+ 	uint64_t      fStatPresentAbs, fStatPresentMaxAbs;
+ 
+@@ -126,6 +128,7 @@
+ 	void removeClient(IOMobileFramebufferUserClient *client);
+ 	void swap(const uint8_t *rec);
+ 	void present(const uint8_t *rec);
++	void presentTimed(const uint8_t *rec);
+ };
+ 
+ OSDefineMetaClassAndStructors(AppleCLCD, IOMobileFramebuffer);
+@@ -202,6 +205,13 @@
+ 	int stats = 1;
+ 	PE_parse_boot_argn("sweetfb_stats", &stats, sizeof(stats));
+ 	fStats = stats != 0;
++	int sync = 1;
++	PE_parse_boot_argn("sweetfb_sync", &sync, sizeof(sync));
++	fSync = sync != 0;
++	fPresentLock = IOLockAlloc();
++	if (fPresentLock == NULL) {
++		return false;
++	}
+ 	fVsync->setTimeoutUS(SWEET_FB_VSYNC_US);
+ 
+ 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
+@@ -260,21 +270,15 @@
+ 	}
+ 	IOLockUnlock(fb->fLock);
+ 	if (rec != NULL) {
+-		uint64_t t0 = mach_absolute_time();
+-		fb->present(rec);
+-		uint64_t dt = mach_absolute_time() - t0;
++		fb->presentTimed(rec);
+ 		IOFreeData(rec, SWEET_FB_SWAP_REC_SIZE);
+-		fb->fStatPresents++;
+-		fb->fStatPresentAbs += dt;
+-		if (dt > fb->fStatPresentMaxAbs) {
+-			fb->fStatPresentMaxAbs = dt;
+-		}
+ 	}
+ 	if (fb->fStats && (count % 300) == 0) {
+ 		IOLockLock(fb->fLock);
+ 		uint32_t swaps = fb->fStatSwaps;
+ 		fb->fStatSwaps = 0;
+ 		IOLockUnlock(fb->fLock);
++		IOLockLock(fb->fPresentLock);
+ 		if (swaps != 0 || fb->fStatPresents != 0) {
+ 			uint64_t avg = 0, max = 0;
+ 			if (fb->fStatPresents != 0) {
+@@ -284,8 +288,11 @@
+ 			IOLog("SWEET FB: 5 s: %u swaps (%u.%u/s), %u presents, copy avg %llu us max %llu us\n",
+ 			    swaps, swaps / 5, (swaps % 5) * 2, fb->fStatPresents, avg / 1000, max / 1000);
+ 		}
++		IOLockUnlock(fb->fPresentLock);
++		IOLockLock(fb->fPresentLock);
+ 		fb->fStatPresents = 0;
+ 		fb->fStatPresentAbs = fb->fStatPresentMaxAbs = 0;
++		IOLockUnlock(fb->fPresentLock);
+ 	}
+ 	sender->setTimeoutUS(SWEET_FB_VSYNC_US);
+ }
+@@ -332,12 +339,39 @@
+ {
+ 	IOLockLock(fLock);
+ 	memcpy(fPending, rec, SWEET_FB_SWAP_REC_SIZE);
+-	fDirty = true;
++	bool now = fSync && !fPowerOff;
++	fDirty = !now;
+ 	fStatSwaps++;
+ 	IOLockUnlock(fLock);
++	if (now) {
++		presentTimed(rec);
++	}
+ 	if ((++sweet_fb_swap_count % 1000) == 0) {
+ 		IOLog("SWEET FB: %llu swaps\n", sweet_fb_swap_count);
++	}
++}
++
++/*
++ * With sweetfb_sync (default) SwapEnd copies the frame before returning:
++ * the client may redraw a surface as soon as the next swap replaces it, so
++ * a late copy from the vsync timer could show a half-drawn frame, and
++ * frames swapped between two ticks were dropped. At full CPU clock (0084)
++ * the copy takes about 3 ms. The timer path stays for sweetfb_sync=0 and
++ * for the redraw after display on.
++ */
++void
++AppleCLCD::presentTimed(const uint8_t *rec)
++{
++	IOLockLock(fPresentLock);
++	uint64_t t0 = mach_absolute_time();
++	present(rec);
++	uint64_t dt = mach_absolute_time() - t0;
++	fStatPresents++;
++	fStatPresentAbs += dt;
++	if (dt > fStatPresentMaxAbs) {
++		fStatPresentMaxAbs = dt;
+ 	}
++	IOLockUnlock(fPresentLock);
+ }
+ 
+ void
+--- a/bsd/dev/sweet_touch.c
++++ b/bsd/dev/sweet_touch.c
+@@ -622,18 +622,31 @@
+ 	st.kind = goodix ? TOUCH_GOODIX : TOUCH_FTS;
+ 	printf("SWEET TOUCH: selected %s, 1080x2400, poll=10ms irq-hint=%d\n",
+ 	    goodix ? "GT9896 Yellowstone" : "Focaltech 54:52", st.irq_hint);
+-	unsigned errors = 0, ticks = 0;
++	unsigned errors = 0, total_errors = 0, ticks = 0;
+ 	while (!st.dead) {
+ 		/* Optional IRQ hint still reads every 100ms, and always while down. */
+ 		if (!st.irq_hint || st.active || !(touch_rd(st.gpio, TOUCH_GPIO_IO(9)) & 1u) ||
+ 		    (++ticks % 10u) == 0) {
+ 			int err = st.kind == TOUCH_GOODIX ? touch_goodix() : touch_focaltech();
+-			if (err) {
+-				if ((errors++ % 100u) == 0) {
+-					printf("SWEET TOUCH: report err=%d irq=%#x\n", err, st.irq_status);
++			if (err == EIO && !st.dead) {
++				/*
++				 * Polled reads can catch the IC while it rewrites the
++				 * report (bad checksum, no bus error): read again 2 ms
++				 * later instead of losing a 10 ms frame.
++				 */
++				touch_wait(2);
++				err = st.kind == TOUCH_GOODIX ? touch_goodix() : touch_focaltech();
++			}
++			if (err) {
++				total_errors++;
++				if ((total_errors % 100u) == 1) {
++					printf("SWEET TOUCH: report err=%d irq=%#x (%u errors so far)\n",
++					    err, st.irq_status, total_errors);
+ 				}
+-				if (errors == 10) {
+-					touch_report(0, st.x, st.y); /* release after persistent bad reads */
++				/* Release only after ~300 ms of bad reads: 10 (100 ms)
++				 * dropped held fingers and drags on single torn reads. */
++				if (++errors == 30) {
++					touch_report(0, st.x, st.y);
+ 				}
+ 			} else {
+ 				errors = 0;

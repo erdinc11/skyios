@@ -41,7 +41,16 @@ echo "$ifname up: 192.168.7.1 <-> phone 192.168.7.2; live log on udp/5140" >&2
 
 listen_udp() {
 	port=5140
-	if command -v socat >/dev/null 2>&1; then
+	# BSD nc -ukl locks onto the first sender: a rebooted phone (new source
+	# port) is then ignored. A plain recvfrom loop takes every datagram.
+	if command -v python3 >/dev/null 2>&1; then
+		python3 -uc 'import socket,sys
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+s.bind(("",'"$port"'))
+while True:
+    sys.stdout.buffer.write(s.recv(65536)); sys.stdout.flush()'
+	elif command -v socat >/dev/null 2>&1; then
 		socat -u "udp-recv:$port,reuseaddr" -
 	elif command -v ncat >/dev/null 2>&1; then
 		ncat -l -u -k "$port"
