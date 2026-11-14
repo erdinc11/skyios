@@ -1,0 +1,47 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7325,6 +7325,31 @@
+ 	return error;
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++static bool
++sweet_noexec(const char *name)
++{
++	static char list[128] = "bluetoothd,fairplayd.H2";
++	static int parsed;
++	if (!parsed) {
++		(void)PE_parse_boot_argn("sweetnoexec", list, sizeof(list));
++		parsed = 1;
++	}
++	size_t n = strlen(name);
++	for (const char *s = list; *s;) {
++		const char *e = s;
++		while (*e && *e != ',') {
++			e++;
++		}
++		if ((size_t)(e - s) == n && strncmp(s, name, n) == 0) {
++			return true;
++		}
++		s = *e ? e + 1 : e;
++	}
++	return false;
++}
++#endif
++
+ static int
+ process_signature(proc_t p, struct image_params *imgp)
+ {
+@@ -7412,6 +7437,12 @@
+ 				goto done;
+ 			}
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
++			if (sweet_noexec(p->p_name)) {
++				signature_failure_reason = os_reason_create(OS_REASON_EXEC,
++				    EXEC_EXIT_REASON_WRONG_PLATFORM);
++				error = EACCES;
++				goto done;
++			}
+ 			printf("exec %s\n", p->p_name);
+ #else
+ 			printf("Allowing spawn of iOS binary %s since it has "
