@@ -2,6 +2,17 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> UPDATE 2026-11-15: repo is now the SkyIOS Cargo workspace <<<
+
+- Rebrand to **SkyIOS**; GitHub `origin` = `git@github.com:maulanasdqn/skyios.git` (old `dipa-studio/ios-sweet` kept as remote `upstream`).
+- Layout (old paths in older notes below map as follows):
+  - `kernel-rs/` -> **`skyios-kernel/`** (crate `skyios-kernel`, staticlib now `target/aarch64-apple-xnu-sweet/release/libskyios_kernel.a` in the workspace root; `skyios-kernel/build.sh` prints it; CI uses it).
+  - `tools/rs/` -> **`skyios-tool/`** (binary **`skyios`**, `target/release/skyios`; was `sweet`). `tools/sweet-log-pull.sh` -> `skyios log-pull`, `tools/sweet-usbnet.sh` -> `skyios usbnet` (pf anchor now `com.apple/250.skyios`), `tools/mkiosroot.sh` -> `skyios mkiosroot` (Rust port, **not yet run on Linux**), `tools/sweet-init.S` -> `skyios-tool/init/skyios-init.S`. `tools/` is gone.
+  - `shim/` -> **`skyios-shim/`**: C/asm sources in `skyios-shim/c/`, `skyios-shim/build.sh` (run as `skyios-shim/build.sh out/payload.bin`), outputs and all boot images in **`skyios-shim/out/`** (was `shim/out/`). `skyios-shim/src/lib.rs` is an empty no_std crate for the planned Rust port of the shim.
+  - Root `Cargo.toml` workspace (members skyios-kernel, skyios-shim, skyios-tool; default member skyios-tool), one `Cargo.lock`, shared release profile (panic abort, lto; skyios-tool overrides opt-level 3 / strip).
+- Kept on purpose: the `sweet` device codename (machine config SWEET, boot-args `sweet*`, ADT strings, USB product string "Sweet iOS (USB Ethernet)", target spec `aarch64-apple-xnu-sweet.json`) and the old CI path constant in xnucc.rs (old CI logs).
+- Build: `cargo build --release` (tool); kernel lib: `SWEET_GMU_FW=$PWD/research/gpu-fw/a618_gmu.bin skyios-kernel/build.sh`. On this Mac set `DEVELOPER_DIR=/Applications/Xcode-26.5.0.app/Contents/Developer SDKROOT=$(xcrun --sdk macosx --show-sdk-path)` (the CLT SDK 27 linker fails).
+
 ### >>> MILESTONE 2026-11-15: Adreno 618 GX powered, first GPU register read (boot 0103g) <<<
 
 - `logs/live-0103g.txt`, image `shim/out/shim-boot-0103g.img` (sweetgpu=4): `oob boot_slumber (gx idx 8, mx idx 4): ACK intr info 0x40000000`, `sptprac status 0x00000028 (on)`, `hfi ctrl status 0x1 (HFI up)`, `gpucc gx_gdscr 0x00222001 -> 0xf8222000`, `rbbm_status 0x00000001`. The fix was GMU_RPMH_CTRL (see below). Phone stays up.

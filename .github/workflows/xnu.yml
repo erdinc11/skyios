@@ -19,7 +19,8 @@ on:
     branches: [main]
     paths:
       - "xnu/patches/**"
-      - "kernel-rs/**"
+      - "skyios-kernel/**"
+      - "Cargo.toml"
       - ".github/workflows/xnu.yml"
 
 concurrency:
@@ -67,7 +68,7 @@ jobs:
       - name: Rust kernel library
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rust-src
-          lib=$(TOOLCHAIN="$RUST_TOOLCHAIN" kernel-rs/build.sh | tail -1)
+          lib=$(TOOLCHAIN="$RUST_TOOLCHAIN" skyios-kernel/build.sh | tail -1)
           ls -la "$lib"
           echo "SWEET_RUST_LIB=$lib" >> "$GITHUB_ENV"
 

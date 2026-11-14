@@ -2,8 +2,9 @@ backup/
 dtb/
 recovery/
 research/
-shim/out/
+skyios-shim/out/
 xnu/out/
 xnu/out-*/
 __pycache__/
 logs/
+/target/
