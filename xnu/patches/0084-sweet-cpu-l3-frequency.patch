@@ -1,0 +1,196 @@
+--- a/osfmk/conf/files.arm64
++++ b/osfmk/conf/files.arm64
+@@ -41,6 +41,7 @@
+ osfmk/arm/arm_init.c	optional config_pmap_ppl
+ osfmk/arm64/arm_vm_init.c	optional config_pmap_ppl
+ osfmk/arm64/sweet_early.c	standard
++osfmk/arm64/sweet_cpufreq.c	standard
+ osfmk/arm64/arm64_hypercall.c	standard
+ osfmk/arm/io_map.c		standard
+ osfmk/arm64/loose_ends.c	standard
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -51,6 +51,7 @@
+ static void sweet_log_start(void);
+ extern void sweet_sample_start(void);
+ extern void sweet_keys_init(void);
++extern void sweet_cpufreq_init(void);
+ extern void sweet_touch_init(void);
+ extern void sweet_usb_probe(void);
+ 
+@@ -654,6 +655,7 @@
+ 	printf("SWEET UFS: \"%s\" on LUN %u: first block 0x%llx, %llu MiB, %s, DMA at 0x%llx\n",
+ 	    want, su.lun, su.first_block, su.nblocks * UFS_BLOCK >> 20,
+ 	    su.writable ? "read-write" : "read-only", su.dma_pa);
++	sweet_cpufreq_init();
+ 	sweet_log_start();
+ 	sweet_sample_start();
+ 	/* Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp). */
+--- /dev/null
++++ b/osfmk/arm64/sweet_cpufreq.c
+@@ -0,0 +1,165 @@
++/*
++ * SWEET CPU / L3 frequency (SM7150 OSM, the "qcom,clk-cpu-osm-sdmmagpie"
++ * blocks; upstream Linux drives the same registers with qcom-cpufreq-hw
++ * v1 and osm-l3). The boot firmware programs the lookup tables and leaves
++ * each domain at its boot performance state; nothing in XNU ever raised
++ * it, so every core ran at the ABL's speed. This picks the fastest
++ * full-core-count entry of each table and asks for it.
++ *
++ * Per domain: ENABLE 0x0 (bit 0), LUT rows of 32 bytes at 0x110 (freq:
++ * bits 31:30 source, 18:16 core count, 7:0 L-value; source 0 = 300 MHz
++ * PLL-off rate, else 19.2 MHz * L) and 0x114 (voltage, mV in 11:0), the
++ * table ends where a frequency repeats; PERF_STATE 0x920 = wanted index.
++ * The hardware limits block (LMh) still throttles on its own.
++ *
++ * Boot-arg sweetcpufreq: 0 leaves the firmware state, 1 (default) = max,
++ * N >= 2 = table index N - 2 at most (lower speed, less heat).
++ */
++#if defined(SWEET)
++#include <kern/misc_protos.h>
++#include <kern/cpu_number.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/processor.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++void sweet_cpufreq_init(void);
++
++#define OSM_ENABLE      0x000u
++#define OSM_LUT_FREQ    0x110u
++#define OSM_LUT_VOLT    0x114u
++#define OSM_LUT_ROW     32u
++#define OSM_LUT_MAX     40u
++#define OSM_PERF_STATE  0x920u
++#define OSM_XO_HZ       19200000ull
++#define OSM_PLL_OFF_HZ  300000000ull
++
++static const struct {
++	const char *name;
++	uint32_t    pa;
++	uint32_t    cores;      /* core count of a non-boost entry; 0 = any */
++	int         probe_cpu;  /* cpu to time a loop on, -1 = none */
++} cf_dom[] = {
++	{ "l3", 0x18321000u, 0, -1 },
++	{ "silver", 0x18323000u, 6, 0 },
++	{ "gold", 0x18325800u, 2, 6 },
++};
++
++static uint32_t
++cf_rd(vm_offset_t base, uint32_t off)
++{
++	uint32_t v = *(volatile uint32_t *)(base + off);
++	__asm__ volatile("dmb oshld" ::: "memory");
++	return v;
++}
++
++/* Rough clock of the calling core: a 1-cycle dependent loop, in MHz. */
++static uint64_t
++cf_loop_mhz(void)
++{
++	uint64_t n = 1ull << 25, t0, t1, ns;
++	t0 = mach_absolute_time();
++	__asm__ volatile(
++		"1: subs %0, %0, #1\n"
++		"   b.ne 1b\n"
++		: "+r"(n) :: "cc");
++	t1 = mach_absolute_time();
++	absolutetime_to_nanoseconds(t1 - t0, &ns);
++	return ns ? ((1ull << 25) * 1000ull) / ns : 0;
++}
++
++static void
++cf_probe(const char *when)
++{
++	for (unsigned d = 0; d < sizeof(cf_dom) / sizeof(cf_dom[0]); d++) {
++		if (cf_dom[d].probe_cpu < 0) {
++			continue;
++		}
++		processor_t p = cpu_to_processor(cf_dom[d].probe_cpu);
++		if (p == PROCESSOR_NULL) {
++			continue;
++		}
++		thread_bind(p);
++		thread_block(THREAD_CONTINUE_NULL);
++		uint64_t mhz = cf_loop_mhz();
++		printf("SWEET CPUFREQ: %s cpu%d ~%llu MHz (loop, %s)\n",
++		    cf_dom[d].name, cpu_number(), mhz, when);
++	}
++	thread_bind(PROCESSOR_NULL);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++static void
++cf_thread(void *arg, wait_result_t wr)
++{
++	unsigned mode = (unsigned)(uintptr_t)arg;
++	(void)wr;
++
++	cf_probe("before");
++	for (unsigned d = 0; d < sizeof(cf_dom) / sizeof(cf_dom[0]); d++) {
++		vm_offset_t b = ml_io_map(cf_dom[d].pa, 0x1000);
++		if (b == 0) {
++			printf("SWEET CPUFREQ: %s map failed\n", cf_dom[d].name);
++			continue;
++		}
++		uint32_t en = cf_rd(b, OSM_ENABLE), cur = cf_rd(b, OSM_PERF_STATE);
++		uint64_t prev = 0, best_hz = 0;
++		int best = -1, rows = 0;
++		for (uint32_t i = 0; i < OSM_LUT_MAX; i++) {
++			uint32_t f = cf_rd(b, OSM_LUT_FREQ + i * OSM_LUT_ROW);
++			uint32_t v = cf_rd(b, OSM_LUT_VOLT + i * OSM_LUT_ROW);
++			uint32_t src = f >> 30, cc = (f >> 16) & 7, lval = f & 0xff;
++			uint64_t hz = src ? OSM_XO_HZ * lval : OSM_PLL_OFF_HZ;
++			if (i > 0 && hz == prev) {
++				break;
++			}
++			prev = hz;
++			rows++;
++			printf("SWEET CPUFREQ: %s lut %u %llu MHz cores %u %u mV\n",
++			    cf_dom[d].name, i, hz / 1000000, cc, v & 0xfff);
++			bool full = cf_dom[d].cores == 0 || cc == cf_dom[d].cores;
++			bool allowed = mode == 1 || (mode >= 2 && i <= mode - 2);
++			if (full && allowed && hz > best_hz) {
++				best_hz = hz;
++				best = (int)i;
++			}
++		}
++		printf("SWEET CPUFREQ: %s enable %#x perf state %u, %d rows\n",
++		    cf_dom[d].name, en, cur, rows);
++		if (!(en & 1) || best < 0 || rows < 2) {
++			printf("SWEET CPUFREQ: %s left as is\n", cf_dom[d].name);
++			continue;
++		}
++		*(volatile uint32_t *)(b + OSM_PERF_STATE) = (uint32_t)best;
++		__asm__ volatile("dsb sy" ::: "memory");
++		printf("SWEET CPUFREQ: %s -> index %d, %llu MHz (reads back %u)\n",
++		    cf_dom[d].name, best, best_hz / 1000000, cf_rd(b, OSM_PERF_STATE));
++	}
++	delay(20000);
++	cf_probe("after");
++}
++
++void
++sweet_cpufreq_init(void)
++{
++	static bool started;
++	unsigned mode = 1;
++	thread_t thread;
++
++	if (started) {
++		return;
++	}
++	started = true;
++	(void)PE_parse_boot_argn("sweetcpufreq", &mode, sizeof(mode));
++	if (mode == 0) {
++		printf("SWEET CPUFREQ: disabled (sweetcpufreq=0)\n");
++		return;
++	}
++	if (kernel_thread_start(cf_thread, (void *)(uintptr_t)mode, &thread) == KERN_SUCCESS) {
++		thread_deallocate(thread);
++	}
++}
++#endif /* SWEET */
