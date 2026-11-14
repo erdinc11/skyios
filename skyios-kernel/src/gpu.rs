@@ -406,6 +406,25 @@ fn crash_record_dump(gmu: &Gmu) {
     dump_words(gmu, "crash record", DTCM_BASE + 0x1e00, 20);
 }
 
+const RBBM_PERFCTR_CNTL: usize = 0x0500;
+const CP_PERFCTR_CP_SEL0: usize = 0x08d0;
+const RBBM_PERFCTR_CP0_LO: usize = 0x0400;
+const CP_ALWAYS_ON_COUNTER_LO: usize = 0x0980;
+
+fn gpu_clock_probe(gpu: &Mmio) {
+    gpu.write(RBBM_PERFCTR_CNTL * 4, 1);
+    gpu.write(CP_PERFCTR_CP_SEL0 * 4, 0);
+    let (c0, a0) = (gpu.read(RBBM_PERFCTR_CP0_LO * 4), gpu.read(CP_ALWAYS_ON_COUNTER_LO * 4));
+    delay_us(10_000);
+    let (c1, a1) = (gpu.read(RBBM_PERFCTR_CP0_LO * 4), gpu.read(CP_ALWAYS_ON_COUNTER_LO * 4));
+    let (dc, da) = (c1.wrapping_sub(c0), a1.wrapping_sub(a0));
+    crate::log!(
+        "SWEET GPU: clock probe over 10 ms: gpu cycles {dc} (~{} MHz), always-on ticks {da} (~{} kHz)",
+        dc / 10_000,
+        da / 10
+    );
+}
+
 fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
     let Some((gx, mx)) = crate::cmddb::CmdDb::open().as_ref().and_then(arc_vote) else {
         crate::log!("SWEET GPU: no arc levels from cmd-db");
@@ -435,6 +454,7 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
         return;
     };
     crate::log!("SWEET GPU: rbbm_status {:#010x}", gpu.read(0x210 * 4));
+    gpu_clock_probe(&gpu);
     crate::log!("SWEET GPU: stage C done (GX rail on, GPU registers readable)");
 }
 
