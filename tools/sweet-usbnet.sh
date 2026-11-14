@@ -15,16 +15,42 @@ fi
 
 mac=02:00:5e:77:ee:01
 echo "waiting for the phone's USB Ethernet ($mac)..." >&2
-until ip -o link | grep -qi "$mac"; do sleep 1; done
-ifname=$(ip -o link | grep -i "$mac" | awk -F': ' '{print $2}' | cut -d@ -f1)
-nmcli dev set "$ifname" managed no 2>/dev/null || true
-sudo ip addr replace 192.168.7.1/24 dev "$ifname"
-sudo ip link set "$ifname" up
+if [ "$(uname)" = Darwin ]; then
+	# macOS: the DriverKit AppleUserECM makes an enN whose BSD MAC is
+	# 02:00:00:00:00:00 (only IOKit's IOMACAddress is the phone's), so find
+	# it under the USB device. NAT the phone to the default route's
+	# interface with a pf rule in Apple's com.apple/* nat-anchor.
+	macif() { ioreg -r -n 'Sweet iOS (USB Ethernet)' -l -w0 | awk -F'"' '/"BSD Name"/{print $4; exit}'; }
+	until [ -n "$(macif)" ]; do sleep 1; done
+	ifname=$(macif)
+	sudo ifconfig "$ifname" inet 192.168.7.1 netmask 255.255.255.0 up
+	uplink=$(route -n get default | awk '/interface:/{print $2}')
+	sudo sysctl -w net.inet.ip.forwarding=1 >/dev/null
+	echo "nat on $uplink inet from 192.168.7.0/24 to any -> ($uplink)" |
+		sudo pfctl -a com.apple/250.ios-sweet -f - 2>/dev/null
+	sudo pfctl -E 2>/dev/null | grep -i token >&2 || true
+	echo "NAT 192.168.7.0/24 -> $uplink (pf anchor com.apple/250.ios-sweet)" >&2
+else
+	until ip -o link | grep -qi "$mac"; do sleep 1; done
+	ifname=$(ip -o link | grep -i "$mac" | awk -F': ' '{print $2}' | cut -d@ -f1)
+	nmcli dev set "$ifname" managed no 2>/dev/null || true
+	sudo ip addr replace 192.168.7.1/24 dev "$ifname"
+	sudo ip link set "$ifname" up
+fi
 echo "$ifname up: 192.168.7.1 <-> phone 192.168.7.2; live log on udp/5140" >&2
 
 listen_udp() {
 	port=5140
-	if command -v socat >/dev/null 2>&1; then
+	# BSD nc -ukl locks onto the first sender: a rebooted phone (new source
+	# port) is then ignored. A plain recvfrom loop takes every datagram.
+	if command -v python3 >/dev/null 2>&1; then
+		python3 -uc 'import socket,sys
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+s.bind(("",'"$port"'))
+while True:
+    sys.stdout.buffer.write(s.recv(65536)); sys.stdout.flush()'
+	elif command -v socat >/dev/null 2>&1; then
 		socat -u "udp-recv:$port,reuseaddr" -
 	elif command -v ncat >/dev/null 2>&1; then
 		ncat -l -u -k "$port"
