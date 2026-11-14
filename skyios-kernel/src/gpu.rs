@@ -38,6 +38,14 @@ const GMU_REGS: [(&str, usize); 8] = [
     ("ao_gpu_cx_busy_status", 0x23b0c),
 ];
 
+const GMU_ALWAYS_ON_COUNTER_L: usize = 0x1f888;
+const GMU_GENERAL_9: usize = 0x1f9fc;
+const GMU_BOOT_KMD_LM_HANDSHAKE: usize = 0x1f9f0;
+
+pub struct GmuBoot {
+    pub boot_state: u32,
+}
+
 fn wait(m: &Mmio, off: usize, mask: u32, want: u32, tries: u32) -> bool {
     for _ in 0..tries {
         if m.read(off) & mask == want {
@@ -101,6 +109,7 @@ const GMU_CM3_FW_INIT_RESULT: usize = 0x1f81c;
 const GMU_CM3_CFG: usize = 0x1f82d;
 const GMU_GENERAL_7: usize = 0x1f9cc;
 const GMU_HFI_SFR_ADDR: usize = 0x1f982;
+pub const GMU_HFI_SEG_ID: u32 = 0;
 const GMU_AHB_FENCE_RANGE_0: usize = 0x23b11;
 const GMU_SYS_BUS_CONFIG: usize = 0x1f40f;
 const GMU_ICACHE_CONFIG: usize = 0x1f400;
@@ -110,7 +119,7 @@ const GMU_PWR_COL_CP_RESP: usize = 0x1f901;
 const GMU_RPMH_CTRL: usize = 0x1f8e8;
 const RPMH_CTRL_ENABLE: u32 = (1 << 0) | (1 << 4) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11);
 const GMU_CORE_FW_VERSION: usize = 0x1d3f8;
-const GMU_CHIPID: u32 = 0x0601_8000;
+const GMU_FW_CHIPID: u32 = 0x0601_8000;
 const GMU_HFI_QTBL_INFO: usize = 0x1f984;
 const GMU_HFI_QTBL_ADDR: usize = 0x1f985;
 const GMU_HFI_CTRL_INIT: usize = 0x1f986;
@@ -122,13 +131,15 @@ static GMU_FW: &[u8] = include_bytes!(env!("SWEET_GMU_FW"));
 #[cfg(not(feature = "gmufw"))]
 static GMU_FW: &[u8] = &[];
 
-fn gmu_boot(gmu: &Gmu, mem: Option<&crate::gmumem::GmuMem>) -> bool {
+fn gmu_boot(gmu: &Gmu, mem: Option<&crate::gmumem::GmuMem>) -> Option<GmuBoot> {
     if GMU_FW.is_empty() || GMU_FW.len() > 0x8000 || GMU_FW.len() % 4 != 0 {
         crate::log!("SWEET GPU: no usable GMU firmware in this kernel ({} bytes)", GMU_FW.len());
-        return false;
+        return None;
     }
     let warm = gmu.read(GMU_GENERAL_7) == 1;
     gmu.write(GMU_GENERAL_7, 1);
+    gmu.write(GMU_GENERAL_9, 0);
+    gmu.write(GMU_BOOT_KMD_LM_HANDSHAKE, 1);
     for (i, w) in GMU_FW.chunks_exact(4).enumerate() {
         gmu.write(GMU_CM3_ITCM_START + i, u32::from_le_bytes([w[0], w[1], w[2], w[3]]));
     }
@@ -143,7 +154,7 @@ fn gmu_boot(gmu: &Gmu, mem: Option<&crate::gmumem::GmuMem>) -> bool {
     gmu.write(GMU_CM3_BOOT_CONFIG, 0x02);
     gmu.write(GMU_AHB_FENCE_RANGE_0, (1 << 31) | (0xa << 18) | 0xa0);
     gmu.write(GMU_CM3_CFG, 0x4052);
-    gmu.write(GMU_HFI_SFR_ADDR, GMU_CHIPID);
+    gmu.write(GMU_HFI_SFR_ADDR, GMU_FW_CHIPID);
     if mem.is_some() {
         gmu.write(GMU_HFI_QTBL_ADDR, crate::gmumem::HFI_IOVA);
         gmu.write(GMU_HFI_QTBL_INFO, 1);
@@ -181,13 +192,15 @@ fn gmu_boot(gmu: &Gmu, mem: Option<&crate::gmumem::GmuMem>) -> bool {
         crate::log!("SWEET GPU: gmu {name} = {:#010x}", gmu.read(reg));
     }
     if ok {
-        crate::log!("SWEET GPU: stage B done (GMU firmware running)");
+        let boot_state = if mask == u32::MAX { 0 } else { 1 };
+        crate::log!("SWEET GPU: stage B done (GMU firmware running, {} boot)", if boot_state == 1 { "warm" } else { "cold" });
+        return Some(GmuBoot { boot_state });
     }
-    ok
+    None
 }
 
 const RSCC_BASE: usize = 0x23000;
-const GPU: u64 = 0x0500_0000;
+pub const GPU: u64 = 0x0500_0000;
 const PDC: u64 = 0x0b29_0000;
 const PDC_SEQ: u64 = 0x0b49_0000;
 
@@ -203,6 +216,8 @@ const GMU_GX_SPTPRAC_POWER_CONTROL: usize = 0x1a881;
 const GMU_SPTPRAC_PWR_CLK_STATUS: usize = 0x1f8d0;
 const OOB_BOOT_SLUMBER_SET: u32 = 22;
 const OOB_BOOT_SLUMBER_ACK: u32 = 30;
+const OOB_GPU_SET_SET: u32 = 16;
+const OOB_GPU_SET_ACK: u32 = 24;
 
 const RSC_STATUS0_DRV0: usize = 0x004;
 const RSC_PDC_SEQ_START_ADDR: usize = 0x008;
@@ -357,6 +372,18 @@ fn sptprac_on(gmu: &Gmu) -> bool {
     r.is_some()
 }
 
+fn oob_gpu_set(gmu: &Gmu) -> bool {
+    gmu.write(GMU_HOST2GMU_INTR_SET, 1 << OOB_GPU_SET_SET);
+    let ack = gmu.poll(GMU_GMU2HOST_INTR_INFO, 1 << OOB_GPU_SET_ACK, 1 << OOB_GPU_SET_ACK, 20000);
+    let info = gmu.read(GMU_GMU2HOST_INTR_INFO);
+    crate::log!("SWEET GPU: oob gpu_set: {} intr info {info:#010x}", if ack.is_some() { "ACK" } else { "TIMEOUT" });
+    ack.is_some()
+}
+
+fn oob_gpu_clear(gmu: &Gmu) {
+    gmu.write(GMU_GMU2HOST_INTR_CLR, 1 << OOB_GPU_SET_ACK);
+}
+
 fn hfi_start(gmu: &Gmu) -> bool {
     gmu.write(GMU_HFI_CTRL_INIT, 1);
     let r = gmu.poll(GMU_HFI_CTRL_STATUS, 1, 1, 10000);
@@ -410,22 +437,43 @@ const RBBM_PERFCTR_CNTL: usize = 0x0500;
 const CP_PERFCTR_CP_SEL0: usize = 0x08d0;
 const RBBM_PERFCTR_CP0_LO: usize = 0x0400;
 const CP_ALWAYS_ON_COUNTER_LO: usize = 0x0980;
+const RBBM_STATUS: usize = 0x210;
+const RBBM_STATUS3: usize = 0x213;
 
-fn gpu_clock_probe(gpu: &Mmio) {
+fn gmu_counter_lo(gmu: &Gmu) -> u32 {
+    gmu.read(GMU_ALWAYS_ON_COUNTER_L)
+}
+
+fn gpu_probe(gpu: &Mmio, gmu: &Gmu) {
+    crate::log!(
+        "SWEET GPU: gmu core fw version {:#010x} (legacy hfi carries no version), status {:#010x} status3 {:#010x}",
+        gmu.read(GMU_CORE_FW_VERSION),
+        gpu.read(RBBM_STATUS * 4),
+        gpu.read(RBBM_STATUS3 * 4)
+    );
     gpu.write(RBBM_PERFCTR_CNTL * 4, 1);
     gpu.write(CP_PERFCTR_CP_SEL0 * 4, 0);
-    let (c0, a0) = (gpu.read(RBBM_PERFCTR_CP0_LO * 4), gpu.read(CP_ALWAYS_ON_COUNTER_LO * 4));
+    let cp0 = gpu.read(RBBM_PERFCTR_CP0_LO * 4);
+    let aon0 = gpu.read(CP_ALWAYS_ON_COUNTER_LO * 4);
+    let gmu0 = gmu_counter_lo(gmu);
     delay_us(10_000);
-    let (c1, a1) = (gpu.read(RBBM_PERFCTR_CP0_LO * 4), gpu.read(CP_ALWAYS_ON_COUNTER_LO * 4));
-    let (dc, da) = (c1.wrapping_sub(c0), a1.wrapping_sub(a0));
+    let cp1 = gpu.read(RBBM_PERFCTR_CP0_LO * 4);
+    let aon1 = gpu.read(CP_ALWAYS_ON_COUNTER_LO * 4);
+    let gmu1 = gmu_counter_lo(gmu);
     crate::log!(
-        "SWEET GPU: clock probe over 10 ms: gpu cycles {dc} (~{} MHz), always-on ticks {da} (~{} kHz)",
-        dc / 10_000,
-        da / 10
+        "SWEET GPU: clock over 10 ms: cp perfctr {} ({}), cp aon {:#010x}..{:#010x} ({}), gmu aon {:#010x}..{:#010x} ({} ticks)",
+        cp1.wrapping_sub(cp0),
+        if cp1 == cp0 { "stalled: CP not out of reset" } else { "running" },
+        aon0,
+        aon1,
+        aon1.wrapping_sub(aon0),
+        gmu0,
+        gmu1,
+        gmu1.wrapping_sub(gmu0)
     );
 }
 
-fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
+fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuBoot) {
     let Some((gx, mx)) = crate::cmddb::CmdDb::open().as_ref().and_then(arc_vote) else {
         crate::log!("SWEET GPU: no arc levels from cmd-db");
         return;
@@ -435,27 +483,49 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
     if !gfx_rail_on(gmu, gx, mx) {
         delay_us(10000);
         crash_record_dump(gmu);
-        if let Some(m) = mem {
+        if let Some(m) = mem.as_ref() {
             crate::gmumem::fault_report();
             crate::gmumem::dump(m);
         }
         return;
     }
     let sp = sptprac_on(gmu);
-    if mem.is_some() && hfi_start(gmu) {
-        crate::log!("SWEET GPU: stage D done (GMU memory mapped, HFI started)");
+    let mut hfi_up = false;
+    if let Some(m) = mem {
+        if hfi_start(gmu) {
+            crate::log!("SWEET GPU: stage D done (GMU memory mapped, HFI started)");
+            let mut ring = crate::hfi::Ring::new(m);
+            if ring.boot(gmu, boot.boot_state) {
+                hfi_up = true;
+                let mut lv = [0u16; 16];
+                let n = crate::cmddb::CmdDb::open().map_or(0, |db| db.aux("gfx.lvl", &mut lv));
+                if n > 0 && ring.send_freq(gmu, (n - 1) as u32, 0).is_ok() {
+                    crate::log!("SWEET GPU: gx perf vote level {} accepted", n - 1);
+                }
+            }
+        }
     }
     crate::log!("SWEET GPU: gpucc gx_gdscr {gx_before:#010x} -> {:#010x}", cc.read(GPUCC_GX_GDSCR));
     if !sp || cc.read(GPUCC_GX_GDSCR) & GDSC_PWR_ON == 0 {
         crate::log!("SWEET GPU: GX not powered, skipping GPU register read");
         return;
     }
-    let Some(gpu) = Mmio::map(GPU, 0x40000) else {
-        return;
-    };
-    crate::log!("SWEET GPU: rbbm_status {:#010x}", gpu.read(0x210 * 4));
-    gpu_clock_probe(&gpu);
-    crate::log!("SWEET GPU: stage C done (GX rail on, GPU registers readable)");
+    if hfi_up {
+        let ok = oob_gpu_set(gmu);
+        if !ok {
+            crate::log!("SWEET GPU: GPU registers read without the gpu_set ack");
+        }
+        let Some(gpu) = Mmio::map(GPU, 0x40000) else {
+            return;
+        };
+        gpu_probe(&gpu, gmu);
+        if ok {
+            oob_gpu_clear(gmu);
+        }
+    } else {
+        crate::log!("SWEET GPU: HFI not up, GPU registers not read");
+    }
+    crate::log!("SWEET GPU: stage C done (GX rail on)");
 }
 
 pub fn bringup(stage: u32) {
@@ -502,7 +572,13 @@ pub fn bringup(stage: u32) {
     if let Some(m) = mem.as_ref() {
         crate::gmumem::hfi_init(m);
     }
-    if stage >= 2 && gmu_boot(&gmu, mem.as_ref()) && stage >= 3 {
-        stage_c(&gmu, &cc, mem.as_ref());
+    if stage < 2 {
+        return;
+    }
+    let Some(boot) = gmu_boot(&gmu, mem.as_ref()) else {
+        return;
+    };
+    if stage >= 3 {
+        stage_c(&gmu, &cc, mem, &boot);
     }
 }

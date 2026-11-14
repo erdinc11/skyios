@@ -5,6 +5,7 @@ mod xnu;
 mod cmddb;
 mod gmumem;
 mod gpu;
+mod hfi;
 mod smmu;
 
 extern "C" fn gpu_thread(stage: usize) {

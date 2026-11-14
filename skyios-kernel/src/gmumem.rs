@@ -9,6 +9,7 @@ const SMR: usize = 4;
 const GMU_SID: u32 = 5;
 
 pub const IOVA_BASE: u32 = 0x6000_0000;
+pub const DEBUG_IOVA: u32 = 0x6000_1000;
 pub const LOG_IOVA: u32 = 0x6000_5000;
 pub const HFI_IOVA: u32 = 0x6000_9000;
 pub const REGION_SIZE: usize = 0x4000;
@@ -101,20 +102,8 @@ pub fn fault_report() {
 pub fn hfi_init(m: &GmuMem) {
     let d = &m.dma;
     let base = m.off(HFI_IOVA);
-    let ntab = 6 * 4;
-    let nhdr = 12 * 4;
-    d.w32(base, 0);
-    d.w32(base + 4, ((ntab + 3 * nhdr) / 4) as u32);
-    d.w32(base + 8, (ntab / 4) as u32);
-    d.w32(base + 12, (nhdr / 4) as u32);
-    d.w32(base + 16, 3);
-    d.w32(base + 20, 3);
-    for (i, id) in [0u32, 4, 5].into_iter().enumerate() {
-        let h = base + ntab + i * nhdr;
-        let vals = [1, HFI_IOVA + 0x1000 * (i as u32 + 1), (10 << 8) | id, 0x1000 / 4, 0, 0, 1, 1, 1, 0, 0, 0];
-        for (j, v) in vals.into_iter().enumerate() {
-            d.w32(h + 4 * j, v);
-        }
+    for i in 0..0x150 {
+        d.w32(base + 4 * i, 0);
     }
     d.clean();
 }
