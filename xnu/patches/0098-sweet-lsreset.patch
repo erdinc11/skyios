@@ -1,0 +1,55 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -9842,6 +9842,15 @@
+ 	VATTR_SET(&va, va_mode, mode & ACCESSPERMS);
+ 	return mkdir1at(vfs_context_kernel(), CAST_USER_ADDR_T(path), &va, AT_FDCWD, UIO_SYSSPACE);
+ }
++
++int sweet_rename(const char *from, const char *to);
++
++int
++sweet_rename(const char *from, const char *to)
++{
++	return renameat_internal(vfs_context_kernel(), AT_FDCWD, CAST_USER_ADDR_T(from),
++	           AT_FDCWD, CAST_USER_ADDR_T(to), UIO_SYSSPACE, 0);
++}
+ #endif
+ 
+ /*
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -531,8 +531,26 @@
+ }
+ 
+ extern int sweet_mkdir(const char *path, int mode);
++extern int sweet_rename(const char *from, const char *to);
+ 
+ static void
++sweet_lsreset(void)
++{
++	static const char store[] = "/private/var/mobile/Containers/Data/InternalDaemon/"
++	    "5537F1ED-76A5-4230-92FA-49B67D8D25DC/Library/Caches/com.apple.LaunchServices-4035-v2.csstore";
++	static const char old[] = "/private/var/mobile/Containers/Data/InternalDaemon/"
++	    "5537F1ED-76A5-4230-92FA-49B67D8D25DC/Library/Caches/com.apple.LaunchServices-4035-v2.csstore.sweet-old";
++	unsigned int on = 0;
++	(void)PE_parse_boot_argn("sweetlsreset", &on, sizeof(on));
++	if (!on) {
++		return;
++	}
++	int err = sweet_rename(store, old);
++	printf("SWEET LSRESET: moved LaunchServices store aside: %d\n", err);
++	sweet_note("lsreset %d; ", err);
++}
++
++static void
+ sweet_autobahn(void)
+ {
+ 	static const char *dirs[] = {
+@@ -1053,6 +1071,7 @@
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
+ 		sweet_pbfix();
+ 		sweet_autobahn();
++		sweet_lsreset();
+ #endif
+ 	}
+ 
