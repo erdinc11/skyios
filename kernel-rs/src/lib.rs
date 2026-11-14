@@ -12,7 +12,7 @@ extern "C" fn gpu_thread(stage: usize) {
     xnu::sleep_ms(secs * 1000);
     if stage >= 3 {
         if let Some(db) = cmddb::CmdDb::open() {
-            for name in ["gfx.lvl", "mx.lvl", "cx.lvl"] {
+            for name in ["gfx.lvl", "mx.lvl", "cx.lvl", "ebi.lvl", "lmx.lvl", "lcx.lvl", "MC0", "SH0"] {
                 cmddb::dump(&db, name);
             }
         }
