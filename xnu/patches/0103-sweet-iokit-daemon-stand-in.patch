@@ -1,0 +1,42 @@
+--- a/iokit/Kernel/arm/SweetBusy.cpp
++++ b/iokit/Kernel/arm/SweetBusy.cpp
+@@ -4,10 +4,28 @@
+ #include <IOKit/IOService.h>
+ #include <IOKit/IORegistryEntry.h>
+ #include <IOKit/IOLib.h>
++#include <libkern/c++/OSKext.h>
++#include <pexpert/pexpert.h>
+ 
+ extern "C" void sweet_iokit_busy_dump(void);
++extern "C" void sweet_iokit_daemon_stand_in(void);
+ 
+ void
++sweet_iokit_daemon_stand_in(void)
++{
++	unsigned int on = 1;
++	PE_parse_boot_argn("sweetiokitd", &on, sizeof(on));
++	if (!on || OSKext::iokitDaemonActive()) {
++		return;
++	}
++	OSKext::setIOKitDaemonActive();
++	OSKext::setDeferredLoadSucceeded(true);
++	IOService::iokitDaemonLaunched();
++	IOService *root = IOService::getServiceRoot();
++	IOLog("SWEET IOKITD: stood in for the IOKit daemon, root busy now %u\n", root ? root->getBusyState() : 0);
++}
++
++void
+ sweet_iokit_busy_dump(void)
+ {
+ 	IOService *root = IOService::getServiceRoot();
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1072,6 +1072,8 @@
+ 		sweet_pbfix();
+ 		sweet_autobahn();
+ 		sweet_lsreset();
++		extern void sweet_iokit_daemon_stand_in(void);
++		sweet_iokit_daemon_stand_in();
+ #endif
+ 	}
+ 
