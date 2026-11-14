@@ -361,31 +361,46 @@ fn hfi_start(gmu: &Gmu) -> bool {
     r.is_some()
 }
 
-const DTCM_WORDS: usize = 0x1000;
+const DTCM_BASE: u32 = 0x4_0000;
+const DTCM_BYTES: u32 = 0x4000;
+const ITCM_BYTES: u32 = 0x8000;
 
-fn dtcm_snapshot(gmu: &Gmu) -> Option<crate::xnu::Dma> {
-    let d = crate::xnu::Dma::alloc(DTCM_WORDS * 4)?;
-    for i in 0..DTCM_WORDS {
-        d.w32(4 * i, gmu.read(GMU_CM3_DTCM_START + i));
+fn cm3_read(gmu: &Gmu, addr: u32) -> Option<u32> {
+    if addr % 4 != 0 {
+        return None;
     }
-    Some(d)
+    if (DTCM_BASE..DTCM_BASE + DTCM_BYTES).contains(&addr) {
+        Some(gmu.read(GMU_CM3_DTCM_START + ((addr - DTCM_BASE) / 4) as usize))
+    } else if addr < ITCM_BYTES {
+        Some(gmu.read(GMU_CM3_ITCM_START + (addr / 4) as usize))
+    } else {
+        None
+    }
 }
 
-fn dtcm_diff(gmu: &Gmu, before: &crate::xnu::Dma) {
-    let mut shown = 0;
-    let mut changed = 0;
-    for i in 0..DTCM_WORDS {
-        let old = before.r32(4 * i);
-        let new = gmu.read(GMU_CM3_DTCM_START + i);
-        if old != new {
-            changed += 1;
-            if shown < 64 {
-                crate::log!("SWEET GPU: dtcm[{:#06x}] {old:#010x} -> {new:#010x}", 4 * i);
-                shown += 1;
+fn dump_words(gmu: &Gmu, what: &str, addr: u32, n: u32) {
+    for i in 0..n {
+        let a = addr + 4 * i;
+        match cm3_read(gmu, a) {
+            Some(v) => crate::log!("SWEET GPU: {what} [{a:#07x}] {v:#010x}"),
+            None => {
+                crate::log!("SWEET GPU: {what} [{a:#07x}] outside ITCM/DTCM");
+                return;
             }
         }
     }
-    crate::log!("SWEET GPU: dtcm {changed} words changed during OOB");
+}
+
+fn boot_struct_dump(gmu: &Gmu) {
+    let Some(p) = cm3_read(gmu, DTCM_BASE + 0x10) else {
+        return;
+    };
+    crate::log!("SWEET GPU: dtcm[0x10] boot struct pointer {p:#010x}");
+    dump_words(gmu, "boot struct", p, 12);
+}
+
+fn crash_record_dump(gmu: &Gmu) {
+    dump_words(gmu, "crash record", DTCM_BASE + 0x1e00, 20);
 }
 
 fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
@@ -394,12 +409,10 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<&crate::gmumem::GmuMem>) {
         return;
     };
     let gx_before = cc.read(GPUCC_GX_GDSCR);
-    let snap = dtcm_snapshot(gmu);
+    boot_struct_dump(gmu);
     if !gfx_rail_on(gmu, gx, mx) {
         delay_us(10000);
-        if let Some(b) = snap.as_ref() {
-            dtcm_diff(gmu, b);
-        }
+        crash_record_dump(gmu);
         if let Some(m) = mem {
             crate::gmumem::fault_report();
             crate::gmumem::dump(m);
