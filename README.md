@@ -41,7 +41,7 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 ```
 ABL (stock Xiaomi bootloader, unlocked)
   -> fastboot boot shim-boot.img              (temporary; nothing is flashed to boot)
-     -> shim: own MMU setup, reads the live FDT, loads the payload from the ramdisk
+     -> skyios-shim (Rust, no_std): reads the live FDT, loads the payload from the ramdisk
         -> XNU Mach-O + generated Apple Device Tree (ADT) + boot-args
            -> XNU -> UFS driver -> HFS+ root in the userdata partition
               -> dyld + shared cache -> launchd -> daemons -> backboardd + SpringBoard
@@ -103,13 +103,13 @@ ipsw img4 im4p extract research/ipsw-x/dt/Firmware/all_flash/DeviceTree.d22ap.im
 
 ### 3. Build the boot image
 
-Needs `aarch64-linux-gnu-gcc` and `mkbootimg`.
+Needs the Rust target `aarch64-unknown-none-softfloat` (`rustup target add aarch64-unknown-none-softfloat`). No cross gcc or `mkbootimg`: `skyios mkshim` packs the boot.img (byte-identical to `mkbootimg --header_version 2`).
 
 ```sh
 skyios mkadt skyios-shim/out/sweet.adt --highmem
 skyios mkpayload xnu/out/kernel.development.sweet skyios-shim/out/sweet.adt skyios-shim/out/payload.bin \
     --cmdline 'debug=0xc serial=3 cpus=8 keepsyms=1 -enable_kprintf_spam -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=60 sweetusb=2 sweettouchic=1'
-skyios-shim/build.sh out/payload.bin      # -> skyios-shim/out/shim-boot.img
+skyios-shim/build.sh skyios-shim/out/payload.bin   # -> skyios-shim/out/shim-boot.img
 ```
 
 What the less obvious boot-args do:
@@ -167,13 +167,14 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 | Path | What |
 | --- | --- |
 | `Cargo.toml` | Workspace: `skyios-kernel`, `skyios-shim`, `skyios-tool` |
-| `skyios-shim/` | Bare-metal boot shim packed as an Android boot.img v2. Still C + asm in `c/` (built by `build.sh`); the Rust crate is the target of a future port |
+| `skyios-shim/` | Bare-metal boot shim in Rust (`no_std`, position-independent, self-relocating; entry and vectors via `global_asm!`), packed as an Android boot.img v2 by `skyios mkshim` |
 | `xnu/patches/` | The XNU patch series (applied in order by CI), plus staging scripts for libpthread, HFS and BearSSL |
 | `.github/workflows/xnu.yml` | Kernel CI build |
 | `skyios-tool/` | The `skyios` host tool (Rust), one subcommand per job below |
 | `skyios-kernel/` | Rust linked into the kernel: cmd-db reader, Adreno 618 / GMU / SMMU bring-up |
 | `skyios usbnet` | Bring up the phone's USB Ethernet on the host and stream the live kernel log |
 | `skyios mkadt` | Generates the Apple Device Tree from sweet's MMIO layout and the iPhone X identity |
+| `skyios mkshim` | Turns the shim ELF into a flat arm64 Image and packs boot.img v2 (shim + payload + stock DTB) |
 | `skyios mkpayload` | Packs kernel + ADT + boot-args into the shim payload |
 | `skyios mkiosroot` | Builds the HFS+ iOS root from the IPSW images (Linux) |
 | `skyios root-tweaks` | Bring-up changes to the root (Setup skip, activation, daemons) |
@@ -181,7 +182,7 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 | `skyios crash` | Symbolicate console crash reports |
 | `skyios xnu-cc` | Local single-file compile check from a CI log |
 | `skyios qemu` | QEMU test boots with framebuffer text decoding |
-| `skyios adt`, `remotezip`, `unpack-bootv2`, `sparsediff`, `mkinit`, `patch-launchd-plist`, `check-exports`, `validate-repo`, `udp-listen`, `gen-font` | Helpers (`gen-font` regenerates `skyios-shim/c/font.h`) |
+| `skyios adt`, `remotezip`, `unpack-bootv2`, `sparsediff`, `mkinit`, `patch-launchd-plist`, `check-exports`, `validate-repo`, `udp-listen`, `gen-font` | Helpers (`gen-font` regenerates `skyios-shim/src/font.rs`) |
 | `NOTES.md` | Detailed engineering log: every boot, crash and decision, plus hardware facts |
 
 Not in git: partition backups, live device trees, recovery images, Apple firmware and root images, and downloaded or generated build trees. They contain device serials and calibration data, or Apple's copyrighted files.

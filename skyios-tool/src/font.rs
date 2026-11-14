@@ -4,7 +4,7 @@ use std::io::Read;
 
 pub fn main(args: &[String]) -> i32 {
     let Some(src) = args.first() else {
-        eprintln!("usage: skyios gen-font FONT.psfu.gz   (writes font.h in the current directory)");
+        eprintln!("usage: skyios gen-font FONT.psfu.gz   (writes font.rs in the current directory)");
         return 2;
     };
     let mut d = vec![];
@@ -23,12 +23,12 @@ pub fn main(args: &[String]) -> i32 {
     if h != 16 {
         die("font height must be 16");
     }
-    let mut out = vec!["static const unsigned char font8x16[95][16] = {".to_string()];
+    let mut out = vec!["pub const FONT: [[u8; 16]; 95] = [".to_string()];
     for c in 0x20..0x7f {
         let g = &d[off + c * h..off + c * h + h];
-        out.push(format!("\t{{{}}},", g.iter().map(|b| format!("0x{b:02x}")).collect::<Vec<_>>().join(",")));
+        out.push(format!("    [{}],", g.iter().map(|b| format!("0x{b:02x}")).collect::<Vec<_>>().join(", ")));
     }
-    out.push("};".into());
-    write("font.h", (out.join("\n") + "\n").as_bytes());
+    out.push("];".into());
+    write("font.rs", (out.join("\n") + "\n").as_bytes());
     0
 }

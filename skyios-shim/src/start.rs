@@ -1,10 +1,12 @@
+core::arch::global_asm!(
+    r#"
 	.section .text.head, "ax"
 	.globl _head
 _head:
 	b	_start
 	.long	0
 	.quad	0
-	.quad	_end
+	.quad	_end - _head
 	.quad	0xa
 	.quad	0
 	.quad	0
@@ -20,34 +22,31 @@ _start:
 	msr	spsel, #1
 	adr	x1, _stack_top
 	mov	sp, x1
-	adr	x1, vectors
+	adr	x9, _head
+	adr	x10, __rela_start
+	adr	x11, __rela_end
+1:	cmp	x10, x11
+	b.hs	2f
+	ldp	x12, x13, [x10], #16
+	ldr	x14, [x10], #8
+	cmp	w13, #1027
+	b.ne	1b
+	add	x14, x14, x9
+	str	x14, [x9, x12]
+	b	1b
+2:	adr	x1, vectors
 	msr	vbar_el1, x1
 	isb
 	adr	x1, _bss_start
 	adr	x2, _bss_end
-1:	cmp	x1, x2
-	b.hs	2f
+3:	cmp	x1, x2
+	b.hs	4f
 	str	xzr, [x1], #8
-	b	1b
-2:	mov	x0, x19
-	bl	shim_main
-3:	wfe
 	b	3b
-
-	.globl secondary_entry
-secondary_entry:
-	msr	daifset, #0xf
-	msr	spsel, #1
-	adr	x1, _sec_stacks
-	add	x1, x1, x0, lsl #12
-	add	x1, x1, #0x1000
-	mov	sp, x1
-	adr	x1, vectors
-	msr	vbar_el1, x1
-	isb
-	bl	secondary_main
-4:	wfe
-	b	4b
+4:	mov	x0, x19
+	bl	shim_main
+5:	wfe
+	b	5b
 
 .macro vent slot
 	.balign	0x80
@@ -96,21 +95,7 @@ exc_common:
 	mov	x0, x29
 	mov	x1, sp
 	bl	exc_handler
-	ldp	x0, x1, [sp, #0]
-	ldp	x2, x3, [sp, #16]
-	ldp	x4, x5, [sp, #32]
-	ldp	x6, x7, [sp, #48]
-	ldp	x8, x9, [sp, #64]
-	ldp	x10, x11, [sp, #80]
-	ldp	x12, x13, [sp, #96]
-	ldp	x14, x15, [sp, #112]
-	ldp	x16, x17, [sp, #128]
-	ldp	x18, x19, [sp, #144]
-	ldp	x20, x21, [sp, #160]
-	ldp	x22, x23, [sp, #176]
-	ldp	x24, x25, [sp, #192]
-	ldp	x26, x27, [sp, #208]
-	ldr	x28, [sp, #224]
-	add	sp, sp, #(30 * 8)
-	ldp	x29, x30, [sp], #16
-	eret
+6:	wfe
+	b	6b
+"#
+);

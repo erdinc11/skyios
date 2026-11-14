@@ -3,6 +3,10 @@ name = "skyios-shim"
 version.workspace = true
 publish.workspace = true
 edition = "2024"
+build = "build.rs"
 
-[lib]
-path = "src/lib.rs"
+[[bin]]
+name = "skyios-shim"
+path = "src/main.rs"
+test = false
+bench = false

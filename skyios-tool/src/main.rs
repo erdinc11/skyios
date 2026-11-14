@@ -9,6 +9,7 @@ mod logpull;
 mod mkadt;
 mod mkinit;
 mod mkiosroot;
+mod mkshim;
 mod mkpayload;
 mod plistpy;
 mod qemu;
@@ -25,6 +26,7 @@ const USAGE: &str = "usage: skyios COMMAND ARGS...
 
   mkadt OUT.adt [--dump] [--qemu] [--highmem]
   mkpayload KERNEL ADT OUT [--cmdline \"...\"] [--ramdisk IMAGE]
+  mkshim SHIM PAYLOAD DTB OUT.img [--cmdline STR] [--image OUT.Image]
   mkinit OBJECT OUT [ENTITLEMENTS.plist]
   adt dump FILE [--hex] | adt unwrap IM4P OUT
   patch-launchd-plist IN.plist OUT.plist LABEL [LABEL ...]
@@ -54,6 +56,7 @@ fn main() {
     let rc = match cmd.as_str() {
         "mkadt" => mkadt::main(args),
         "mkpayload" => mkpayload::main(args),
+        "mkshim" => mkshim::main(args),
         "mkinit" => mkinit::main(args),
         "adt" => adt::main(args),
         "patch-launchd-plist" => launchd::main(args),
