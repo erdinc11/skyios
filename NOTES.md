@@ -2,6 +2,16 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> UPDATE 2026-11-14 (later): lock screen, touch and Settings work on boot 0083 <<<
+
+- userdata flashed with `research/root/ios16-root-20H392-net.simg` (user approved).
+- 0081s/0081t: stuck on the Apple logo. Kernel stack samples, symbolicated with `ipsw dyld a2s`, showed SpringBoard waiting in `__LAUNCH_SERVICES_IS_RESEEDING_ITS_DATABASE_AND_MAY_BLOCK__` and lsd blocked in MobileGestalt's Wi-Fi MAC lookup. That lookup waits forever for an IONetworkController when `/chosen mac-address-wifi0` and the sdio/wlan nodes are missing. Fix: mkadt adds `/chosen mac-address-wifi0/-bluetooth0/-ethernet0` (commit 4bffcc4, ADT `shim/out/sweet-0081m.adt`). 0081m reached the lock screen.
+- Touch on 0081m: "no unique supported IC (goodix=1 fts=1)". In OrangeFox the gtx8 driver binds gt9896 at 1-005d. Patch 0082 adds boot-arg `sweettouchic=1` (GT9896) / `2` (FTS) (commit f2da651).
+- CI moved to a fork: `fork` = git@github.com:maulanasdqn/ios-sweet.git (origin dipa-studio is read-only for this user). macos-14 runners are gone, so CI now runs on macos-15 with Xcode 16.0. Xcode 16 iig emits `IORPC.kernelContent`, which patch 0083 adds to xnu-8796 (commit ba1a91c). CI run 43573635885 succeeded -> `xnu/out-0083` (kernel sha256 09f5ed87...).
+- **Boot `shim/out/shim-boot-0083.img`** (0083 kernel, ADT sweet-0081m, cmdline adds `sweettouchic=1 sweetsample=SpringBoard,configd`): "SWEET TOUCH: selected GT9896 Yellowstone". **User confirmed touch works and Settings opens** (2026-11-14). Rendering is still the CPU path (QuartzCore SW renderer -> kernel IOSurface/AppleCLCD copy); there is no GPU driver.
+- Internet still not working. Mac side is fine (en8 192.168.7.1, pf NAT, ping 192.168.7.2 OK). On the phone configd only adds lo0/multicast routes and never configures ue0. NetworkInterfaces.plist is empty because no IOKit IONetworkInterface exists. Guess (unverified): configd/IPConfiguration need ue0 published in IOKit (IONetworkController + IONetworkInterface with BSD Name ue0, IOInterfaceType 6, IOMACAddress, IOBuiltin, IOPrimaryInterface). Candidate patch 0084.
+- macOS tool fixes: `tools/sweet-usbnet.sh` finds the ECM interface through IOKit (macOS shows the BSD MAC as 02:00:00:00:00:00); `sweet-log-pull.sh` is portable.
+
 ### >>> UPDATE 2026-11-14: fresh reinstall from a macOS host (read first) <<<
 
 - New host: macOS (arm64), repo at `~/Development/ios-sweet`. NONE of the Linux-host artifacts (`/run/media/dipa/...`: v15 root image, shim builds, old backups) are on it.
