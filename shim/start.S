@@ -1,33 +1,28 @@
-/*
- * sweet boot shim entry: arm64 Linux Image header so Qualcomm ABL treats
- * us like a kernel. ABL enters at EL1, MMU/D-cache off, x0 = DTB pointer.
- */
 	.section .text.head, "ax"
 	.globl _head
 _head:
-	b	_start			/* code0 */
-	.long	0			/* code1 */
-	.quad	0			/* text_offset */
-	.quad	_end			/* image_size (linked at 0) */
-	.quad	0xa			/* flags: LE, 4K pages, place anywhere */
-	.quad	0			/* res2 */
-	.quad	0			/* res3 */
-	.quad	0			/* res4 */
-	.ascii	"ARM\x64"		/* magic */
-	.long	0			/* res5 (PE offset) */
+	b	_start
+	.long	0
+	.quad	0
+	.quad	_end
+	.quad	0xa
+	.quad	0
+	.quad	0
+	.quad	0
+	.ascii	"ARM\x64"
+	.long	0
 
 	.text
 	.globl _start
 _start:
 	msr	daifset, #0xf
-	mov	x19, x0			/* DTB pointer from ABL */
+	mov	x19, x0
 	msr	spsel, #1
 	adr	x1, _stack_top
 	mov	sp, x1
 	adr	x1, vectors
 	msr	vbar_el1, x1
 	isb
-	/* zero .bss */
 	adr	x1, _bss_start
 	adr	x2, _bss_end
 1:	cmp	x1, x2
@@ -39,7 +34,6 @@ _start:
 3:	wfe
 	b	3b
 
-/* PSCI CPU_ON target. x0 = context id = cpu index (1..7). */
 	.globl secondary_entry
 secondary_entry:
 	msr	daifset, #0xf
@@ -55,12 +49,6 @@ secondary_entry:
 4:	wfe
 	b	4b
 
-/*
- * Exception vectors. Each slot stashes x29/x30, loads its slot number
- * and jumps to the common path, which saves x0-x28 and calls
- * exc_handler(slot, regs). IRQs return; everything else ends in the
- * on-screen panic.
- */
 .macro vent slot
 	.balign	0x80
 	stp	x29, x30, [sp, #-16]!

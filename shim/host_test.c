@@ -1,4 +1,3 @@
-/* Render the console layout on the host: ./out/host_test && view out/host.ppm */
 #include <stdio.h>
 #include "console.h"
 

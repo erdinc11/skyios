@@ -32,13 +32,10 @@ env:
   MACOS_VERSION: ${{ inputs.macos_version || '13.5' }}
   KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
   MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
-  # kernel-rs needs a nightly (custom target spec + build-std); pinned
   RUST_TOOLCHAIN: nightly-2026-08-13
 
 jobs:
   build:
-    # macos-14 (Xcode 15) is gone; macos-15's oldest is Xcode 16.0, whose iig
-    # emits IORPC.kernelContent: patch 0083 adds it to xnu-8796.
     runs-on: macos-15
     timeout-minutes: 120
     steps:
@@ -49,9 +46,7 @@ jobs:
           git init -q dxb
           git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
           git -C dxb checkout -q FETCH_HEAD
-          # 12.5-14.3 use the top-level patches dir; ours go next to blacktop's
           cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
-          # libfirehose_kernel is built arm64e-only; the SWEET kernel is plain arm64
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
           grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
           ls dxb/patches
@@ -59,7 +54,6 @@ jobs:
       - name: Deps
         run: |
           brew install jq gum bash cmake ninja
-          # build.sh only checks that xcodes exists (Xcode is preinstalled); no bottle on macOS 14
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
           sudo chmod +x /usr/local/bin/xcodes
           sw_vers
@@ -75,21 +69,17 @@ jobs:
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rust-src
           lib=$(TOOLCHAIN="$RUST_TOOLCHAIN" kernel-rs/build.sh | tail -1)
           ls -la "$lib"
-          # read by makedefs/MakeInc.def (patch 0087) as a kernel link archive
           echo "SWEET_RUST_LIB=$lib" >> "$GITHUB_ENV"
 
       - name: Build
         working-directory: dxb
         env:
-          # keep going after errors so one run reports every compile failure
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
         run: bash build.sh
 
       - name: Package build tree for local compiles
         if: always()
         run: |
-          # Generated headers, config option headers, mig output and the patched
-          # source: enough to re-run any single compile command from the log locally.
           SDK=$(xcrun --sdk macosx --show-sdk-path)
           mkdir -p sdk-kernel-platform
           cp -R "$SDK/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/platform" sdk-kernel-platform/ || true

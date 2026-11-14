@@ -1,6 +1,3 @@
-//! The few XNU services the Rust side calls (osfmk/arm64/sweet_rs.c).
-//! Through C hooks, not printf directly: LLVM rewrites printf("%s") into
-//! puts, which the kernel does not have.
 use core::ffi::{CStr, c_char};
 
 mod sys {

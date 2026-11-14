@@ -1,18 +1,10 @@
-/*
- * Milestone 2: one boot answers the questions that decide the XNU port.
- *   - CPU feature registers (16K granule, GIC sysreg interface)
- *   - PSCI/SMCCC version and which PSCI calls the Qualcomm TZ offers
- *   - SMP: PSCI CPU_ON for the 7 secondaries, each reports its MPIDR
- *   - GICv3 Group 1 IRQ from the virtual timer (INTID 19 on Qualcomm)
- * Any unexpected exception paints a blue panic screen.
- */
 #include <stdint.h>
 #include "console.h"
 #include "mmu.h"
 #include "loader.h"
 #include "ufs.h"
 
-#define IMEM_RESTART_REASON	0x146aa65cUL	/* qcom,msm-imem restart_reason@65c */
+#define IMEM_RESTART_REASON	0x146aa65cUL
 #define RESTART_BOOTLOADER	0x77665500U
 #define PSHOLD			0x0c264000UL
 
@@ -30,8 +22,8 @@
 #define GICR_ISPENDR0		(GICR_SGI + 0x200)
 #define GICR_ISACTIVER0		(GICR_SGI + 0x300)
 #define GICR_ICFGR1		(GICR_SGI + 0xc04)
-#define VTIMER_INTID		19	/* DT: <GIC_PPI 3 ...>, not the usual 27 */
-#define PTIMER_INTID		18	/* DT: <GIC_PPI 2 ...> */
+#define VTIMER_INTID		19
+#define PTIMER_INTID		18
 #define SGI_INTID		1
 
 #define PSCI_VERSION		0x84000000UL
@@ -58,20 +50,19 @@ static inline void wr8(uintptr_t a, uint8_t v) { *(volatile uint8_t *)a = v; }
 
 extern char secondary_entry[];
 
-static const char *stage;	/* set at runtime: no absolute pointers in data */
+static const char *stage;
 static volatile uint64_t sec_mpidr[NR_CPUS];
-static volatile uint64_t sec_probe[4];	/* CPU1 redistributor write test */
+static volatile uint64_t sec_probe[4];
 static volatile uint32_t irq_count, irq_other, irq_last;
 static volatile int irq_src;
 
-/* ICC_SGI1R_EL1 value targeting the calling core only. */
 static uint64_t sgi_self(unsigned id)
 {
 	uint64_t m = rsr("mpidr_el1");
-	return ((m >> 16) & 0xff) << 32 |	/* Aff2 */
-	       ((m >> 8) & 0xff) << 16 |	/* Aff1 */
+	return ((m >> 16) & 0xff) << 32 |
+	       ((m >> 8) & 0xff) << 16 |
 	       (uint64_t)id << 24 |
-	       (1U << (m & 0xf));		/* target list: Aff0 */
+	       (1U << (m & 0xf));
 }
 
 static uint64_t smc(uint64_t fn, uint64_t a1, uint64_t a2, uint64_t a3)
@@ -114,22 +105,20 @@ static void __attribute__((noreturn)) reset(unsigned after_s)
 		__asm__ volatile("wfe");
 }
 
-/* ---- exceptions ---- */
-
 static void irq_handler(void)
 {
 	uint64_t iar = rsr("icc_iar1_el1");
 	uint32_t id = iar & 0xffffff;
 
 	if (id >= 1020 && id <= 1023)
-		return;	/* spurious */
+		return;
 	irq_last = id;
 	if (id == (uint32_t)irq_src)
 		irq_count++;
 	else
 		irq_other++;
 	if (id == VTIMER_INTID)
-		wsr("cntv_tval_el0", rsr("cntfrq_el0") / 100);	/* 10 ms */
+		wsr("cntv_tval_el0", rsr("cntfrq_el0") / 100);
 	else if (id == PTIMER_INTID)
 		wsr("cntp_tval_el0", rsr("cntfrq_el0") / 100);
 	wsr("icc_eoir1_el1", iar);
@@ -138,7 +127,7 @@ static void irq_handler(void)
 
 void exc_handler(uint64_t slot, uint64_t *regs)
 {
-	if (slot == 5) {	/* IRQ from current EL, SPx */
+	if (slot == 5) {
 		irq_handler();
 		return;
 	}
@@ -157,11 +146,9 @@ void exc_handler(uint64_t slot, uint64_t *regs)
 	con_hex("SPSR", rsr("spsr_el1"));
 	con_hex("X0", regs[0]);
 	con_hex("X1", regs[1]);
-	con_hex("X30", regs[29]);	/* stashed lr is just above the frame */
+	con_hex("X30", regs[29]);
 	reset(40);
 }
-
-/* ---- SMP ---- */
 
 static uintptr_t find_gicr(void);
 
@@ -203,8 +190,6 @@ static void __attribute__((unused)) test_smp(void)
 	}
 }
 
-/* ---- GIC + timer ---- */
-
 static uintptr_t find_gicr(void)
 {
 	uint64_t aff = rsr("mpidr_el1");
@@ -214,7 +199,7 @@ static uintptr_t find_gicr(void)
 		uint64_t typer = rd64(GICR_BASE + off + GICR_TYPER);
 		if ((uint32_t)(typer >> 32) == want)
 			return GICR_BASE + off;
-		if (typer & (1 << 4))	/* Last */
+		if (typer & (1 << 4))
 			break;
 	}
 	return 0;
@@ -226,7 +211,6 @@ static void gicd_wait_rwp(void)
 		;
 }
 
-/* Run one interrupt source for ~300 ms and report what the GIC saw. */
 static void irq_window(const char *label, uintptr_t r, int src)
 {
 	uint64_t f = rsr("cntfrq_el0");
@@ -243,7 +227,6 @@ static void irq_window(const char *label, uintptr_t r, int src)
 		wsr("cntp_ctl_el0", 1);
 	}
 	isb();
-	/* sample state with IRQs still masked, after the first period */
 	uint64_t t = now() + f / 50;
 	while (now() < t)
 		;
@@ -258,7 +241,6 @@ static void irq_window(const char *label, uintptr_t r, int src)
 
 	__asm__ volatile("msr daifclr, #2" ::: "memory");
 	t = now() + f * 3 / 10;
-	/* SGI: one already sent above, send 9 more 10 ms apart -> expect 10 */
 	uint64_t next = now() + f / 100;
 	for (int sent = 1; now() < t;)
 		if (src == SGI_INTID && sent < 10 && now() >= next) {
@@ -293,7 +275,6 @@ static void test_gic(void)
 
 	stage = "gic dist";
 	uint32_t dctlr = rd32(GICD_BASE);
-	/* Non-secure view (DS=0): bit0 EnableGrp1, bit1 EnableGrp1A, bit4 ARE_NS; Linux writes 0x13 */
 	wr32(GICD_BASE, dctlr | 0x13);
 	gicd_wait_rwp();
 	con_hex2("GICD", "was=", dctlr, "now=", rd32(GICD_BASE));
@@ -314,9 +295,9 @@ static void test_gic(void)
 
 	stage = "gic config";
 	uint32_t grp = rd32(r + GICR_IGROUPR0);
-	wr32(r + GICR_IGROUPR0, 0xffffffff);	/* NS view: secure bits are WI */
+	wr32(r + GICR_IGROUPR0, 0xffffffff);
 	uint32_t en_before = rd32(r + GICR_ISENABLER0);
-	uint32_t pri_before = rd32(r + GICR_IPRIORITYR + 16);	/* INTIDs 16..19 */
+	uint32_t pri_before = rd32(r + GICR_IPRIORITYR + 16);
 	for (int id = 0; id < 32; id++)
 		wr8(r + GICR_IPRIORITYR + id, 0xa0);
 	wr32(r + GICR_ISENABLER0, (1U << VTIMER_INTID) | (1U << PTIMER_INTID) | (1U << SGI_INTID));
@@ -325,7 +306,7 @@ static void test_gic(void)
 	(void)pri_before;
 
 	uint64_t ctlr = rsr("icc_ctlr_el1");
-	wsr("icc_ctlr_el1", ctlr & ~2ULL);	/* EOImode 0: EOIR also deactivates */
+	wsr("icc_ctlr_el1", ctlr & ~2ULL);
 	wsr("icc_pmr_el1", 0xf0);
 	wsr("icc_bpr1_el1", 0);
 	wsr("icc_igrpen1_el1", 1);
@@ -340,14 +321,12 @@ static void test_gic(void)
 	isb();
 }
 
-/* ---- main ---- */
-
 static void __attribute__((unused)) psci_line(const char *label, uint64_t fn)
 {
 	con_hex2(label, "feat=", smc(PSCI_FEATURES, fn, 0, 0), 0, 0);
 }
 
-static uint64_t scratch[8192];	/* 64KB, lives in our (later cacheable) image */
+static uint64_t scratch[8192];
 
 static uint64_t ticks_fill(uint32_t c)
 {
@@ -367,14 +346,13 @@ static uint64_t ticks_mem(void)
 
 static uint32_t to_us(uint64_t ticks)
 {
-	return ticks * 10 / 192;	/* 19.2 MHz */
+	return ticks * 10 / 192;
 }
 
 void shim_main(uint64_t dtb)
 {
 	struct mmu_info mi;
 
-	/* An xnu payload in the ramdisk means: boot it (MMU stays off). */
 	stage = "loader";
 	con_clear(RED);
 	con_str("SHIM", "sweet milestone 4: xnu loader");
@@ -383,11 +361,9 @@ void shim_main(uint64_t dtb)
 	con_str("LOADER", why);
 	con_skip();
 
-	/* No payload: probe the internal UFS while the MMU is still off. */
 	stage = "ufs";
 	test_ufs();
 	con_skip();
-	/* Keep the probe results on screen (later tests clear it); reset after 3 min. */
 	con_str("UFS", "probe done, reset in ~3 min");
 	delay_ms(180000);
 	reset(20);
