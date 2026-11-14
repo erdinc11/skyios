@@ -1,0 +1,90 @@
+--- /dev/null
++++ b/iokit/Kernel/arm/SweetNetworkStack.cpp
+@@ -0,0 +1,63 @@
++#include <pexpert/arm64/board_config.h>
++
++#if defined(SWEET)
++#include <IOKit/IOService.h>
++#include <IOKit/IOUserClient.h>
++#include <IOKit/IOKitKeys.h>
++#include <IOKit/IOLib.h>
++#include <libkern/c++/OSDictionary.h>
++#include <libkern/c++/OSNumber.h>
++#include <libkern/c++/OSString.h>
++#include <sys/proc.h>
++
++class IONetworkStack : public IOService {
++	OSDeclareDefaultStructors(IONetworkStack);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IONetworkStack, IOService);
++
++bool
++IONetworkStack::start(IOService *provider)
++{
++	if (!IOService::start(provider)) {
++		return false;
++	}
++	setProperty(kIOUserClientClassKey, "IONetworkStackUserClient");
++	registerService();
++	IOLog("SWEET NETSTACK: IONetworkStack registered (no IOKit network interfaces)\n");
++	return true;
++}
++
++class IONetworkStackUserClient : public IOUserClient {
++	OSDeclareDefaultStructors(IONetworkStackUserClient);
++
++public:
++	IOReturn clientClose(void) APPLE_KEXT_OVERRIDE;
++	IOReturn setProperties(OSObject *properties) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IONetworkStackUserClient, IOUserClient);
++
++IOReturn
++IONetworkStackUserClient::clientClose(void)
++{
++	terminate();
++	return kIOReturnSuccess;
++}
++
++IOReturn
++IONetworkStackUserClient::setProperties(OSObject *properties)
++{
++	OSDictionary *d = OSDynamicCast(OSDictionary, properties);
++	OSNumber *cmd = d ? OSDynamicCast(OSNumber, d->getObject("IONetworkStackUserCommand")) : NULL;
++	OSString *prefix = d ? OSDynamicCast(OSString, d->getObject("IOInterfaceNamePrefix")) : NULL;
++	char name[32];
++	proc_selfname(name, sizeof(name));
++	IOLog("SWEET NETSTACK: %s command %u prefix %s\n", name, cmd ? cmd->unsigned32BitValue() : 0,
++	    prefix ? prefix->getCStringNoCopy() : "-");
++	return kIOReturnSuccess;
++}
++#endif
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -53,6 +53,11 @@
+     "     'IOMatchCategory' = AppleKeyStore;"
+     "   },"
+     "   {"
++    "     'IOClass'         = IONetworkStack;"
++    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = IONetworkStack;"
++    "   },"
++    "   {"
+     "     'IOClass'         = AppleMobileFileIntegrity;"
+     "     'IOProviderClass' = IOResources;"
+     "     'IOMatchCategory' = AppleMobileFileIntegrity;"
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -13,6 +13,7 @@
+ iokit/Kernel/arm/SweetKeyStore.cpp                               optional iokitcpp
+ iokit/Kernel/arm/SweetMobileFileIntegrity.cpp                    optional iokitcpp
+ iokit/Kernel/arm/SweetBusy.cpp                                   optional iokitcpp
++iokit/Kernel/arm/SweetNetworkStack.cpp                           optional iokitcpp
+ iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
+ iokit/Kernel/arm/SweetSurface.cpp                                optional iokitcpp
+ iokit/Kernel/arm/SweetFramebuffer.cpp                            optional iokitcpp
