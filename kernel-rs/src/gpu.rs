@@ -107,6 +107,8 @@ const GMU_ICACHE_CONFIG: usize = 0x1f400;
 const GMU_DCACHE_CONFIG: usize = 0x1f401;
 const GMU_PWR_COL_INTER_FRAME_CTRL: usize = 0x1f8c0;
 const GMU_PWR_COL_CP_RESP: usize = 0x1f901;
+const GMU_RPMH_CTRL: usize = 0x1f8e8;
+const RPMH_CTRL_ENABLE: u32 = (1 << 0) | (1 << 4) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11);
 const GMU_CORE_FW_VERSION: usize = 0x1d3f8;
 const GMU_CHIPID: u32 = 0x0601_8000;
 const GMU_HFI_QTBL_INFO: usize = 0x1f984;
@@ -151,6 +153,7 @@ fn gmu_boot(gmu: &Gmu, mem: Option<&crate::gmumem::GmuMem>) -> bool {
     gmu.write(GMU_ICACHE_CONFIG, 1);
     gmu.write(GMU_DCACHE_CONFIG, 1);
     gmu.write(GMU_PWR_COL_INTER_FRAME_CTRL, 0x9c4_0400);
+    gmu.write(GMU_RPMH_CTRL, gmu.read(GMU_RPMH_CTRL) | RPMH_CTRL_ENABLE);
     let dtcm = gmu.read(GMU_CM3_DTCM_START + 0xff8);
     let (mask, want) = if dtcm <= 0x2001_0004 { (u32::MAX, 0xbabe_face) } else { (0x1ff, 0x100) };
     gmu.write(GMU_CM3_SYSRESET, 1);
