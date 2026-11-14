@@ -121,6 +121,15 @@ def build(seed=None, qemu=False, highmem=False):
         ('effective-production-status-ap', u32(0)),
         ('certificate-security-mode', u32(1)),
         ('effective-security-mode-sep', u32(1)),
+        # iBoot fills these 6-byte MACs from syscfg (the real tree holds
+        # "macaddr/wifiaddr,syscfg/WMac/6" templates). Without
+        # mac-address-wifi0 MobileGestalt's WifiAddress waits forever for an
+        # IONetworkController: lsd hangs reseeding its database on a fresh
+        # root and SpringBoard stays on the Apple logo. Synthetic, locally
+        # administered addresses.
+        ('mac-address-wifi0', bytes.fromhex('02005e77ee10')),
+        ('mac-address-bluetooth0', bytes.fromhex('02005e77ee11')),
+        ('mac-address-ethernet0', bytes.fromhex('02005e77ee12')),
     ], [node('memory-map', [ph()]),
         # Local boot policy (kern_csr.c): SIP relaxed like `csrutil disable`
         # (lp-sip0: untrusted kexts, unrestricted FS, task_for_pid, kernel
