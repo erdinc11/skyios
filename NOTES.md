@@ -11,7 +11,10 @@
 - `dtb/boot_unpacked/dtb` is from the **LineageOS** boot.img (not stock/PixelOS as before). Untested with the shim.
 - Kernel 0081 (CI run 39158169212, artifact expires 2027-01-16) downloaded to `xnu/out/`.
 - Missing on this host: `aarch64-linux-gnu-gcc` (shim), `ipsw` (DeviceTree extraction), Linux tools for `mkiosroot.sh`. Docker works (linux/arm64, 12 GB). IPSW: iPhone10,3 16.7.16 20H392, 5.9 GB, `https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw`.
-- Next: build the root image (Docker, or natively on macOS), ADT and shim; then flash userdata (destructive; confirm with user first).
+- **Root image built in Docker (Colima VM; needed `linux-modules-extra-$(uname -r)` in the VM for hfsplus; apfs-fuse built from source 66b86bd in image `ios-sweet-root`, Dockerfile in session scratchpad).** Scripts `research/root-build/{build-root,retweak}.sh`, raw image in docker volume `ios-sweet-work:/ios16-root.img`. Output `research/root/ios16-root-20H392-net.simg` (12.1 GB, fsck OK) = mkiosroot + sweet-root-tweaks incl. the new `network()` (= v15's ue0 service, now in the repo, commit c523e76). The data ark was skipped (no mobileactivationd container in a fresh image; same as before?).
+- Boot image `shim/out/shim-boot-0081s.img` (sha256 91837a77...): kernel 0081 + `shim/out/sweet-0081hi.adt` (mkadt --highmem) + README cmdline with `cpus=8 sweetusb=2`. Shim compiled in an ubuntu:24.04 arm64 container (mkbootimg stubbed: Ubuntu's is broken), mkbootimg run on the Mac.
+- Host side for internet on macOS: `tools/sweet-usbnet.sh logs/live-0081s.txt` (finds the ECM enN by MAC, 192.168.7.1, forwarding + pf NAT anchor com.apple/250.ios-sweet to en0).
+- Next: flash userdata (destructive; confirm with user first), boot 0081s, check `SWEET NET` lines for a default route on ue0 and DNS traffic on the host interface.
 
 ### >>> UPDATE 2026-10-18 (read first, then the 10-17 handoff below) <<<
 
