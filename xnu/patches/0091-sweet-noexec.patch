@@ -8,7 +8,7 @@
 +static bool
 +sweet_noexec(const char *name)
 +{
-+	static char list[128] = "bluetoothd,fairplayd.H2";
++	static char list[128] = "bluetoothd,fairplayd.H2,vmd";
 +	static int parsed;
 +	if (!parsed) {
 +		(void)PE_parse_boot_argn("sweetnoexec", list, sizeof(list));
