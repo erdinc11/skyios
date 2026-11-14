@@ -1,37 +1,39 @@
-# ios-sweet
+# SkyIOS
 
 **Apple's iOS 16 running on a Redmi Note 10 Pro.**
 
-This project ports Apple's open-source XNU kernel (xnu-8796, the iOS 16 generation) to the Xiaomi Redmi Note 10 Pro (`sweet`, Qualcomm SM7150 / Snapdragon 732G). On top of it runs the **unmodified iOS 16.7.16 (20H392) userland of the iPhone X**: launchd, the system daemons, backboardd, SpringBoard and the stock apps.
+SkyIOS ports Apple's open-source XNU kernel (xnu-8796, the iOS 16 generation) to the Xiaomi Redmi Note 10 Pro (`sweet`, Qualcomm SM7150 / Snapdragon 732G). On top of it runs the **unmodified iOS 16.7.16 (20H392) userland of the iPhone X**: launchd, the system daemons, backboardd, SpringBoard and the stock apps.
 
-As of **2026-10-18** the phone boots to the **iOS home screen**. You can unlock it, open Settings, pull down Control Center and the notification center, and use the touchscreen and the hardware buttons. Rendering runs entirely on the CPU; there is no GPU driver.
+The phone boots to the **iOS lock screen and home screen**. You can unlock it, move between apps with the home gesture, open Settings, and use Control Center, the notification center, the touchscreen and the hardware buttons. A live kernel log streams to the host over USB Ethernet. The Adreno 618 GPU powers up and its registers can be read, but it does not render yet: CoreAnimation still draws on the CPU.
 
 > Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. It installs into the `userdata` partition and so **erases Android's user data**.
 
-## What works
+## Status (2026-11-15)
 
 | Area | State |
 | --- | --- |
 | Boot | Stock Xiaomi bootloader → `fastboot boot` of our shim → XNU. Nothing is flashed to the boot partitions |
-| CPU | 6 of the 8 cores (the six Cortex-A55s) via PSCI, 16K pages, GICv3 interrupts, timers |
+| CPU | All 8 cores (6× Cortex-A55, 2× Cortex-A76) via PSCI, clocks raised from the boot ~300 MHz to 1.8 GHz (A55) / 2.3 GHz (A76) through OSM, 16K pages, GICv3, timers |
 | Memory | About 3.95 GiB of the upper DDR bank |
 | Storage | Own UFS host driver; the iOS root is a journaled HFS+ volume in `userdata`, read/write |
 | iOS userland | Real iPhone X 16.7.16 root filesystem and shared cache; launchd and the system daemons run |
-| Display | Kernel IOSurface + IOMobileFramebuffer (`AppleCLCD`) services; CoreAnimation renders in software; frames are copied into the bootloader's framebuffer. Presented to iOS as an iPhone X panel (1125×2436) |
-| GUI | backboardd, SpringBoard, lock screen, home screen, Control Center, notification center, Settings |
-| Touch | Goodix GT9896 over I²C (GENI), rail enabled through RPMh, delivered as HID digitizer events |
+| Display | Kernel IOSurface + IOMobileFramebuffer (`AppleCLCD`) services; CoreAnimation renders in software; frames are copied into the bootloader's framebuffer in SwapEnd. Presented to iOS as an iPhone X panel (1125×2436) |
+| GUI | backboardd, SpringBoard, lock screen, home screen, app switching, Control Center, notification center, Settings |
+| Touch | Goodix GT9896 over I²C (GENI), rail through RPMh, HID digitizer events; filters bogus (0,0) points and releases a finger when the controller stops reporting |
 | Buttons | Power, volume up/down (PMIC through SPMI) as HID consumer keys; lock/wake works |
-| Battery | IOPMPowerSource service (static 100 %, charging icon; real fuel-gauge readout prepared) |
+| USB | Device-mode USB Ethernet (ECM); the kernel console streams to the host as UDP (`tools/sweet-usbnet.sh`) |
+| App extensions | A built-in "AMFI" MAC policy and an `AppleMobileFileIntegrity` IOService let ExtensionKit trust `System/Library/xpc/extensions.plist`, so app extensions (wallpaper posters, widgets, ...) are registered and launch |
+| GPU | Adreno 618 bring-up in kernel Rust (`kernel-rs/`): GPU clocks, CX/GX power, GMU firmware, RSC/PDC, adreno SMMU context for the GMU, HFI queues, GX rail via the GMU, first GPU register read. No command submission yet |
+| Battery | IOPMPowerSource service (static 100 %) |
 | Device identity | iPhone X (`iPhone10,3` / `D22AP`): no Home button, gesture UI |
 | Activation | Native "Hactivation" path of mobileactivationd, chosen through device-tree security status. No Apple servers involved |
 
 ## What does not work (yet)
 
-- **Navigation:** you cannot leave an app (the home gesture and AssistiveTouch Home do nothing yet).
-- **No Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPS or SEP / Face ID.** Daemons for them start and fail or keep relaunching.
-- **No GPU.** Everything is drawn by the CPU at roughly 20–30 fps. The two Cortex-A76 cores are not used yet.
+- **No GPU rendering.** The GPU is powered but has no command processor setup, no memory manager and no Metal driver. Everything is drawn by the CPU, typically 6–15 fps while interacting.
+- **Wallpaper is black.** Poster extensions now start, but PosterBoard and AegirPoster still die on an uncaught exception.
+- **No Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPS or SEP / Face ID.** Daemons that only spin without hardware (bluetoothd, fairplayd.H2, the voicemail daemon vmd) are blocked at exec (`sweetnoexec`).
 - **Few apps.** The image has only what is on the system volume. There is no App Store, no Apple ID, and some Settings pages are empty.
-- **Slow boot:** about 4 minutes on the Apple logo.
 - **Security is off:** permissive code signing (AMFI) and sandbox policies, a stub AppleKeyStore, no data protection. Do not put anything personal on it.
 
 ## How it boots
@@ -68,11 +70,13 @@ sweet unpack-bootv2 backup/boot.img dtb/boot_unpacked   # -> dtb/boot_unpacked/d
 The kernel builds on GitHub's macOS runners with [blacktop/darwin-xnu-build](https://github.com/blacktop/darwin-xnu-build). The workflow fetches xnu-8796, applies `xnu/patches/` in order, and also stages the pinned open-source libpthread, HFS and BearSSL sources it needs. Fork the repo (public repos get free macOS minutes) and run:
 
 ```sh
-gh workflow run xnu.yml -R YOU/ios-sweet
-gh run download RUN_ID -R YOU/ios-sweet -n xnu-kernel -D xnu/out
+gh workflow run xnu.yml -R YOU/skyios
+gh run download RUN_ID -R YOU/skyios -n xnu-kernel -D xnu/out
 ```
 
 To check a patch locally before spending a CI run, `sweet xnu-cc` replays the compile commands of a previous CI log for single files.
+
+The kernel also builds on a Mac with Xcode 26.5 and the macOS 13.5 KDK: `research/localbuild/` holds a pinned darwin-xnu-build checkout with the patches copied in. The kernel Rust library comes from `kernel-rs/build.sh` (nightly Rust, custom `aarch64-apple-xnu-sweet` target) and is linked in through `SWEET_RUST_LIB`; see `NOTES.md` for the exact command.
 
 ### 2. Build the iOS root image
 
@@ -104,7 +108,7 @@ Needs `aarch64-linux-gnu-gcc` and `mkbootimg`.
 ```sh
 sweet mkadt shim/out/sweet.adt --highmem
 sweet mkpayload xnu/out/kernel.development.sweet shim/out/sweet.adt shim/out/payload.bin \
-    --cmdline 'debug=0xc serial=3 cpus=6 keepsyms=1 -enable_kprintf_spam -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30'
+    --cmdline 'debug=0xc serial=3 cpus=8 keepsyms=1 -enable_kprintf_spam -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=60 sweetusb=2 sweettouchic=1'
 shim/build.sh ../shim/out/payload.bin      # -> shim/out/shim-boot.img
 ```
 
@@ -113,12 +117,18 @@ What the less obvious boot-args do:
 | Boot-arg | Effect |
 | --- | --- |
 | `rd=ufsroot0 ufsrw=1 rootrw=1` | Root on the `userdata` partition, writable |
-| `cpus=6` | Start the six A55 cores; `cpus=1` is the safe fallback |
+| `cpus=8` | Start all eight cores; `cpus=1` is the safe fallback |
 | `launchd_unsecure_cache=1` | launchd accepts its job cache without AMFI |
 | `wdt=-1 wdt_test=no_user_checkin` | No hardware watchdog |
 | `sweetfb_noconsole=1` | Stop drawing kernel text over the GUI. It still goes to the persistent log; panics are drawn |
-| `sweetfb_hz=30` | Panel refresh rate of the CPU copy |
+| `sweetfb_hz=60` | Panel refresh rate of the CPU copy |
+| `sweetusb=2` | USB Ethernet with the live UDP console |
+| `sweettouchic=1` | Use the Goodix GT9896 (`2` = Focaltech) |
 | `sweettouch=0`, `sweetkeys=0` | Disable the touch or button driver |
+| `sweetnoexec=a,b` | Refuse exec of these process names (default `bluetoothd,fairplayd.H2,vmd`) |
+| `sweettop=5` | Per-process CPU usage every 5 s |
+| `sweetgpu=N`, `sweetgpu_delay=S` | Run the Adreno bring-up up to stage N, S seconds after the root mount |
+| `sweettouchdot=1` | Draw a red cross at the raw touch point (touch debugging) |
 
 ### 4. Flash the root and boot
 
@@ -131,6 +141,14 @@ fastboot boot shim/out/shim-boot.img
 The first boot takes about 4–5 minutes on the Apple logo, then the lock screen appears. Swipe up to unlock. To get back to fastboot, hold Power + Volume down.
 
 ### 5. Read the kernel log
+
+With `sweetusb=2` the console streams live over USB Ethernet once the root is mounted:
+
+```sh
+tools/sweet-usbnet.sh logs/live.txt
+```
+
+The persistent ring at the end of `userdata` also has the early lines:
 
 ```sh
 fastboot boot recovery/recovery.img        # OrangeFox, temporary
@@ -152,6 +170,8 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 | `xnu/patches/` | The XNU patch series (applied in order by CI), plus staging scripts for libpthread, HFS and BearSSL |
 | `.github/workflows/xnu.yml` | Kernel CI build |
 | `tools/rs/` | The `sweet` host tool (Rust), one subcommand per job below |
+| `kernel-rs/` | Rust linked into the kernel: cmd-db reader, Adreno 618 / GMU / SMMU bring-up |
+| `tools/sweet-usbnet.sh` | Bring up the phone's USB Ethernet on the host and stream the live kernel log |
 | `sweet mkadt` | Generates the Apple Device Tree from sweet's MMIO layout and the iPhone X identity |
 | `sweet mkpayload` | Packs kernel + ADT + boot-args into the shim payload |
 | `tools/mkiosroot.sh` | Builds the HFS+ iOS root from the IPSW images |
@@ -189,6 +209,20 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 | 0066–0067 | Fault-region crash info; console mute |
 | 0068 | IOSurface lookup semantics for already-mapped surfaces |
 | 0069 | Batched persistent-log flushes |
+| 0070–0071 | `pid_hibernate` syscall (SpringBoard app switching); edge-swipe flags on touches |
+| 0072–0077, 0081 | USB device controller, VBUS override, ECM USB Ethernet, live UDP console, link state |
+| 0078 | SMP: all 8 cores |
+| 0079–0080 | Display power (lock/wake); network trace |
+| 0082 | Touch controller selection (GT9896 / Focaltech) |
+| 0083 | Xcode 16+ IIG/IORPC compatibility (local builds) |
+| 0084 | CPU and L3 frequencies through OSM |
+| 0085–0086 | Frame statistics; present inside SwapEnd; touch retry |
+| 0087, 0089, 0090, 0093 | Rust kernel library (`kernel-rs/`) and its C hooks: log, panic, MMIO map, boot-args, delays, threads, contiguous DMA memory, cache maintenance |
+| 0088 | Per-process CPU usage (`SWEET TOP`) |
+| 0091 | `sweetnoexec`: refuse exec of crash-looping daemons |
+| 0092, 0095, 0096, 0098 | Boot-time root fixes: PosterBoard assert, SpringBoard feature-flag override, early boot notes in the live log, LaunchServices store reset |
+| 0094, 0100, 0101 | Touch: ignore (0,0) points, touch-dot debugging and hold times, release a stuck finger |
+| 0097, 0099 | "AMFI" MAC policy syscalls and the `AppleMobileFileIntegrity` IOService (extension point cache trust) |
 
 ## Key hardware facts
 
@@ -203,4 +237,4 @@ More in [`NOTES.md`](NOTES.md).
 
 ## Credits
 
-Built on Apple's open-source releases (xnu, IOHIDFamily, libpthread, hfs), [BearSSL](https://bearssl.org), [blacktop/darwin-xnu-build](https://github.com/blacktop/darwin-xnu-build), [ipsw](https://github.com/blacktop/ipsw), Qualcomm/Xiaomi's published Linux kernel sources for the hardware details, and [OrangeFox Recovery](https://orangefox.download). iOS itself is Apple's and is not distributed here.
+SkyIOS is built on Apple's open-source releases (xnu, IOHIDFamily, libpthread, hfs), [BearSSL](https://bearssl.org), [blacktop/darwin-xnu-build](https://github.com/blacktop/darwin-xnu-build), [ipsw](https://github.com/blacktop/ipsw), Qualcomm/Xiaomi's published Linux kernel sources for the hardware details, and [OrangeFox Recovery](https://orangefox.download), the Linux `drm/msm` Adreno driver as the reference for the GPU bring-up, and [macos-UnifiedLogs](https://github.com/mandiant/macos-UnifiedLogs) for reading iOS logs. iOS itself is Apple's and is not distributed here.

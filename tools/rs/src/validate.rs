@@ -123,7 +123,7 @@ pub fn main(args: &[String]) -> i32 {
     }
     let o = parse("validate-repo", &args, &[], &["--verbose"]);
     let root = repo_root();
-    println!("{}", bold("=== Running ios-sweet Repository Validation ==="));
+    println!("{}", bold("=== Running SkyIOS Repository Validation ==="));
     let ok_patches = validate_patches(&root);
     let ok_shell = validate_shell_scripts(&root, o.flag("--verbose"));
     if ok_patches && ok_shell {
