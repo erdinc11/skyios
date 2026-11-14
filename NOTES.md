@@ -2,6 +2,19 @@
 
 ## Agent handoff / active work (2026-10-15, latest)
 
+### >>> UPDATE 2026-11-14 (late night): GPU stage B works, the GMU firmware runs <<<
+
+- **The first locally built kernel boots on the phone** (Xcode 26.5, `xnu/out-0090-local/`, image `shim/out/shim-boot-0090b.img`, booted 14:33 UTC): lock screen, USB link, live log.
+- **GPU stage A+B result (`logs/usbnet-0090b.out`, sweetgpu=2, 60 s after boot):**
+  - gpu_cfg_ahb was already on. GPLL0 GPU vote bits 15/16 set, GCC 0x71028 |= 3, ddrss_gpu_axi turned on. gpu_memnoc_gfx and gpu_snoc_dvm_gfx stay "off" (most likely they need GX; not a blocker yet).
+  - gx_gdscr = 0x00222001 (collapsed, left alone).
+  - CX GDSC 0x00222001 -> 0xf8222000 (power on).
+  - GMU RCG cfg 0x602 (GPLL0 div / 1.5 = 200 MHz); cx_gmu CBCR 0x80004220 -> 0x00004ff1 (on).
+  - GMU registers readable: sptprac 0xd4, rpmh power state 0xf, cx busy 0x30000000.
+  - a618_gmu.bin (legacy raw image, 32 KiB) copied into ITCM (itcm[0] = 0x00043f80), followed by the CM3 SYSRESET pulse: **FW_INIT_RESULT = 0xbabeface (GMU firmware running)**. CORE_FW_VERSION reads 0 (legacy firmware).
+- The GMU firmware is embedded only in local builds: `SWEET_GMU_FW=$PWD/research/gpu-fw/a618_gmu.bin kernel-rs/build.sh` (cargo feature gmufw). CI builds carry no firmware, and sweetgpu=2 then reports "no usable GMU firmware".
+- Next (stage C, the freedreno legacy path): a6xx_gmu_rpmh_init (RSC/PDC programming with cmd-db addresses for gfx.lvl/cx.lvl/mx.lvl), then GMU memory in the adreno SMMU (gmu_kernel context SID 5; HFI queue table plus debug region), HFI v1 init, gfx_rail_on/OOB, sptprac enable, GX GDSC, and the first GPU register read (RBBM chip id).
+
 ### >>> UPDATE 2026-11-14 (night): CPU clocks fixed, where the CPU goes, GPU bring-up started <<<
 
 - **CPU clock was ~300 MHz before 0084** (ring log `logs/ring-0087ns.txt`: silver perf state 6 / loop ~322 MHz, gold perf state 0 / ~299 MHz, L3 state 7). 0084 sets silver to index 9 = 1804 MHz, gold to index 13 = 2304 MHz, L3 to index 10 = 1459 MHz; the loop timing confirms 1803/2303 MHz. A/B on 0087: `sweetcpufreq=0` and `sweetfb_sync=0` both still "ngelag banget" (user).
