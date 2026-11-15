@@ -2,7 +2,13 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
-### >>> UPDATE 2026-11-15: 0110c fill still writes nothing although every 2D register reads back right; testing secure mode (0110e, NOT booted) <<<
+### >>> RESULT 2026-11-15: GPU IS IN SECURE MODE; direct TRUST_CNTL write hangs (boot 0110e) -> zap shader needed <<<
+
+- **Boot 0110e (commit ebad83e, `logs/live-0110e.txt`, observed):** `rbbm secvid trust cntl 0x00000001` (secure) before SQE start. Fence / first command OK, fill again 0/1536 pixels. Then `writing RBBM_SECVID_TRUST_CNTL = 0` is the **last CP line**: the following readback log never appeared and `stage C done` is missing, i.e. the GPU bring-up thread hangs on the write/readback (blocked access, as Linux warns). The rest of the system keeps running (SpringBoard, SWEET TOP continue), no panic, no reset.
+- Do NOT boot 0110e again (hangs the thread, GPU then unusable this boot). 0110d = same kernel without the write.
+- **Next:** zap shader load via SCM PAS like Linux `a6xx_zap_shader_init` / `adreno_zap_shader_load` (pas id 13, `research/gpu-fw/a615_zap.mdt` + `.b00-.b02`, memory region from the DT `zap-shader` / `gpu_region@97715000`), then `CP_SET_SECURE_MODE(0)` (pkt7 0x66) on the ring after ME_INIT, then retry the fill. Needs new SCM/SMC code in the kernel lib.
+
+### (superseded) 0110c fill still writes nothing although every 2D register reads back right; testing secure mode
 
 - **Boot 0110c (commit d983f53, `logs/live-0110c.txt`, observed):** fence 1 OK, fill submit done (rptr 109), fence 2 OK, CCU TS 3, still **0/1536 pixels**. Readback after fill: rb/gras blt `0x00f03080`, dst info 0x30, base `0x1011000`, br `0x00270037`, color0 0x20, ccu `0x08000000`, eco `0x04100000`, int0 0, hw_fault 0, RBBM status `0x00c00001`. No NS SMMU fault (cb0 fsr 0x400 = FORMAT only, gfsr 0). No panic.
 - Our sequence now matches turnip `r2d_setup_common` / freedreno `emit_blit_setup` for a6xx.
