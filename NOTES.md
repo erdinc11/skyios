@@ -2,6 +2,11 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: 0109i HFI init + fw_version ACKED; stops at perf_table <<<
+
+- **Boot 0109i (commit ae5c155, `logs/live-0109i.txt`, observed):** `msg 0 seq 1 acked` (init), `msg 1 seq 2 acked` (fw_version), GMU fw version `0x10110000`. Then `perf table level count out of range (gfx 9, cx 7)` -> boot aborted at perf_table (host-side check, nothing sent). No panic.
+- **Diagnosis:** `Ring::send_perf_table` (user's code) uses the raw cmd-db `gfx.lvl` / `cx.lvl` hlvl counts as the perf table level counts. In Linux (`a6xx_hfi_send_perf_table_v1`, `research/linux-ref/drivers/gpu/drm/msm/adreno/a6xx_hfi.c:258`) the counts are the GPU OPP frequencies (`nr_gpu_freqs`) and GMU frequencies (`nr_gmu_freqs`, built at `a6xx_gmu.c:2002`), and each vote is computed by `a6xx_gmu_rpmh_arc_votes_init` (`a6xx_gmu.c:1772`) from the OPP's required corner matched against the cmd-db levels. The user is rewriting this part (the assistant does not author the perf/RPMh vote code in this project).
+
 ### >>> UPDATE 2026-11-15: 0109h HFI up, init ack not read -> 0109i (waiting for boot) <<<
 
 - **Boot 0109h (commit 4283b2f, `logs/live-0109h.txt`, observed):** `hfi ctrl status 0x1 (HFI up)` - the queue-table ordering fix worked. GMU consumed msg 0 (init, q0 rd=wr=5) and wrote an ack into q1 (wr 4: `0002047e 00100000 00000000 0e550e55`), but the host logged `response queue empty` then `response interrupt TIMEOUT` and aborted at init. No panic.
