@@ -89,6 +89,7 @@ const SP_ADDR_MODE_CNTL: usize = 0xae01;
 const TPL1_ADDR_MODE_CNTL: usize = 0xb601;
 const HLSQ_ADDR_MODE_CNTL: usize = 0xbe05;
 const RBBM_SECVID_TSB_ADDR_MODE_CNTL: usize = 0xf810;
+const RBBM_SECVID_TRUST_CNTL: usize = 0xf400;
 const RBBM_SECVID_TSB_TRUSTED_BASE: usize = 0xf800;
 const RBBM_SECVID_TSB_TRUSTED_SIZE: usize = 0xf802;
 const RBBM_SECVID_TSB_CNTL: usize = 0xf803;
@@ -422,6 +423,7 @@ pub fn bringup() {
         gpu.read(CP_RB_RPTR),
         gpu.read(CP_RB_WPTR)
     );
+    crate::log!("SWEET CP: rbbm secvid trust cntl {:#010x}", gpu.read(RBBM_SECVID_TRUST_CNTL));
     gpu.write(CP_SQE_CNTL, 1);
 
     // a6xx_cp_init()
@@ -466,7 +468,19 @@ pub fn bringup() {
         smmu_fault();
         return;
     }
-    solid_fill(&gpu, &mem, &mut ring);
+    if solid_fill(&gpu, &mem, &mut ring) {
+        return;
+    }
+    // Experiment (boot-arg sweetcp_trust0=1): the Linux path for GPUs without
+    // a zap shader, leave secure mode by RBBM_SECVID_TRUST_CNTL = 0. On a zap
+    // target Linux warns this may be blocked ("a permissions violation will
+    // soon follow").
+    if crate::xnu::boot_arg_u32(c"sweetcp_trust0") == Some(1) {
+        crate::log!("SWEET CP: writing RBBM_SECVID_TRUST_CNTL = 0 (no zap shader)");
+        gpu.write(RBBM_SECVID_TRUST_CNTL, 0);
+        crate::log!("SWEET CP: trust cntl now {:#010x}, retrying the fill", gpu.read(RBBM_SECVID_TRUST_CNTL));
+        solid_fill(&gpu, &mem, &mut ring);
+    }
 }
 
 fn fence_read(mem: &GpuMem) -> u32 {
@@ -478,7 +492,7 @@ fn fence_read(mem: &GpuMem) -> u32 {
 // (emit_setup + clear blit) / turnip r2d_*: CCU to bypass mode, BLT_CNTL with
 // SOLID_COLOR, per-channel UNORM8 clear values, linear RGBA8 destination,
 // CP_BLIT(BLIT_OP_SCALE), then flush CCU colour and the caches by fence.
-fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) {
+fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) -> bool {
     const POISON: u32 = 0xdead_beef;
     // R, G, B, A; WZYX swap puts R in the low byte
     const RGBA: [u32; 4] = [0x20, 0x80, 0xe0, 0xff];
@@ -526,7 +540,8 @@ fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) {
 
     ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 3)));
     ring.wfi();
-    ring.fence(2);
+    let fseq = fence_read(mem) + 1;
+    ring.fence(fseq);
     let ok = ring.submit(gpu, "solid fill");
     let f = fence_read(mem);
     mem.dma.flush(TABLES + DST_OFF, DST_BYTES);
@@ -553,7 +568,7 @@ fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) {
     let want_in = (X1 - X0) * (Y1 - Y0);
     let want_out = DST_W * DST_H - want_in;
     crate::log!(
-        "SWEET CP: fill fence {f} (want 2) ccu ts {:#x}; rect pixels ok {inside}/{want_in} (untouched {poison_in}), border intact {outside}/{want_out}, px(8,8) {:#010x} px(0,0) {:#010x}",
+        "SWEET CP: fill fence {f} (want {fseq}) ccu ts {:#x}; rect pixels ok {inside}/{want_in} (untouched {poison_in}), border intact {outside}/{want_out}, px(8,8) {:#010x} px(0,0) {:#010x}",
         mem.r32(CCU_TS_OFF),
         mem.r32(DST_OFF + (Y0 * DST_PITCH + 4 * X0) as usize),
         mem.r32(DST_OFF)
@@ -575,9 +590,11 @@ fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) {
     if let Some((x, y, v)) = first_bad {
         crate::log!("SWEET CP: first mismatch at ({x},{y}) = {v:#010x}");
     }
-    if ok && f == 2 && inside == want_in && outside == want_out {
+    if ok && f == fseq && inside == want_in && outside == want_out {
         crate::log!("SWEET CP: 2D SOLID FILL OK ({}x{} rgba8 {WANT:#010x})", X1 - X0, Y1 - Y0);
+        true
     } else {
         smmu_fault();
+        false
     }
 }

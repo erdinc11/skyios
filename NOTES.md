@@ -2,7 +2,15 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
-### >>> UPDATE 2026-11-15: FENCE WORKS; 2D fill wrote nothing in 0110b; 0110c adds the a618 mesa magic regs (NOT booted) <<<
+### >>> UPDATE 2026-11-15: 0110c fill still writes nothing although every 2D register reads back right; testing secure mode (0110e, NOT booted) <<<
+
+- **Boot 0110c (commit d983f53, `logs/live-0110c.txt`, observed):** fence 1 OK, fill submit done (rptr 109), fence 2 OK, CCU TS 3, still **0/1536 pixels**. Readback after fill: rb/gras blt `0x00f03080`, dst info 0x30, base `0x1011000`, br `0x00270037`, color0 0x20, ccu `0x08000000`, eco `0x04100000`, int0 0, hw_fault 0, RBBM status `0x00c00001`. No NS SMMU fault (cb0 fsr 0x400 = FORMAT only, gfsr 0). No panic.
+- Our sequence now matches turnip `r2d_setup_common` / freedreno `emit_blit_setup` for a6xx.
+- **Hypothesis (unverified):** GPU still in secure mode (no zap shader): CP_MEM_WRITE / CACHE_FLUSH_TS reach memory but RB/CCU traffic goes out on the secure stream. DT: `gfx3d_user` iommus `<0x1cd 0x0>`, `gfx3d_secure` `<0x1cd 0x2>`; NS SMR table has no SID 2 entry yet no NS global fault, consistent with TZ-owned secure handling (guess).
+- **0110d/0110e (same kernel, build log `research/localbuild/build38.log`):** log `rbbm secvid trust cntl` before SQE start; fill fence seq now dynamic. `0110e` adds boot-arg `sweetcp_trust0=1`: after a failed fill, write `RBBM_SECVID_TRUST_CNTL = 0` (Linux no-zap path; Linux warns this can be blocked -> permission violation, possibly XPU reset) and retry the fill. `0110d` = no write. Watcher boots **0110e** -> `logs/live-0110e.txt`.
+- If TRUST_CNTL write is blocked: next is zap shader load via SCM PAS (`research/gpu-fw/a615_zap.mdt` + `.b00-.b02`, pas id 13, reserved region `/reserved-memory/gpu_region@97715000`), then `CP_SET_SECURE_MODE 0` like `a6xx_zap_shader_init`; no SCM code exists in the kernel lib yet.
+
+### (superseded) 0110c adds the a618 mesa magic regs
 
 - **Boot 0110b (commit 929f6eb, `logs/live-0110b.txt`, observed):** first command OK again; `fence 1 (want 1): FENCE SIGNALLED`; `solid fill: done (rptr 82, 140 us)`, fill fence 2 == 2, CCU flush TS word == 3 (so all CP_EVENT_WRITEs ran), but **0/1536 rect pixels written** (all still 0xdeadbeef), border intact. cb0 fsr `0x400` = only the FSR FORMAT field (no fault), gfsr 0. No panic.
 - Checked against real mesa source this time (fetched into the session scratchpad, not committed: `fd6_blitter.cc`, `fd6_emit.cc/.h`, `freedreno_devices.py`, `fd6_gmem_cache.h`, `tu_clear_blit.cc`). Findings: our register sequence / CCU bypass value (color offset 64 KiB) / clear colour format match; `CP_SET_MARKER RM6_BLIT2DSCALE` is a no-op per the xml. Differences: a618 has **no QCTDD04536579 quirk**, so mesa never toggles RB_DBG_ECO_CNTL around CP_BLIT; instead a618 `raw_magic_regs` set it statically to **0x04100000** (0110b wrote 0x00100000, then 0), plus PC_MODE_CNTL 0x1f, TPL1_DBG_ECO 0x108000, GRAS_DBG_ECO 0x880, SP_CHICKEN_BITS 0x430, HLSQ_DBG_ECO 0x80000, UCHE_UNKNOWN_0E12 1, RB_RBP_CNTL 1 etc. a618 has `blit_wfi_quirk` (WFI before CP_BLIT).
