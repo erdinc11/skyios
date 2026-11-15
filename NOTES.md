@@ -2,6 +2,12 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> RESULT 2026-11-15: asynchronous GPU present works (boot 0110i) <<<
+
+- **Boot 0110i (commit daed19b, `logs/live-0110i.txt`, observed):** self tests as 0110g; GPU present 1..8 synchronous, `gpu ~34090 us, check 0/64 bad`; 9..12 `queued, clean ~610 us, submit ~75 us`. Idle presents now cost ~0.8 ms on the CPU (was 34.8 ms in 0110h, ~2.6 ms with the CPU memcpy). Under touch/scroll load: `copy avg 4271..10278 us, max 25496..28490 us` at 4.4..7 swaps/s. The max is the wait for the previous copy, which still takes 34 ms on the GPU. No timeout, no `did not finish`, no panic.
+- **Bottleneck (observed):** the swap rate is limited by CoreAnimation software rendering in backboardd (SWEET TOP: backboardd 107..325 % CPU while 4..7 swaps/s), not by present. The GPU copy is clock bound (~9.6 MHz, see below) and would need a GX frequency vote (user's part) to stop adding up to 34 ms of latency.
+- **Next (assistant side):** scale the 1125x2436 layer to the full panel with the 2D engine (instead of cropping, CP_BLIT scaling with filter), and multi-layer composition. Real speed needs CA on the GPU (Metal/GL for Adreno, which does not exist) or faster CPU rendering.
+
 ### >>> MILESTONE 2026-11-15: SCREEN PRESENTED BY THE GPU, pixel-exact but slow (boot 0110h) <<<
 
 - **Boot 0110h (commit 0428df8, `logs/live-0110h.txt`, observed):** zap/secure/fill self tests as 0110g, then `present engine ready`, `panel 0x9c000000+0x9e3400 mapped at iova 0x40000000`, **`GPU present 1..8: 1080x2400, 681 segs, clean ~610 us, gpu ~34090 us, check 0/64 bad`** -> the 2-pass interleaved copy is correct, no fault, lockscreen fine. Every later frame also went through the GPU (5 s stats: `copy avg ~34800 us`, before the engine was up the CPU copy was ~2650 us).
