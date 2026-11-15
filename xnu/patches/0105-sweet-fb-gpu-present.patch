@@ -1,0 +1,132 @@
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -37,7 +37,19 @@
+ #define SWEET_FB_LOGICAL_W              1125
+ #define SWEET_FB_LOGICAL_H              2436
+ #define SWEET_FB_FORMAT_BGRA            0x42475241
++#define SWEET_FB_GPU_SEGS               4096
+ 
++extern "C" bool sweet_rs_gpu_blit(const uint64_t (*segs)[2], uint32_t nseg, uint32_t off,
++    uint32_t spitch, uint32_t sx, uint32_t sy, uint32_t w, uint32_t h, uint64_t panel_pa,
++    uint64_t panel_size, uint32_t dpitch, uint32_t dx, uint32_t dy);
++extern "C" void sweet_rs_cache_clean(uintptr_t va, uint64_t size);
++extern "C" uint32_t sweet_rs_gpu_state(void);
++
++/* GPU present state, used under fPresentLock only */
++static uint64_t sweet_fb_gpu_segs[SWEET_FB_GPU_SEGS][2];
++static int sweet_fb_gpu_mode = -1;      /* -1 unknown, 0 off, 1 on */
++static uint32_t sweet_fb_gpu_frames, sweet_fb_gpu_checked;
++
+ class IOMobileFramebuffer : public IOService {
+ 	OSDeclareDefaultStructors(IOMobileFramebuffer);
+ };
+@@ -83,6 +95,8 @@
+ 	void removeClient(IOMobileFramebufferUserClient *client);
+ 	void swap(const uint8_t *rec);
+ 	void present(const uint8_t *rec);
++	bool gpuPresent(SweetSurface *s, uintptr_t src, int32_t sx, int32_t sy, int32_t dx,
++	    int32_t dy, int32_t w, int32_t h);
+ 	void presentTimed(const uint8_t *rec);
+ };
+ 
+@@ -419,6 +433,9 @@
+ 		    (uint64_t)(sx + w) * 4;
+ 		if (w <= 0 || h <= 0 || s->elementWidth != 1 || s->elementHeight != 1 ||
+ 		    s->memory == NULL || last > s->memory->getLength()) {
++			src = 0;
++		}
++		if (src != 0 && bpe == 4 && gpuPresent(s, src, sx, sy, dx, dy, w, h)) {
+ 			src = 0;
+ 		}
+ 		if (src != 0 && bpe == 4) {
+@@ -429,7 +446,90 @@
+ 			}
+ 		}
+ 		s->release();
++	}
++}
++
++/*
++ * Copy one layer with the Adreno 2D engine (skyios-kernel cp.rs). The surface
++ * is cleaned from the CPU caches, its physical runs are handed to the GPU page
++ * tables and the GPU copy is waited for. The first frames and every 600th are
++ * checked against the source; any failure or mismatch turns the GPU path off
++ * for this boot and the caller copies with the CPU (also with sweetfb_gpu=0).
++ */
++bool
++AppleCLCD::gpuPresent(SweetSurface *s, uintptr_t src, int32_t sx, int32_t sy, int32_t dx,
++    int32_t dy, int32_t w, int32_t h)
++{
++	if (sweet_fb_gpu_mode < 0) {
++		int on = 1;
++		PE_parse_boot_argn("sweetfb_gpu", &on, sizeof(on));
++		sweet_fb_gpu_mode = on != 0;
++	}
++	if (sweet_fb_gpu_mode == 0 || sweet_rs_gpu_state() != 1) {
++		/* not up yet (the GPU thread starts sweetgpu_delay s after boot) */
++		return false;
++	}
++	uint64_t start = (uint64_t)s->offset + (uint64_t)sy * s->bytesPerRow;
++	uint64_t end = (uint64_t)s->offset + (uint64_t)(sy + h) * s->bytesPerRow;
++	if (end > s->memory->getLength()) {
++		end = s->memory->getLength();
++	}
++	uint32_t nseg = 0;
++	for (IOByteCount off = 0; off < end && nseg < SWEET_FB_GPU_SEGS;) {
++		IOByteCount len = 0;
++		addr64_t pa = s->memory->getPhysicalSegment(off, &len, kIOMemoryMapperNone);
++		if (pa == 0 || len == 0) {
++			return false;
++		}
++		sweet_fb_gpu_segs[nseg][0] = pa;
++		sweet_fb_gpu_segs[nseg][1] = len;
++		nseg++;
++		off += len;
+ 	}
++	uint64_t t0 = mach_absolute_time();
++	sweet_rs_cache_clean(src + start, end - start);
++	uint64_t t1 = mach_absolute_time();
++	if (!sweet_rs_gpu_blit(sweet_fb_gpu_segs, nseg, s->offset, s->bytesPerRow, (uint32_t)sx,
++	    (uint32_t)sy, (uint32_t)w, (uint32_t)h, fPhys, (uint64_t)fRowBytes * fHeight, fRowBytes,
++	    (uint32_t)dx, (uint32_t)dy)) {
++		IOLog("SWEET FB: GPU present failed after %u frames (%u segs), CPU copy from now on\n",
++		    sweet_fb_gpu_frames, nseg);
++		sweet_fb_gpu_mode = 0;
++		return false;
++	}
++	uint64_t t2 = mach_absolute_time();
++	sweet_fb_gpu_frames++;
++	if (sweet_fb_gpu_frames <= 8 || (sweet_fb_gpu_frames % 600) == 0) {
++		uint32_t bad = 0, first_x = 0, first_y = 0, got = 0, want = 0;
++		for (uint32_t i = 0; i < 64; i++) {
++			uint32_t x = (uint32_t)(((uint64_t)i * 977 + 13) % (uint32_t)w);
++			uint32_t y = (uint32_t)(((uint64_t)i * 7919 + 5) % (uint32_t)h);
++			if (i == 63) {
++				x = (uint32_t)w - 1;
++				y = (uint32_t)h - 1;
++			}
++			uint32_t a = *(volatile uint32_t *)(src + s->offset + (uint64_t)(sy + y) * s->bytesPerRow + (uint64_t)(sx + x) * 4);
++			uint32_t b = *(volatile uint32_t *)(fPixels + (uint64_t)(dy + y) * fRowBytes + (uint64_t)(dx + x) * 4);
++			if (a != b && bad++ == 0) {
++				first_x = x;
++				first_y = y;
++				want = a;
++				got = b;
++			}
++		}
++		uint64_t c = 0, g = 0;
++		absolutetime_to_nanoseconds(t1 - t0, &c);
++		absolutetime_to_nanoseconds(t2 - t1, &g);
++		IOLog("SWEET FB: GPU present %u: %dx%d, %u segs, clean %llu us, gpu %llu us, check %u/64 bad%s\n",
++		    sweet_fb_gpu_frames, w, h, nseg, c / 1000, g / 1000, bad, bad ? " -> CPU copy from now on" : "");
++		if (bad != 0) {
++			IOLog("SWEET FB: first mismatch at %u,%u: panel 0x%08x want 0x%08x\n", first_x, first_y, got, want);
++			sweet_fb_gpu_mode = 0;
++			return false;
++		}
++		sweet_fb_gpu_checked++;
++	}
++	return true;
+ }
+ 
+ bool

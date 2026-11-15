@@ -316,6 +316,30 @@ impl Ring<'_> {
         self.event(CACHE_FLUSH_TS, Some((a, seq)));
     }
 
+    // Per-frame submit: done when the CP consumed the ring and the trailing
+    // CACHE_FLUSH_TS wrote `seq` (RBBM_STATUS is not used: 0110c read
+    // 0x00c00001 right after an idle fill). 2 us polls, 100 ms limit.
+    fn submit_quiet(&mut self, gpu: &Gpu, seq: u32) -> bool {
+        self.mem.dma.clean();
+        unsafe { core::arch::asm!("dsb sy", options(nostack, preserves_flags)) };
+        gpu.write(CP_RB_WPTR, self.wptr);
+        for _ in 0..50_000 {
+            if gpu.read(CP_RB_RPTR) == self.wptr && fence_read(self.mem) == seq {
+                return true;
+            }
+            delay_us(2);
+        }
+        crate::log!(
+            "SWEET CP: present TIMEOUT rptr {} wptr {} status {:#010x} int0 {:#010x}",
+            gpu.read(CP_RB_RPTR),
+            self.wptr,
+            gpu.read(RBBM_STATUS),
+            gpu.read(RBBM_INT_0_STATUS)
+        );
+        smmu_fault();
+        false
+    }
+
     // a6xx_flush() + a6xx_idle(): publish the ring, then wait for the CP to
     // drain it and for RBBM to report no busy block besides the AHB master
     fn submit(&mut self, gpu: &Gpu, what: &str) -> bool {
@@ -348,13 +372,13 @@ impl Ring<'_> {
     }
 }
 
-pub fn bringup() {
+pub fn bringup() -> bool {
     let Some(gpu) = Mmio::map(crate::gpu::GPU, 0x40000).map(Gpu) else {
-        return;
+        return false;
     };
     if SQE_FW.len() <= 4 || SQE_FW.len() - 4 > SQE_MAX || SQE_FW.len() % 4 != 0 {
         crate::log!("SWEET CP: no usable SQE firmware in this kernel ({} bytes)", SQE_FW.len());
-        return;
+        return false;
     }
     // adreno_fw_create_bo(): the first dword of the file is not loaded
     let mut head = [0u32; 4];
@@ -363,10 +387,10 @@ pub fn bringup() {
     }
     if !sqe_ok(&head) {
         crate::log!("SWEET CP: SQE ucode too old ({:#x}, want >= 0x190)", head[0] & 0xfff);
-        return;
+        return false;
     }
     let Some(mem) = mem_setup() else {
-        return;
+        return false;
     };
     for (i, w) in SQE_FW[4..].chunks_exact(4).enumerate() {
         mem.w32(SQE_OFF + 4 * i, u32::from_le_bytes([w[0], w[1], w[2], w[3]]));
@@ -434,7 +458,7 @@ pub fn bringup() {
         ring.emit(v);
     }
     if !ring.submit(&gpu, "CP_ME_INIT") {
-        return;
+        return false;
     }
 
     // a6xx_hw_init(): with the zap shader authenticated by TZ the CP may drop
@@ -468,7 +492,7 @@ pub fn bringup() {
     );
     if word != MEM_MAGIC {
         smmu_fault();
-        return;
+        return false;
     }
 
     // fence: CACHE_FLUSH_TS memory write of a sequence number
@@ -478,9 +502,13 @@ pub fn bringup() {
     crate::log!("SWEET CP: fence {f} (want 1){}", if ok && f == 1 { ": FENCE SIGNALLED" } else { "" });
     if f != 1 {
         smmu_fault();
-        return;
+        return false;
     }
-    solid_fill(&gpu, &mem, &mut ring);
+    if !solid_fill(&gpu, &mem, &mut ring) {
+        return false;
+    }
+    let wptr = ring.wptr;
+    engine_init(gpu, mem, wptr)
 }
 
 fn fence_read(mem: &GpuMem) -> u32 {
@@ -596,5 +624,272 @@ fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) -> bool {
     } else {
         smmu_fault();
         false
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Present engine: after the self tests pass the GPU stays up (gpu.rs keeps the
+// OOB gpu_set vote) and AppleCLCD::present() asks it to copy the swapped
+// IOSurface layer into panel memory instead of a CPU memcpy.
+
+const TPL1_A2D_SRC_TEXTURE_INFO: u32 = 0xb4c0;
+const TPL1_A2D_SRC_TEXTURE_FLAG_BASE: u32 = 0xb4ca;
+const GRAS_A2D_SRC_XMIN: u32 = 0x8401;
+const CACHE_INVALIDATE: u32 = 0x31;
+
+// L1 slots of the 4 GiB GPU VA space (cb0, 4 KiB granule, T0SZ 32)
+const PANEL_IOVA: u64 = 0x4000_0000;
+const SURF_IOVA: u64 = 0x8000_0000;
+const SURF_L3: usize = 8; // 8 L3 tables = 16 MiB of surface
+const SURF_MAX: usize = SURF_L3 * 512 * PAGE;
+const BLOCK_2M: u64 = 0x20_0000;
+
+struct Engine {
+    gpu: Gpu,
+    mem: GpuMem,
+    smmu: Mmio,
+    // page 0 panel L2, page 1 surface L2, pages 2.. surface L3
+    pt: Dma,
+    wptr: u32,
+    panel: Option<(u64, usize)>,
+    fseq: u32,
+    dead: bool,
+}
+
+static mut ENGINE: Option<Engine> = None;
+static BUSY: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+fn tlb_flush(smmu: &Mmio) {
+    // TLBIALLNSNH + TLBGSYNC, as in mem_setup()
+    smmu.write(0x68, 0);
+    smmu.write(0x70, 0);
+    for _ in 0..1000 {
+        if smmu.read(0x74) & 1 == 0 {
+            return;
+        }
+        delay_us(1);
+    }
+}
+
+fn engine_init(gpu: Gpu, mem: GpuMem, wptr: u32) -> bool {
+    let (Some(smmu), Some(pt)) = (Mmio::map(SMMU, SMMU_SIZE), Dma::alloc((2 + SURF_L3) * PAGE)) else {
+        crate::log!("SWEET CP: present engine: no memory");
+        return false;
+    };
+    for i in 0..pt.size / 8 {
+        pt.w64(8 * i, 0);
+    }
+    for i in 0..SURF_L3 {
+        pt.w64(PAGE + 8 * i, pte_table(pt.pa + ((2 + i) * PAGE) as u64));
+    }
+    pt.clean();
+    mem.dma.w64(((PANEL_IOVA >> 30) as usize) * 8, pte_table(pt.pa));
+    mem.dma.w64(((SURF_IOVA >> 30) as usize) * 8, pte_table(pt.pa + PAGE as u64));
+    mem.dma.clean();
+    tlb_flush(&smmu);
+    let fseq = fence_read(&mem);
+    crate::log!("SWEET CP: present engine ready (panel iova {PANEL_IOVA:#x}, surface iova {SURF_IOVA:#x} up to {SURF_MAX:#x} bytes)");
+    unsafe { ENGINE = Some(Engine { gpu, mem, smmu, pt, wptr, panel: None, fseq, dead: false }) };
+    true
+}
+
+impl Engine {
+    fn map_panel(&mut self, pa: u64, size: usize) -> bool {
+        if self.panel == Some((pa, size)) {
+            return true;
+        }
+        let base = pa & !(BLOCK_2M - 1);
+        let n = (pa - base + size as u64).div_ceil(BLOCK_2M) as usize;
+        if n > 512 {
+            return false;
+        }
+        for i in 0..n {
+            // L2 block: Normal NC (MAIR attr 0), AF, same AP bits as pte_page
+            self.pt.w64(8 * i, (base + i as u64 * BLOCK_2M) | (1 << 10) | (1 << 6) | 0b01);
+        }
+        self.pt.clean();
+        tlb_flush(&self.smmu);
+        self.panel = Some((pa, size));
+        crate::log!("SWEET CP: panel {pa:#x}+{size:#x} mapped at iova {:#x}", PANEL_IOVA + (pa - base));
+        true
+    }
+
+    // map [0, bytes) of a surface given as physical runs
+    fn map_surface(&mut self, segs: &[[u64; 2]], bytes: usize) -> bool {
+        if bytes > SURF_MAX {
+            return false;
+        }
+        let mut page = 0usize;
+        let want = bytes.div_ceil(PAGE);
+        for &[pa, len] in segs {
+            if pa & (PAGE as u64 - 1) != 0 || len & (PAGE as u64 - 1) != 0 {
+                return false;
+            }
+            for k in 0..(len as usize / PAGE) {
+                if page == want {
+                    break;
+                }
+                self.pt.w64(2 * PAGE + 8 * page, pte_page(pa + (k * PAGE) as u64));
+                page += 1;
+            }
+        }
+        if page < want {
+            return false;
+        }
+        self.pt.clean();
+        tlb_flush(&self.smmu);
+        true
+    }
+}
+
+// One copy pass: `rows` rows starting at src/dst row bases, both pitches as
+// programmed (twice the real pitch for the interleaved passes).
+#[allow(clippy::too_many_arguments)]
+fn blit_pass(ring: &mut Ring, src: u64, spitch: u32, sx: u32, dst: u64, dpitch: u32, dx: u32, w: u32, rows: u32) {
+    let fmt = FMT6_8_8_8_8_UNORM;
+    // base registers want 64-byte alignment: align down, shift x instead
+    let sshift = ((src & 63) / 4) as u32;
+    let dshift = ((dst & 63) / 4) as u32;
+    let (src, dst) = (src & !63, dst & !63);
+    let (sx, dx) = (sx + sshift, dx + dshift);
+    // COLOR_FORMAT, linear, WZYX, unk20 | unk22 as freedreno emit_blit_src()
+    ring.reg(
+        TPL1_A2D_SRC_TEXTURE_INFO,
+        &[fmt | (1 << 20) | (1 << 22), (sx + w) | (rows << 15), src as u32, (src >> 32) as u32, (spitch >> 6) << 9],
+    );
+    ring.reg(TPL1_A2D_SRC_TEXTURE_FLAG_BASE, &[0, 0, 0]);
+    ring.reg(GRAS_A2D_SRC_XMIN, &[sx << 8, (sx + w - 1) << 8, 0, (rows - 1) << 8]);
+    ring.reg(RB_A2D_DEST_BUFFER_INFO, &[fmt, dst as u32, (dst >> 32) as u32, dpitch >> 6]);
+    ring.reg(GRAS_A2D_DEST_TL, &[dx, (dx + w - 1) | ((rows - 1) << 16)]);
+    ring.event(FD_LABEL, None);
+    ring.wfi();
+    ring.emit(pkt7(CP_BLIT, 1));
+    ring.emit(BLIT_OP_SCALE);
+}
+
+/// Copy a w x h rectangle of a linear 32 bpp surface (physical runs `segs`,
+/// covering at least `off + (sy + h) * spitch` bytes) to panel memory at
+/// `panel_pa` (pitch `dpitch`, `panel_size` bytes). Returns false when the
+/// GPU path is unavailable; the caller then copies with the CPU.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn sweet_rs_gpu_blit(
+    segs: *const [u64; 2],
+    nseg: u32,
+    off: u32,
+    spitch: u32,
+    sx: u32,
+    sy: u32,
+    w: u32,
+    h: u32,
+    panel_pa: u64,
+    panel_size: u64,
+    dpitch: u32,
+    dx: u32,
+    dy: u32,
+) -> bool {
+    use core::sync::atomic::Ordering;
+    if segs.is_null() || nseg == 0 || w == 0 || h == 0 || w > 0x3000 || h > 0x3000 {
+        return false;
+    }
+    if BUSY.swap(true, Ordering::Acquire) {
+        return false;
+    }
+    let ok = blit_locked(unsafe { core::slice::from_raw_parts(segs, nseg as usize) }, off, spitch, sx, sy, w, h, panel_pa, panel_size, dpitch, dx, dy);
+    BUSY.store(false, Ordering::Release);
+    ok
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_locked(
+    segs: &[[u64; 2]],
+    off: u32,
+    spitch: u32,
+    sx: u32,
+    sy: u32,
+    w: u32,
+    h: u32,
+    panel_pa: u64,
+    panel_size: u64,
+    dpitch: u32,
+    dx: u32,
+    dy: u32,
+) -> bool {
+    let Some(e) = (unsafe { (*core::ptr::addr_of_mut!(ENGINE)).as_mut() }) else {
+        return false;
+    };
+    if e.dead || spitch % 4 != 0 || dpitch % 4 != 0 {
+        return false;
+    }
+    let bytes = off as usize + (sy + h) as usize * spitch as usize;
+    if (dy + h) as u64 * dpitch as u64 > panel_size || (dx + w) * 4 > dpitch || (sx + w) * 4 > spitch {
+        return false;
+    }
+    if !e.map_panel(panel_pa, panel_size as usize) || !e.map_surface(segs, bytes) {
+        return false;
+    }
+    let panel_iova = PANEL_IOVA + (panel_pa & (BLOCK_2M - 1));
+    let src0 = SURF_IOVA + off as u64 + sy as u64 * spitch as u64;
+    let dst0 = panel_iova + dy as u64 * dpitch as u64;
+    // one pass when both pitches are 64-byte multiples, else even/odd rows
+    // with doubled pitches (panel stride 4320 = 67.5 * 64)
+    let step = if spitch % 64 == 0 && dpitch % 64 == 0 { 1 } else { 2 };
+    if (step * spitch) % 64 != 0 || (step * dpitch) % 64 != 0 {
+        return false;
+    }
+
+    let seq = e.fseq.wrapping_add(1);
+    let mut ring = Ring { mem: &e.mem, wptr: e.wptr };
+    let ts = e.mem.iova(CCU_TS_OFF);
+    ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 1)));
+    ring.event(PC_CCU_INVALIDATE_COLOR, None);
+    ring.event(CACHE_INVALIDATE, None);
+    ring.wfi();
+    ring.reg(RB_CCU_CNTL, &[CCU_CNTL_BYPASS]);
+    let fmt = FMT6_8_8_8_8_UNORM;
+    let blt = (fmt << 8) | (0xf << 20);
+    ring.reg(RB_A2D_BLT_CNTL, &[blt]);
+    ring.reg(GRAS_A2D_BLT_CNTL, &[blt]);
+    ring.reg(SP_A2D_OUTPUT_INFO, &[(fmt << 3) | (0xf << 12)]);
+    ring.reg(RB_A2D_PIXEL_CNTL, &[0]);
+    ring.reg(RB_A2D_DEST_FLAG_BUFFER_BASE, &[0, 0, 0]);
+    for k in 0..step {
+        let rows = (h - k).div_ceil(step);
+        if rows == 0 {
+            continue;
+        }
+        blit_pass(
+            &mut ring,
+            src0 + k as u64 * spitch as u64,
+            step * spitch,
+            sx,
+            dst0 + k as u64 * dpitch as u64,
+            step * dpitch,
+            dx,
+            w,
+            rows,
+        );
+    }
+    ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 2)));
+    ring.wfi();
+    ring.fence(seq);
+    let ok = ring.submit_quiet(&e.gpu, seq);
+    e.wptr = ring.wptr;
+    e.fseq = seq;
+    if !ok {
+        crate::log!("SWEET CP: present blit failed (fence {} want {seq}), GPU present disabled", fence_read(&e.mem));
+        e.dead = true;
+        return false;
+    }
+    true
+}
+
+/// 0 = present engine not up (yet), 1 = ready, 2 = disabled after a failure
+#[unsafe(no_mangle)]
+pub extern "C" fn sweet_rs_gpu_state() -> u32 {
+    match unsafe { (*core::ptr::addr_of!(ENGINE)).as_ref() } {
+        None => 0,
+        Some(e) if e.dead => 2,
+        Some(_) => 1,
     }
 }

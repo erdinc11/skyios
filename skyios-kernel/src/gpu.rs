@@ -508,10 +508,10 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuB
             return;
         };
         gpu_probe(&gpu, gmu);
-        if ok && stage >= 5 {
-            crate::cp::bringup();
-        }
-        if ok {
+        // with a working CP the GPU serves the display, so the gpu_set vote
+        // stays held (no power collapse under the present engine)
+        let engine = ok && stage >= 5 && crate::cp::bringup();
+        if ok && !engine {
             oob_gpu_clear(gmu);
         }
     } else {
