@@ -2,6 +2,12 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: 0109h HFI up, init ack not read -> 0109i (waiting for boot) <<<
+
+- **Boot 0109h (commit 4283b2f, `logs/live-0109h.txt`, observed):** `hfi ctrl status 0x1 (HFI up)` - the queue-table ordering fix worked. GMU consumed msg 0 (init, q0 rd=wr=5) and wrote an ack into q1 (wr 4: `0002047e 00100000 00000000 0e550e55`), but the host logged `response queue empty` then `response interrupt TIMEOUT` and aborted at init. No panic.
+- **Causes (from code + dump):** (1) `queue_read` read the write index / data through the CPU cache without invalidating (memory is cacheable `kmem_alloc_contig`; the later dump happened to see RAM). (2) the ack's seq was taken from the ack header (seq 0); in HFI v1 the acked message's header is `resp[1]` (`0x00100000` -> seq 1).
+- **Fix (this commit):** `FlushPoC` the queue header + data before reading (also in `dump_queues`); seq from `resp[1]`. Image `skyios-shim/out/shim-boot-0109i.img` (build log `research/localbuild/build32.log`, same cmdline). Watcher -> `logs/live-0109i.txt`.
+
 ### >>> UPDATE 2026-11-15: HFI test 0109g -> fix -> 0109h (waiting for boot) <<<
 
 - **Boot 0109g (commit 976bd27, `logs/live-0109g.txt`, real hardware, observed):** reached the lockscreen; Settings > About opens (0104 fix confirmed by the user). GPU: stage A/B OK (`0xbabeface`), GMUMEM cb4 mapped (pa 0x104848000), OOB boot_slumber ACK `0x40000000`, sptprac on, GX GDSC `0xf8222000`, but `hfi ctrl status 0x0 (TIMEOUT)` -> no HFI messages sent, no panic (the 976bd27 no-HFI branch fix worked).

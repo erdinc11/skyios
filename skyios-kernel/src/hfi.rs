@@ -110,6 +110,9 @@ impl Ring {
     }
 
     fn queue_read(&mut self, q: usize, out: &mut [u32]) -> usize {
+        // the GMU writes the queue behind the CPU cache: drop stale lines first
+        self.mem.dma.flush(self.hdr_off(q), QHDR_SIZE as usize);
+        self.mem.dma.flush(self.data_off(q), 4 * Q_DATA_DWORDS as usize);
         let wi = self.hdr_r(q, 11);
         if self.rptr[q] == wi {
             return 0;
@@ -132,6 +135,8 @@ impl Ring {
     fn dump_queues(&self, tag: &str) {
         for q in 0..NR_QUEUES as usize {
             let base = self.data_off(q);
+            self.mem.dma.flush(self.hdr_off(q), QHDR_SIZE as usize);
+            self.mem.dma.flush(base, 32);
             let mut w = [0u32; 8];
             for (j, x) in w.iter_mut().enumerate() {
                 *x = self.mem.dma.r32(base + 4 * j);
@@ -222,6 +227,8 @@ impl Ring {
                 continue;
             }
             let ret = resp[1];
+            // an ack carries the acked message's header in resp[1]; its seq is there
+            let rseq = (ret >> 20) & 0xfff;
             if rseq != seq {
                 crate::log!("SWEET HFI: msg {id} seq {seq}: ack for seq {rseq} (ret hdr {ret:#010x}), ignored");
                 continue;
