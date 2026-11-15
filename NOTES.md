@@ -2,6 +2,12 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: 0109j full HFI v1 table exchange ACKED; 0109k drops START (waiting for boot) <<<
+
+- **Boot 0109j (commit d3602c7, `logs/live-0109j.txt`, observed):** speed bin fuse read OK = **167** (8 GPU levels, top 800 MHz, OOB vote gx idx 7 / mx idx 4). Votes as predicted (`0x400202 ... 0x1800407`, cx `0x400202`). `msg 4 seq 3 acked` (perf table), bw table (1 level, `0x6005007f`) `msg 3 seq 4 acked`, test `msg 5 seq 5 acked`. Then `msg 10 seq 6` (START) consumed (q0 rd=wr=212) but never answered -> timeout, abort. No panic.
+- **Cause:** Linux `a6xx_hfi_start_v1` (legacy GMU, our case) stops after TEST ("there won't be any more HFI messages until next boot"); START is v2-only. Likewise the legacy GMU takes no HFI GX perf vote (Linux sets freq via DCVS regs + OOB on v1).
+- **Fix (this commit):** `Ring::boot` runs init/fw_version/perf_table/bw_table/test only; `stage_c` no longer calls `send_freq`. `send_start`/`send_freq` stay (unused). Image `skyios-shim/out/shim-boot-0109k.img` (build log `research/localbuild/build34.log`). Expected next lines: `boot sequence done (v1 ...)`, `oob gpu_set: ACK`, then `gpu_probe` output.
+
 ### >>> UPDATE 2026-11-15: image 0109j = user's perf table (9ace15a) + kHz fix (waiting for boot) <<<
 
 - Reviewed 9ace15a against `a6xx_gmu_rpmh_arc_votes_init` / `a6xx_gmu_rpmh_arc_index`: vote packing and index rules match. One fix (this commit): the perf table freq fields are kHz in Linux (`gpu_freqs[i] / 1000`, Hz -> kHz); the code sent MHz. Now `MHz * 1000`.

@@ -488,11 +488,9 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuB
         } else {
             crate::log!("SWEET GPU: stage D done (GMU memory mapped, HFI started)");
             if ring.boot(gmu, boot.boot_state) {
+                // legacy GMU: no HFI perf vote (Linux sets the level via the DCVS
+                // registers + OOB on v1); the boot_slumber vote already holds the top level
                 hfi_up = true;
-                let level = crate::hfi::gpu_top_level();
-                if ring.send_freq(gmu, level, 0).is_ok() {
-                    crate::log!("SWEET GPU: gx perf vote level {level} accepted");
-                }
             }
         }
     }

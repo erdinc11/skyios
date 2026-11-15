@@ -390,13 +390,14 @@ impl Ring {
 
     pub fn boot(&mut self, gmu: &Gmu, boot_state: u32) -> bool {
         self.init_queues();
-        let steps: [(&str, fn(&mut Ring, &Gmu, u32) -> Result<(), i32>); 6] = [
+        // a6xx_hfi_start_v1(): the legacy (v1) GMU gets no HFI message after
+        // TEST until the next boot; START is a v2 message and is never acked here
+        let steps: [(&str, fn(&mut Ring, &Gmu, u32) -> Result<(), i32>); 5] = [
             ("init", |r, g, b| r.send_init(g, b)),
             ("fw_version", |r, g, _| r.send_fw_version(g)),
             ("perf_table", |r, g, _| r.send_perf_table(g)),
             ("bw_table", |r, g, _| r.send_bw_table(g)),
             ("test", |r, g, _| r.send_test(g)),
-            ("start", |r, g, _| r.send_start(g)),
         ];
         for (name, f) in steps {
             if f(self, gmu, boot_state).is_err() {
