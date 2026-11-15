@@ -2,6 +2,13 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: fence + 2D solid fill written (image 0110b, NOT booted) <<<
+
+- `cp.rs` additions (assistant): hw_init ADDR_MODE_CNTL=1 for all blocks, UCHE trap/write-thru base `0x1fffffffff000`, write range max, GMEM range 1 MiB..+512 KiB, UCHE_FILTER 0x804 / CACHE_WAYS 4 / CLIENT_PF 0x81.
+- Fence: `CP_EVENT_WRITE CACHE_FLUSH_TS` (4 dwords, no IRQ bit) writes the seqno to the scratch page (+0x40); `fence 1` test after the first command.
+- Solid fill (freedreno fd6_blitter / turnip r2d sequence, written from memory of mesa, NOT checked against mesa source; mesa is not in the repo): CCU flush/invalidate events, `RB_CCU_CNTL` bypass `0x08000000` (colour cache at GMEM 64 KiB), `RB/GRAS_A2D_BLT_CNTL` = SOLID_COLOR | FMT6_8_8_8_8_UNORM | MASK 0xf | IFMT UNORM8, `SP_A2D_OUTPUT_INFO` (fmt<<3 | 0xf000), PIXEL_CNTL 0, linear dest at iova +0x11000 (64x64 RGBA8, pitch 256, CPU-poisoned 0xdeadbeef), clear colour per channel (0x20,0x80,0xe0,0xff), rect (8,8)-(55,39), `RB_DBG_ECO_CNTL` 0x00100000 around `CP_BLIT(BLIT_OP_SCALE)` (gen1 magic value from memory, unverified), CCU colour flush, fence 2. Checks every pixel: rect == 0xffe08020, border still poison. Success line `SWEET CP: 2D SOLID FILL OK`.
+- Image `skyios-shim/out/shim-boot-0110b.img` (build log `research/localbuild/build36.log`, cmdline as 0110a). Watcher -> `logs/live-0110b.txt`.
+
 ### >>> MILESTONE 2026-11-15: FIRST GPU COMMAND EXECUTED (boot 0110a) <<<
 
 - **Boot 0110a (commit 2fb8f51, `logs/live-0110a.txt`, observed on hardware):** HFI v1 boot + OOB gpu_set as 0109k, then:
