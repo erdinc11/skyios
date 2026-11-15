@@ -492,9 +492,14 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuB
     let sp = sptprac_on(gmu);
     let mut hfi_up = false;
     if let Some(m) = mem {
-        if hfi_start(gmu) {
+        // the queue table must be filled before HFI_CTRL_INIT: the GMU reads it then
+        let mut ring = crate::hfi::Ring::new(m);
+        ring.init_queues();
+        if !hfi_start(gmu) {
+            crash_record_dump(gmu);
+            crate::gmumem::fault_report();
+        } else {
             crate::log!("SWEET GPU: stage D done (GMU memory mapped, HFI started)");
-            let mut ring = crate::hfi::Ring::new(m);
             if ring.boot(gmu, boot.boot_state) {
                 hfi_up = true;
                 let mut lv = [0u16; 16];

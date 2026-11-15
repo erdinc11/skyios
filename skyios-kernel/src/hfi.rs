@@ -53,7 +53,7 @@ impl Ring {
         self.mem.dma.w32(self.hdr_off(q) + 4 * dw, v);
     }
 
-    fn init_queues(&mut self) {
+    pub fn init_queues(&mut self) {
         let d = &self.mem.dma;
         let table = self.mem.off(HFI_IOVA);
         let tbl_size = QTBL_OFF + QHDR0_OFF + NR_QUEUES * QHDR_SIZE;
