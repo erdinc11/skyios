@@ -2,7 +2,13 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
-### >>> UPDATE 2026-11-15: 0110f: SMC works, TZ says is_supported(13)=0; 0110g ignores it and tries init_image (NOT booted) <<<
+### >>> MILESTONE 2026-11-15: ZAP SHADER LOADED, SECURE MODE OFF, 2D SOLID FILL OK (boot 0110g) <<<
+
+- **Boot 0110g (commit c99266b, `logs/live-0110g.txt`, observed):** is_supported -> result 0 for pas 1, 4 and 13 (so this TZ answers 0 for everything; not meaningful), is_call_avail(init_image) = 1; `init_image` (metadata 6860 B at pa 0x104880000, high DDR is fine) status 0 result 0; `mem_setup 0x97715000+0x1000` OK; segment copied (first word 0x016ff021); `auth_and_reset` OK; `CP_SET_SECURE_MODE(0): done`; **trust cntl 0x1 -> 0x0**; first command + fence OK; **`2D SOLID FILL OK (48x32 rgba8 0xffe08020)`**: 1536/1536 rect pixels, border 2560/2560 intact. No fault, no panic, phone reaches the lockscreen.
+- Root cause of 0110b-0110f fills: secure mode (no zap). The mesa magic regs from 0110c may or may not be needed (not bisected).
+- **Next:** GPU blit present: map the panel (0x9c000000, 2 MiB aligned) and the swapped IOSurface pages into the GPU SMMU, copy/scale the 1125x2436 BGRA layer to the 1080x2400 panel with CP_BLIT instead of the kernel memcpy (AppleCLCD::present).
+
+### (superseded) 0110f: SMC works, TZ says is_supported(13)=0; 0110g ignores it and tries init_image
 
 - **Boot 0110f (commit 98ad7e1, `logs/live-0110f.txt`, observed):** `SWEET ZAP: pas 13 is_supported -> status 0 result 0`, loader stopped there; rest as 0110c (fill 0/1536, no fault, no panic). So the SMC path returns (status 0) but TZ reports PAS 13 unsupported.
 - **0110g:** is_supported for pas 1/4/13 and is_call_avail(PIL init_image, fnid|SIP<<24) are logged only; init_image/mem_setup/auth_and_reset are attempted anyway (Linux adreno_zap_shader_load does not check is_supported). Image `skyios-shim/out/shim-boot-0110g.img` (build log `research/localbuild/build40.log`). Watcher -> `logs/live-0110g.txt`.
