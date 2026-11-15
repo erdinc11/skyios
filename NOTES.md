@@ -2,6 +2,12 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> MILESTONE 2026-11-15: FIRST 3D TRIANGLE ON THE ADRENO 618 (boot 0110j) <<<
+
+- **Boot 0110j (commit e29708a, `logs/live-0110j.txt`, observed):** after the 2D fill, `cp3d.rs` draws one triangle in direct/sysmem mode (turnip a6xx gen1 state, VS = `end` with VFD writing the vec4 position straight into r0, FS = 4x `mov.f32f32 r0.c, (imm)` + `end`, THREAD64, CP_LOAD_STATE6 icache preload, CP_DRAW_INDX_OFFSET 0x184): `triangle: done (rptr 667, 200 us)`, **`inside red 1922/1922, outside untouched 1922/1922, edge red 126, other values 0`**, px(32,16)=px(32,48)=0xff0000ff, `3D TRIANGLE OK`. Orientation: NDC y=-1 is row 0 (not flipped). The present engine still comes up afterwards (2D blits after the 3D state are fine).
+- Register recipe: `scratchpad/a6xx-draw-spec.md` of the session (derived from mesa main 9690e02 by packing mesa's own headers); the values are now in `skyios-kernel/src/cp3d.rs` (INIT + STATE tables).
+- **New: `sweetreboot=S`** (lib.rs): S s after boot writes IMEM restart reason 0x77665500 + PSCI SYSTEM_RESET. Observed: the phone comes back in **recovery (OrangeFox)**, not fastboot; `adb reboot bootloader` then reaches fastboot, so test boots run without the user (session tools `mkimg.sh` / `cycle.sh`).
+
 ### >>> PLAN 2026-11-15: Metal driver for the Adreno 618 ("SkyAdrenoMetal"), user request <<<
 
 How iOS 16 finds a Metal GPU (observed in the 20H392 dyld cache, `ipsw dyld str`): Metal.framework and IOGPU.framework read the IORegistry properties `MetalPluginName` / `MetalPluginClassName` of the accelerator service and load `/System/Library/Extensions/<MetalPluginName>.bundle` (on this IPSW `AGXMetalA11.bundle`, in the shared cache); the class is an IOGPU-based MTLDevice. QuartzCore links Metal, loads a `.metallib` (AIR = LLVM bitcode) for its renderer and soft-links `IOGPUDeviceCreate` / `IOGPUDeviceSetDisplayParams`. Today no accelerator service exists, so `MTLCreateSystemDefaultDevice()` is nil and CA renders in software (backboardd 100-325 % CPU).
