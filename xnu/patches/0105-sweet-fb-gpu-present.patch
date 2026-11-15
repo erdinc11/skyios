@@ -1,6 +1,6 @@
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -37,7 +37,21 @@
+@@ -37,7 +37,29 @@
  #define SWEET_FB_LOGICAL_W              1125
  #define SWEET_FB_LOGICAL_H              2436
  #define SWEET_FB_FORMAT_BGRA            0x42475241
@@ -10,6 +10,14 @@
 +    uint32_t spitch, uint32_t sx, uint32_t sy, uint32_t w, uint32_t h, uint64_t panel_pa,
 +    uint64_t panel_size, uint32_t dpitch, uint32_t dx, uint32_t dy, bool sync);
 +extern "C" bool sweet_rs_gpu_wait(void);
++extern "C" bool sweet_rs_gpu_compose(const uint64_t (*segs)[2], uint32_t nseg, uint32_t off,
++    uint32_t spitch, uint32_t sw, uint32_t sh, uint64_t panel_pa, uint64_t panel_size,
++    uint32_t dpitch, uint32_t dw, uint32_t dh, bool sync);
++
++/* set while the GPU scales the logical screen onto the panel (SweetHID maps touches to match) */
++volatile int sweet_fb_scaled;
++static int sweet_fb_scale_mode = -1;     /* -1 unknown, 0 crop, 1 GPU scaling */
++static uint32_t sweet_fb_compose_frames;
 +extern "C" void sweet_rs_cache_clean(uintptr_t va, uint64_t size);
 +extern "C" uint32_t sweet_rs_gpu_state(void);
 +
@@ -22,17 +30,19 @@
  class IOMobileFramebuffer : public IOService {
  	OSDeclareDefaultStructors(IOMobileFramebuffer);
  };
-@@ -83,6 +97,9 @@
+@@ -83,6 +105,11 @@
  	void removeClient(IOMobileFramebufferUserClient *client);
  	void swap(const uint8_t *rec);
  	void present(const uint8_t *rec);
 +	bool gpuPresent(SweetSurface *s, uintptr_t src, int32_t sx, int32_t sy, int32_t dx,
 +	    int32_t dy, int32_t w, int32_t h);
 +	void gpuSettle(void);
++	bool gpuCompose(SweetSurface *s, uintptr_t src);
++	bool gpuCollect(SweetSurface *s, uint64_t end, uint32_t *nseg);
  	void presentTimed(const uint8_t *rec);
  };
  
-@@ -181,8 +198,10 @@
+@@ -181,8 +208,10 @@
  extern "C" volatile int sweet_touch_dbg[3];
  
  static void
@@ -44,7 +54,7 @@
  	static int enabled = -1;
  	if (enabled < 0) {
  		enabled = 0;
-@@ -192,6 +211,7 @@
+@@ -192,6 +221,7 @@
  		return;
  	}
  	int cx = sweet_touch_dbg[1], cy = sweet_touch_dbg[2];
@@ -52,7 +62,7 @@
  	for (int d = -40; d <= 40; d++) {
  		for (int t = -2; t <= 2; t++) {
  			int pts[2][2] = { { cx + d, cy + t }, { cx + t, cy + d } };
-@@ -230,6 +250,9 @@
+@@ -230,6 +260,9 @@
  		}
  		IOLockUnlock(fb->fLock);
  		if (step <= 6) {
@@ -62,7 +72,7 @@
  			for (uint32_t y = 0; y < fb->fHeight; y++) {
  				volatile uint32_t *row = (volatile uint32_t *)(fb->fPixels + (uint64_t)y * fb->fRowBytes);
  				for (uint32_t x = 0; x < fb->fWidth; x++) {
-@@ -255,7 +278,7 @@
+@@ -255,7 +288,7 @@
  		IOFreeData(rec, SWEET_FB_SWAP_REC_SIZE);
  	}
  	IOLockLock(fb->fPresentLock);
@@ -71,7 +81,20 @@
  	IOLockUnlock(fb->fPresentLock);
  	if (fb->fStats && (count % 300) == 0) {
  		IOLockLock(fb->fLock);
-@@ -421,7 +444,11 @@
+@@ -391,6 +424,12 @@
+ 		if (dx < 0 || dy < 0) {
+ 			dx = dy = 0;
+ 		}
++		if (src != 0 && bpe == 4 && dx == 0 && dy == 0 && w == (int32_t)s->width &&
++		    h == (int32_t)s->height && s->width == fLogicalW && s->height == fLogicalH &&
++		    gpuCompose(s, src)) {
++			s->release();
++			continue;
++		}
+ 		dx -= fOffX;
+ 		dy -= fOffY;
+ 		if (dx < 0) {
+@@ -421,7 +460,11 @@
  		    s->memory == NULL || last > s->memory->getLength()) {
  			src = 0;
  		}
@@ -83,7 +106,7 @@
  			for (int32_t y = 0; y < h; y++) {
  				memcpy((void *)(fPixels + (uint64_t)(dy + y) * fRowBytes + (uint64_t)dx * 4),
  				    (const void *)(src + s->offset + (uint64_t)(sy + y) * s->bytesPerRow + (uint64_t)sx * 4),
-@@ -429,9 +456,122 @@
+@@ -429,10 +472,239 @@
  			}
  		}
  		s->release();
@@ -118,16 +141,8 @@
 +		end = s->memory->getLength();
 +	}
 +	uint32_t nseg = 0;
-+	for (IOByteCount off = 0; off < end && nseg < SWEET_FB_GPU_SEGS;) {
-+		IOByteCount len = 0;
-+		addr64_t pa = s->memory->getPhysicalSegment(off, &len, kIOMemoryMapperNone);
-+		if (pa == 0 || len == 0) {
-+			return false;
-+		}
-+		sweet_fb_gpu_segs[nseg][0] = pa;
-+		sweet_fb_gpu_segs[nseg][1] = len;
-+		nseg++;
-+		off += len;
++	if (!gpuCollect(s, end, &nseg)) {
++		return false;
 +	}
 +	uint32_t frame = sweet_fb_gpu_frames + 1;
 +	bool check = frame <= 8 || (frame % 600) == 0;
@@ -142,7 +157,7 @@
 +		sweet_fb_gpu_mode = 0;
 +		OSSafeReleaseNULL(sweet_fb_gpu_inflight);
 +		return false;
- 	}
++	}
 +	uint64_t t2 = mach_absolute_time();
 +	/* the call waited for the previous copy, so its source can go */
 +	OSSafeReleaseNULL(sweet_fb_gpu_inflight);
@@ -187,8 +202,132 @@
 +		sweet_fb_gpu_checked++;
 +	}
 +	return true;
++}
++
++/* physical runs of [0, end) of the surface into sweet_fb_gpu_segs */
++bool
++AppleCLCD::gpuCollect(SweetSurface *s, uint64_t end, uint32_t *nseg)
++{
++	uint32_t n = 0;
++	IOByteCount off = 0;
++	while (off < end && n < SWEET_FB_GPU_SEGS) {
++		IOByteCount len = 0;
++		addr64_t pa = s->memory->getPhysicalSegment(off, &len, kIOMemoryMapperNone);
++		if (pa == 0 || len == 0) {
++			return false;
++		}
++		sweet_fb_gpu_segs[n][0] = pa;
++		sweet_fb_gpu_segs[n][1] = len;
++		n++;
++		off += len;
+ 	}
++	*nseg = n;
++	return off >= end;
  }
  
++/*
++ * Scale the whole logical-size layer onto the panel with the 3D engine
++ * (skyios-kernel cp3d::compose) instead of cropping it. Boot-arg
++ * sweetfb_scale=1. Queued like gpuPresent; the first frames and every 600th
++ * are waited for and checked loosely (bilinear filtering mixes neighbours):
++ * a failure or a mostly wrong sample set returns to the crop path for this
++ * boot.
++ */
+ bool
++AppleCLCD::gpuCompose(SweetSurface *s, uintptr_t src)
++{
++	if (sweet_fb_scale_mode < 0) {
++		int on = 0;
++		PE_parse_boot_argn("sweetfb_scale", &on, sizeof(on));
++		sweet_fb_scale_mode = on != 0;
++	}
++	if (sweet_fb_gpu_mode < 0) {
++		int on = 1;
++		PE_parse_boot_argn("sweetfb_gpu", &on, sizeof(on));
++		sweet_fb_gpu_mode = on;
++	}
++	if (!sweet_fb_scale_mode || sweet_fb_gpu_mode == 0 || sweet_rs_gpu_state() != 1 ||
++	    (s->offset & 63) != 0 || (s->bytesPerRow & 63) != 0) {
++		return false;
++	}
++	uint64_t end = (uint64_t)s->offset + (uint64_t)s->height * s->bytesPerRow;
++	if (end > s->memory->getLength()) {
++		return false;
++	}
++	uint32_t nseg = 0;
++	if (!gpuCollect(s, end, &nseg)) {
++		return false;
++	}
++	uint32_t frame = sweet_fb_compose_frames + 1;
++	bool check = frame <= 8 || (frame % 600) == 0;
++	uint64_t t0 = mach_absolute_time();
++	sweet_rs_cache_clean(src + s->offset, end - s->offset);
++	uint64_t t1 = mach_absolute_time();
++	if (!sweet_rs_gpu_compose(sweet_fb_gpu_segs, nseg, s->offset, s->bytesPerRow, s->width,
++	    s->height, fPhys, (uint64_t)fRowBytes * fHeight, fRowBytes, fWidth, fHeight,
++	    check || sweet_fb_gpu_mode == 2)) {
++		IOLog("SWEET FB: GPU compose failed after %u frames (%u segs), crop path from now on\n",
++		    sweet_fb_compose_frames, nseg);
++		sweet_fb_scale_mode = 0;
++		sweet_fb_scaled = 0;
++		OSSafeReleaseNULL(sweet_fb_gpu_inflight);
++		return false;
++	}
++	uint64_t t2 = mach_absolute_time();
++	OSSafeReleaseNULL(sweet_fb_gpu_inflight);
++	s->retain();
++	sweet_fb_gpu_inflight = s;
++	sweet_fb_compose_frames = frame;
++	sweet_fb_scaled = 1;
++	uint64_t c = 0, g = 0;
++	absolutetime_to_nanoseconds(t1 - t0, &c);
++	absolutetime_to_nanoseconds(t2 - t1, &g);
++	if (!check) {
++		if (frame <= 12) {
++			IOLog("SWEET FB: GPU compose %u: queued, clean %llu us, submit %llu us\n", frame, c / 1000, g / 1000);
++		}
++		return true;
++	}
++	/* panel (x, y) samples the surface near ((x + 0.5) * sw / dw, (y + 0.5) * sh / dh) */
++	uint32_t ok = 0, first = 64, got = 0, want = 0, fx = 0, fy = 0;
++	for (uint32_t i = 0; i < 64; i++) {
++		uint32_t x = (uint32_t)(((uint64_t)i * 977 + 13) % fWidth);
++		uint32_t y = (uint32_t)(((uint64_t)i * 7919 + 5) % fHeight);
++		uint32_t px = (uint32_t)(((uint64_t)(2 * x + 1) * s->width) / (2 * fWidth));
++		uint32_t py = (uint32_t)(((uint64_t)(2 * y + 1) * s->height) / (2 * fHeight));
++		uint32_t a = *(volatile uint32_t *)(src + s->offset + (uint64_t)py * s->bytesPerRow + (uint64_t)px * 4);
++		uint32_t b = *(volatile uint32_t *)(fPixels + (uint64_t)y * fRowBytes + (uint64_t)x * 4);
++		bool close = true;
++		for (int k = 0; k < 4; k++) {
++			int d = (int)((a >> (8 * k)) & 0xff) - (int)((b >> (8 * k)) & 0xff);
++			if (d > 48 || d < -48) {
++				close = false;
++			}
++		}
++		if (close) {
++			ok++;
++		} else if (first == 64) {
++			first = i;
++			fx = x;
++			fy = y;
++			got = b;
++			want = a;
++		}
++	}
++	IOLog("SWEET FB: GPU compose %u: %ux%u -> %ux%u, %u segs, clean %llu us, gpu %llu us, check %u/64 close%s\n",
++	    frame, s->width, s->height, fWidth, fHeight, nseg, c / 1000, g / 1000, ok,
++	    ok < 48 ? " -> crop path from now on" : "");
++	if (first != 64) {
++		IOLog("SWEET FB: compose first far sample at %u,%u: panel 0x%08x src 0x%08x\n", fx, fy, got, want);
++	}
++	if (ok < 48) {
++		sweet_fb_scale_mode = 0;
++		sweet_fb_scaled = 0;
++		return false;
++	}
++	return true;
++}
++
 +/* wait for a queued GPU copy before the CPU writes panel memory itself */
 +void
 +AppleCLCD::gpuSettle(void)
@@ -203,6 +342,7 @@
 +	OSSafeReleaseNULL(sweet_fb_gpu_inflight);
 +}
 +
- bool
++bool
  IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void *securityID, UInt32 type)
  {
+ 	if (!IOUserClient::initWithTask(owningTask, securityID, type)) {

@@ -908,6 +908,86 @@ fn blit_locked(
     !sync || e.idle()
 }
 
+/// Scale the whole `sw` x `sh` BGRA surface (physical runs `segs`, first
+/// pixel at byte `off`, pitch `spitch`) onto the whole `dw` x `dh` panel with
+/// the 3D engine (bilinear textured quad, cp3d::compose). Same contract as
+/// sweet_rs_gpu_blit: false means the caller presents with the CPU.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn sweet_rs_gpu_compose(
+    segs: *const [u64; 2],
+    nseg: u32,
+    off: u32,
+    spitch: u32,
+    sw: u32,
+    sh: u32,
+    panel_pa: u64,
+    panel_size: u64,
+    dpitch: u32,
+    dw: u32,
+    dh: u32,
+    sync: bool,
+) -> bool {
+    use core::sync::atomic::Ordering;
+    if segs.is_null() || nseg == 0 || sw == 0 || sh == 0 || dw == 0 || dh == 0 {
+        return false;
+    }
+    if BUSY.swap(true, Ordering::Acquire) {
+        return false;
+    }
+    let ok = compose_locked(unsafe { core::slice::from_raw_parts(segs, nseg as usize) }, off, spitch, sw, sh, panel_pa, panel_size, dpitch, dw, dh, sync);
+    BUSY.store(false, Ordering::Release);
+    ok
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compose_locked(
+    segs: &[[u64; 2]],
+    off: u32,
+    spitch: u32,
+    sw: u32,
+    sh: u32,
+    panel_pa: u64,
+    panel_size: u64,
+    dpitch: u32,
+    dw: u32,
+    dh: u32,
+    sync: bool,
+) -> bool {
+    let Some(e) = (unsafe { (*core::ptr::addr_of_mut!(ENGINE)).as_mut() }) else {
+        return false;
+    };
+    if e.dead || dh as u64 * dpitch as u64 > panel_size || dw * 4 > dpitch || sw * 4 > spitch || dh % 2 != 0 {
+        return false;
+    }
+    let c = cp3d::Compose {
+        panel: PANEL_IOVA + (panel_pa & (BLOCK_2M - 1)),
+        dpitch,
+        dw,
+        dh,
+        tex: SURF_IOVA + off as u64,
+        sw,
+        sh,
+        spitch,
+    };
+    if !cp3d::compose_check(&c) || !e.idle() {
+        return false;
+    }
+    let bytes = off as usize + sh as usize * spitch as usize;
+    if !e.map_panel(panel_pa, panel_size as usize) || !e.map_surface(segs, bytes) {
+        return false;
+    }
+    let seq = e.fseq.wrapping_add(1);
+    let mut ring = Ring { mem: &e.mem, wptr: e.wptr };
+    cp3d::compose(&mut ring, &e.mem, &c);
+    ring.fence(seq);
+    ring.publish(&e.gpu);
+    e.wptr = ring.wptr;
+    e.fseq = seq;
+    e.pending = true;
+    !sync || e.idle()
+}
+
 impl Engine {
     // wait for the last submitted present; a timeout disables the engine
     fn idle(&mut self) -> bool {

@@ -684,3 +684,123 @@ pub fn texquad(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) -> Outcome {
         Outcome::Wrong
     }
 }
+
+// n / d as f32 bits (truncated, |n / d| < 2^24), without float or 128-bit
+// division support in the kernel: 40 fractional bits by long division
+fn ratio_f32(n: i64, d: i64) -> u32 {
+    if n == 0 || d == 0 {
+        return 0;
+    }
+    let sign = if (n < 0) != (d < 0) { 1u32 << 31 } else { 0 };
+    let (n, d) = (n.unsigned_abs(), d.unsigned_abs());
+    let (int, mut rem) = (n / d, n % d);
+    let mut v = int << 40;
+    for i in (0..40).rev() {
+        rem <<= 1;
+        if rem >= d {
+            rem -= d;
+            v |= 1 << i;
+        }
+    }
+    if v == 0 {
+        return 0;
+    }
+    let p = 63 - v.leading_zeros() as i32; // value = v * 2^-40
+    let mant = if p >= 23 { (v >> (p - 23)) as u32 } else { (v << (23 - p)) as u32 } & 0x7f_ffff;
+    sign | (((p - 40 + 127) as u32) << 23) | mant
+}
+
+// Present composition: the whole sw x sh BGRA surface scaled onto the dw x dh
+// BGRA panel (pitch dpitch). Panel strides that are not 64-byte multiples
+// (4320) are drawn as two passes of every other row with a doubled pitch;
+// the odd pass starts 64-byte aligned below its row and is shifted right
+// (scissored) by the remainder, and each pass offsets v by half a panel row
+// so pixel centres sample their own rows. Emits commands only.
+pub struct Compose {
+    pub panel: u64,
+    pub dpitch: u32,
+    pub dw: u32,
+    pub dh: u32,
+    pub tex: u64,
+    pub sw: u32,
+    pub sh: u32,
+    pub spitch: u32,
+}
+
+pub const COMPOSE_VB_OFF: usize = D3_OFF + 0x500;
+pub const COMPOSE_DESC_OFF: usize = D3_OFF + 0x600;
+
+pub fn compose_check(c: &Compose) -> bool {
+    let step = if c.dpitch % 64 == 0 { 1 } else { 2 };
+    c.tex % 64 == 0
+        && c.spitch % 64 == 0
+        && (step * c.dpitch) % 64 == 0
+        && c.dw + 16 <= 0x4000
+        && c.dh <= 0x4000
+        && c.sw < 0x8000
+        && c.sh < 0x8000
+        && (c.dpitch % 64) % 4 == 0
+}
+
+pub fn compose(ring: &mut Ring, mem: &GpuMem, c: &Compose) {
+    let step = if c.dpitch % 64 == 0 { 1u32 } else { 2 };
+    let rows = c.dh / step;
+    tex_desc(mem, COMPOSE_DESC_OFF, c.tex, c.sw, c.sh, c.spitch);
+    const M1: u32 = 0xbf80_0000;
+    for k in 0..step {
+        // v of the quad's top and bottom edge: (k - 0.5 * (step - 1)) / dh offset
+        let off = 2 * k as i64 - (step as i64 - 1); // in half rows: -1, +1 or 0
+        let v0 = ratio_f32(off, 2 * c.dh as i64);
+        let v1 = ratio_f32(2 * c.dh as i64 + off, 2 * c.dh as i64);
+        let verts = [M1, M1, 0, ONE, 0, v0, ONE, M1, 0, ONE, ONE, v0, M1, ONE, 0, ONE, 0, v1, ONE, ONE, 0, ONE, ONE, v1];
+        for (i, v) in verts.iter().enumerate() {
+            mem.w32(COMPOSE_VB_OFF + 0x80 * k as usize + 4 * i, *v);
+        }
+    }
+    mem.dma.clean();
+
+    emit_init(ring, mem);
+    for k in 0..step {
+        let start = c.panel + k as u64 * c.dpitch as u64;
+        let base = start & !63;
+        let xs = ((start & 63) / 4) as u32;
+        let t = Target { base, pitch: step * c.dpitch, info: 0x30 | (1 << 13) };
+        let (x1, y1) = (xs + c.dw - 1, rows - 1);
+        let half_w = ratio_f32(c.dw as i64, 2);
+        let half_h = ratio_f32(rows as i64, 2);
+        let pass: [(u32, u32); 14] = [
+            (0x80f0, xs),        // GRAS_SC_WINDOW_SCISSOR
+            (0x80f1, x1 | (y1 << 16)),
+            (0x840a, xs),        // GRAS_A2D_SCISSOR
+            (0x840b, x1 | (y1 << 16)),
+            (0x80b0, xs),        // GRAS_SC_SCREEN_SCISSOR[0]
+            (0x80b1, x1 | (y1 << 16)),
+            (0x80d0, xs),        // GRAS_SC_VIEWPORT_SCISSOR[0]
+            (0x80d1, x1 | (y1 << 16)),
+            (0x8010, ratio_f32(2 * xs as i64 + c.dw as i64, 2)), // viewport x offset
+            (0x8011, half_w),
+            (0x8012, half_h),
+            (0x8013, half_h),
+            (0x8006, 0x0005_ad77), // guardband for ~1080x1200 (fd_calc_guardband)
+            (0x9b00, 0),
+        ];
+        let d = Draw {
+            overlay: TEXQ,
+            vs: mem.iova(VS_OFF),
+            fs: mem.iova(FS_TEX_OFF),
+            vb: mem.iova(COMPOSE_VB_OFF + 0x80 * k as usize),
+            desc: Some(mem.iova(COMPOSE_DESC_OFF)),
+            initiator: 0x186,
+            verts: 4,
+        };
+        emit_state(ring, &t, &d);
+        for (r, v) in pass {
+            ring.reg(r, &[v]);
+        }
+        emit_draw(ring, &d);
+    }
+    let ts = mem.iova(CCU_TS_OFF);
+    ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 0x13)));
+    ring.event(PC_CCU_INVALIDATE_COLOR, None);
+    ring.wfi();
+}
