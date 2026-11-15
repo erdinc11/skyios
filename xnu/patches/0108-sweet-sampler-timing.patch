@@ -1,0 +1,24 @@
+--- a/bsd/dev/sweet_sample.c
++++ b/bsd/dev/sweet_sample.c
+@@ -58,11 +58,17 @@
+ 	if (sweet_sample_names[0] == '-') {
+ 		return;
+ 	}
+-	(void)tsleep(&chan, PZERO, "sweetsmp", 90 * hz);
+-	for (int i = 0; i < 40; i++) {
+-		printf("SMP --- sample %d\n", i);
++	/* sweetsample_at (s, first sample), sweetsample_ms (interval), sweetsample_n (count) */
++	uint32_t at = 90, ms = 120000, n = 40;
++	(void)PE_parse_boot_argn("sweetsample_at", &at, sizeof(at));
++	(void)PE_parse_boot_argn("sweetsample_ms", &ms, sizeof(ms));
++	(void)PE_parse_boot_argn("sweetsample_n", &n, sizeof(n));
++	int ticks = (int)(((uint64_t)ms * (uint64_t)hz + 999) / 1000);
++	(void)tsleep(&chan, PZERO, "sweetsmp", (int)at * hz);
++	for (uint32_t i = 0; i < n; i++) {
++		printf("SMP --- sample %u\n", i);
+ 		proc_iterate(PROC_ALLPROCLIST, sweet_sample_proc, NULL, NULL, NULL);
+-		(void)tsleep(&chan, PZERO, "sweetsmp", 120 * hz);
++		(void)tsleep(&chan, PZERO, "sweetsmp", ticks > 0 ? ticks : 1);
+ 	}
+ }
+ 

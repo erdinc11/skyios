@@ -2,6 +2,13 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> RESULT 2026-11-16: lag measured without the user; CA software renderer is the cost, Reduce Transparency does not help <<<
+
+- **New measuring tools:** `sweettouchsim=S` (xnu 0107, SweetHID.cpp): S s after the touch service starts, 20x swipe right + left across y=1300 (16 ms steps; lock screen <-> Today view). `sweetsample_at/_ms/_n` (xnu **0108-sweet-sampler-timing**): first sample time, interval, count of the stack sampler. `sweetreducetransp=2` (0106) restores the phone's own accessibility plist.
+- **A/B during the 40 synthetic swipes (observed):** 0110n Reduce Transparency+Motion ON: **7.6 swaps/s, backboardd 309 % CPU**; 0110o original prefs (restored, `original accessibility prefs restored: 0`): **7.2 swaps/s, backboardd 287 %**. -> no real gain; prefs are back to the phone's own. Present path (GPU 2D async) is not the limit (copy avg 10-16 ms queued, mostly the wait for the previous 34 ms GPU copy).
+- **Profile 0110p** (`sweetsample=backboardd sweetsample_at=170 sweetsample_ms=250 sweetsample_n=300`, 5781 thread samples, slide 0x45b98000; symbolicated with `ipsw dyld a2s`): busy samples are all in QuartzCore's software renderer: `CA::OGL::SW::tex_color_matrix_4x4_bias` (27), `vAlpha_Blend_Premultiplied_BGRA_8888_CV_vec` (18), `CA::OGL::SW::image_sampler<ARGB8_Host,...>` (~44 over variants), `memset_pattern16` (14), `CA::OGL::SW::tex_mix` (6), `scan_convert` (4). (Sampler sees blocked threads well and running threads poorly, so these are relative only.)
+- **Conclusion:** 60 fps needs CoreAnimation's render on the GPU, i.e. CA's Metal backend (`CA::OGL::MetalContext`) on top of a Metal driver for the Adreno (plan above, stages 2-5), **and** the GPU clock fix (GPU work is ~9.6 MHz-bound: 2D copy 34 ms, 3D compose 82 ms per frame). CPU is already at max frequency (0084).
+
 ### >>> MILESTONE 2026-11-15: TEXTURED QUAD + GPU 3D COMPOSITOR (boots 0110l, 0110m) <<<
 
 - **0110l (commit after e29708a, `logs/live-0110l.txt`):** `cp3d::texquad`: VS `end` (VFD: pos -> r0, uv -> r1.xy, both straight out), FS = a6xx texture prefetch (SP_PS_INITIAL_TEX_LOAD, SAM at varying loc 0 -> r1) + dummy `bary.f (ei)r63.x` + `(sy)end`, BGRA8 linear texture (FMT6_8_8_8_8_UNORM + WXYZ), bilinear clamp sampler via CP_LOAD_STATE6 (samplers ST6_SHADER, textures ST6_CONSTANTS, SB6_FS_TEX): **`exact 4096/4096`, `3D TEXTURED QUAD OK`**. Spec of the session: `scratchpad/a6xx-texquad-spec.md`. Ring log also showed `SWEET AXPREFS: ... written (backup -1, err 0 ...)` (backup already taken in 0110k).

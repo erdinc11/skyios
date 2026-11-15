@@ -1,6 +1,6 @@
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -597,6 +597,59 @@
+@@ -597,6 +597,67 @@
  	printf("SWEET AUTOBAHN: Autobahn %s (%d bytes, err %d resid %d)\n",
  	    on ? "enabled" : "disabled", len, err, resid);
  	sweet_note("autobahn %s err %d resid %d; ", on ? "enabled" : "disabled", err, resid);
@@ -10,7 +10,8 @@
 + * sweetreducetransp=1: Reduce Transparency + Reduce Motion in the mobile
 + * accessibility preferences before cfprefsd starts. CoreAnimation renders in
 + * software here, and the blur materials it then skips are its most expensive
-+ * layers. The phone's own plist is kept once as .sweet-old.
++ * layers. The phone's own plist is kept once as .sweet-old;
++ * sweetreducetransp=2 moves it back.
 + */
 +static void
 +sweet_axprefs(void)
@@ -27,6 +28,13 @@
 +	unsigned int on = 0;
 +	(void)PE_parse_boot_argn("sweetreducetransp", &on, sizeof(on));
 +	if (!on) {
++		return;
++	}
++	if (on == 2) {
++		/* undo: put the phone's own plist back */
++		int e = sweet_rename(old, path);
++		printf("SWEET AXPREFS: original accessibility prefs restored: %d\n", e);
++		sweet_note("axprefs restore %d; ", e);
 +		return;
 +	}
 +	vfs_context_t ctx = vfs_context_kernel();
@@ -60,7 +68,7 @@
  }
  #endif
  
-@@ -1072,6 +1125,7 @@
+@@ -1072,6 +1133,7 @@
  		sweet_pbfix();
  		sweet_autobahn();
  		sweet_lsreset();
