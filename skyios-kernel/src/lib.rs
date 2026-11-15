@@ -27,8 +27,33 @@ extern "C" fn gpu_thread(stage: usize) {
     }
 }
 
+// sweetreboot=S: S seconds after boot reset into the bootloader (fastboot),
+// as the shim does, so test boots come back without a button press
+const IMEM_PAGE: u64 = 0x146a_a000;
+const IMEM_RESTART_REASON: usize = 0x65c;
+const RESTART_BOOTLOADER: u32 = 0x7766_5500;
+const PSHOLD: u64 = 0x0c26_4000;
+
+extern "C" fn reboot_thread(secs: usize) {
+    xnu::sleep_ms(secs as u32 * 1000);
+    crate::log!("SWEET RS: sweetreboot: {secs} s up, resetting into fastboot");
+    // give the console 3 s to reach the host
+    xnu::sleep_ms(3000);
+    if let Some(imem) = xnu::Mmio::map(IMEM_PAGE, 0x1000) {
+        imem.write(IMEM_RESTART_REASON, RESTART_BOOTLOADER);
+    }
+    unsafe { core::arch::asm!("dsb sy", options(nostack, preserves_flags)) };
+    scm::psci_system_reset();
+    if let Some(ps) = xnu::Mmio::map(PSHOLD, 0x1000) {
+        ps.write(0, 0);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn sweet_rs_init() {
+    if let Some(secs) = xnu::boot_arg_u32(c"sweetreboot").filter(|&s| s != 0) {
+        xnu::spawn(reboot_thread, secs as usize);
+    }
     xnu::log(c"SWEET RS: kernel Rust online\n");
     let stage = xnu::boot_arg_u32(c"sweetgpu").unwrap_or(0);
     if stage != 0 {

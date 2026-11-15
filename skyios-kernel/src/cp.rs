@@ -5,6 +5,9 @@
 
 use crate::xnu::{Dma, Mmio, delay_us};
 
+#[path = "cp3d.rs"]
+mod cp3d;
+
 const SMMU: u64 = 0x0504_0000;
 const SMMU_SIZE: usize = 0x10000;
 const PAGE: usize = 0x1000;
@@ -30,7 +33,10 @@ const DST_W: u32 = 64;
 const DST_H: u32 = 64;
 const DST_PITCH: u32 = DST_W * 4;
 const DST_BYTES: usize = (DST_PITCH * DST_H) as usize;
-const WINDOW: usize = DST_OFF + DST_BYTES;
+// 3D self test: shaders, vertices (cp3d.rs)
+const D3_OFF: usize = DST_OFF + DST_BYTES;
+const D3_BYTES: usize = 2 * PAGE;
+const WINDOW: usize = D3_OFF + D3_BYTES;
 
 #[cfg(feature = "sqefw")]
 static SQE_FW: &[u8] = include_bytes!(env!("SWEET_SQE_FW"));
@@ -490,6 +496,10 @@ pub fn bringup() -> bool {
         return false;
     }
     if !solid_fill(&gpu, &mem, &mut ring) {
+        return false;
+    }
+    // a hung 3D test leaves the CP stuck: no present engine then
+    if cp3d::triangle(&gpu, &mem, &mut ring) == cp3d::Outcome::Hung {
         return false;
     }
     let wptr = ring.wptr;

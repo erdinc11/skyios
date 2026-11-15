@@ -44,6 +44,12 @@ fn smc(x: &mut [u64; 7]) {
     }
 }
 
+/// PSCI SYSTEM_RESET (SMCCC fast call); does not return when it works
+pub fn psci_system_reset() {
+    let mut x = [0x8400_0009, 0, 0, 0, 0, 0, 0];
+    smc(&mut x);
+}
+
 // Returns (status, result[0..3]); status 0 is success, negative values are
 // the SCM error codes (-1 ERROR, -2 EINVAL_ADDR, -3 EINVAL_ARG, -4 ENOTSUPP ...)
 pub fn call(svc: u32, cmd: u32, arginfo: u64, a: &[u64]) -> (i64, [u64; 3]) {
