@@ -460,7 +460,7 @@ fn gpu_probe(gpu: &Mmio, gmu: &Gmu) {
     );
 }
 
-fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuBoot) {
+fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuBoot, stage: u32) {
     let Some((gx, mx)) = crate::hfi::gx_rail_vote() else {
         crate::log!("SWEET GPU: no arc levels from cmd-db");
         return;
@@ -508,6 +508,9 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuB
             return;
         };
         gpu_probe(&gpu, gmu);
+        if ok && stage >= 5 {
+            crate::cp::bringup();
+        }
         if ok {
             oob_gpu_clear(gmu);
         }
@@ -568,6 +571,6 @@ pub fn bringup(stage: u32) {
         return;
     };
     if stage >= 3 {
-        stage_c(&gmu, &cc, mem, &boot);
+        stage_c(&gmu, &cc, mem, &boot, stage);
     }
 }

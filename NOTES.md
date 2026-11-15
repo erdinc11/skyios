@@ -2,6 +2,17 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: CP / SQE / ringbuffer bring-up written (image 0110a, NOT booted) <<<
+
+- **New `skyios-kernel/src/cp.rs`** (written by the assistant, follows Linux `hw_init()` / `a6xx_cp_init()` / `adreno_fw_create_bo()` / `a6xx_ucode_check_version()`, a618 subset), runs from `stage_c` after `gpu_probe` while OOB gpu_set is held, only with **`sweetgpu=5`**:
+  - GPU memory: SMMU **cb0, SMR0 = SID 0** (sc7180/a618 `iommus = <&adreno_smmu 0>`), VMID 1, same CB programming as `gmumem` (cb4/SID 5). Needed because sCR0 has USFCFG set and the unused S2CRs are type FAULT (`0x000200ff`), so unmatched GPU traffic faults. iova `0x0100_0000`: SQE (32 KiB) | ring (32 KiB) | scratch page.
+  - SQE: `a630_sqe.fw` embedded via feature `sqefw` (`SWEET_SQE_FW=$PWD/research/gpu-fw/a630_sqe.fw`, file stays out of git), first dword skipped like Linux; version `0x19a` (>= 0x190, whereami-capable).
+  - Init writes: GBIF/RBBM_GBIF halt clear, SECVID_TSB cntl/base/size 0, CP_ADDR_MODE_CNTL 1, VBIF QOS 3, ROQ thresholds, MEM_POOL 128, CP_AHB_CNTL 1, SQE_INSTR_BASE, RB_BASE, RB_CNTL `0x0800020c` (32 KiB, NO_UPDATE), SQE_CNTL 1. Not done: hwcg, UCHE ranges, CP protect, IRQ mask, UBWC.
+  - `CP_ME_INIT` (8 dwords as `a6xx_cp_init`), wait rptr == wptr and RBBM_STATUS idle; then the first command: PKT4 `CP_SCRATCH[0] = 0x5ca1ab1e` + `CP_MEM_WRITE` `0xc0ffee01` to the scratch page. Success line: `SWEET CP: ... FIRST GPU COMMAND EXECUTED`. Timeout prints rptr/status/int0/hw_fault/cp_int/protect/sqe pc + SMMU cb0 fault.
+  - **Secure mode is NOT left** (no zap shader, `RBBM_SECVID_TRUST_CNTL` untouched; Linux says writing it without zap on a zap target causes a permission violation). Whether ME_INIT / CP_MEM_WRITE work while still secure is unknown.
+- Packet headers checked on the host: `pkt7(ME_INIT, 8) = 0x70c80008` (matches known kgsl/freedreno value).
+- Image `skyios-shim/out/shim-boot-0110a.img` (build log `research/localbuild/build35.log`, cmdline as 0109k but `sweetgpu=5`). Watcher -> `logs/live-0110a.txt`.
+
 ### >>> MILESTONE 2026-11-15: GMU HFI v1 boot COMPLETE + OOB gpu_set ACK + GPU clock running (boot 0109k) <<<
 
 - **Boot 0109k (commit 2250df6, `logs/live-0109k.txt`, observed on hardware):** init / fw_version (`0x10110000`) / perf_table (bin 167, 8 levels) / bw_table / test all acked, `boot sequence done (v1, boot state 0)`; queues drained (q0 rd=wr=211, q1 rd=wr=20), no GMU errors. Then `oob gpu_set: ACK intr info 0x01000000`, RBBM status `0x00000001`, status3 0. `gpu_clock_probe`: CP perfcounter **running** (105856 counts in ~10 ms), GMU AON advanced 211712 ticks; the CP always-on counter did NOT advance (`0x0007f5f9` both reads; guess: needs CP/SQE init or a different enable, not verified). No panic; phone stays on the lockscreen.
