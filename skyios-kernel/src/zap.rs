@@ -13,6 +13,8 @@ const PAS_ID: u64 = 13;
 const ZAP_PA: u64 = 0x9771_5000;
 const ZAP_SIZE: usize = 0x2000;
 
+const SVC_INFO: u32 = 0x06;
+const INFO_IS_CALL_AVAIL: u32 = 0x01;
 const SVC_PIL: u32 = 0x02;
 const PAS_INIT_IMAGE: u32 = 0x01;
 const PAS_MEM_SETUP: u32 = 0x02;
@@ -88,11 +90,19 @@ pub fn load() -> bool {
         crate::log!("SWEET ZAP: no zap firmware in this kernel");
         return false;
     }
-    let (st, r) = scm::call(SVC_PIL, PAS_IS_SUPPORTED, scm::args(&[scm::VAL]), &[PAS_ID]);
-    crate::log!("SWEET ZAP: pas {PAS_ID} is_supported -> status {st} result {}", r[0]);
-    if st != 0 || r[0] == 0 {
-        return false;
+    // Diagnostics only: 0110f got is_supported(13) = 0 from TZ. Linux
+    // adreno_zap_shader_load() does not ask, it goes straight to init_image.
+    for id in [1u64, 4, PAS_ID] {
+        let (st, r) = scm::call(SVC_PIL, PAS_IS_SUPPORTED, scm::args(&[scm::VAL]), &[id]);
+        crate::log!("SWEET ZAP: pas {id} is_supported -> status {st} result {}", r[0]);
     }
+    let (st, r) = scm::call(
+        SVC_INFO,
+        INFO_IS_CALL_AVAIL,
+        scm::args(&[scm::VAL]),
+        &[(2 << 24) | ((SVC_PIL << 8) | PAS_INIT_IMAGE) as u64],
+    );
+    crate::log!("SWEET ZAP: is_call_avail(pil init_image) -> status {st} result {}", r[0]);
     let mut segs: [Option<Seg>; 8] = Default::default();
     let Some((ehdr_size, _)) = segments(&mut segs) else {
         crate::log!("SWEET ZAP: bad mdt");

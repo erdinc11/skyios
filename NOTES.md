@@ -2,7 +2,13 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
-### >>> UPDATE 2026-11-15: zap shader loader via SCM PAS written (image 0110f, NOT booted) <<<
+### >>> UPDATE 2026-11-15: 0110f: SMC works, TZ says is_supported(13)=0; 0110g ignores it and tries init_image (NOT booted) <<<
+
+- **Boot 0110f (commit 98ad7e1, `logs/live-0110f.txt`, observed):** `SWEET ZAP: pas 13 is_supported -> status 0 result 0`, loader stopped there; rest as 0110c (fill 0/1536, no fault, no panic). So the SMC path returns (status 0) but TZ reports PAS 13 unsupported.
+- **0110g:** is_supported for pas 1/4/13 and is_call_avail(PIL init_image, fnid|SIP<<24) are logged only; init_image/mem_setup/auth_and_reset are attempted anyway (Linux adreno_zap_shader_load does not check is_supported). Image `skyios-shim/out/shim-boot-0110g.img` (build log `research/localbuild/build40.log`). Watcher -> `logs/live-0110g.txt`.
+- Display path measured (0110e log): CA renders 1125x2436 BGRA IOSurfaces on the CPU (SpringBoard/backboardd dominate SWEET TOP); the kernel present (`SweetFramebuffer.cpp` AppleCLCD::present) memcpys the swapped layer to panel memory 0x9c000000 in ~2.3 ms per frame. Plan for "GPU renders the screen": step 1 GPU 2D blit/composite for IOMFB present (needs working blits first); CoreAnimation itself on the GPU would need a Metal/GL stack for Adreno (not available).
+
+### (superseded) zap shader loader via SCM PAS written (image 0110f)
 
 - User goal now (2026-11-15): "lanjutkan sampai GPU jalan dan gantiin CPU buat render layar".
 - New `skyios-kernel/src/scm.rs` (Qualcomm SMCCC: STD/SMC64/SIP fnid `0x42000000|svc<<8|cmd`, arginfo, x6 cookie resume on INTERRUPTED, EBUSY retry; like Linux `qcom_scm-smc.c`) and `zap.rs` (like `adreno_zap_shader_load` + `qcom_mdt_load`): PAS_IS_SUPPORTED(13) -> INIT_IMAGE(13, metadata = whole `.mdt` = ELF hdr+phdrs (148 B) + hash seg (0x1a38) in a cleaned contiguous DMA page in high DDR) -> MEM_SETUP(13, 0x97715000, 0x1000) (segment 2 is RELOCATABLE, p_paddr 0x5000, 0x7c0 bytes) -> copy `.b02` into the DT `gpu_region@97715000` (no-map, 8 KiB, low bank unused by XNU) -> AUTH_AND_RESET(13). Feature `zapfw`, env `SWEET_ZAP_MDT` / `SWEET_ZAP_B02` (build.sh); firmware stays in `research/gpu-fw/` (gitignored).
