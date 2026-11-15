@@ -2,6 +2,11 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: 0110k = Reduce Transparency/Motion option (xnu 0106), booted, effect not measured <<<
+
+- **xnu patch `0106-sweet-reduce-transparency.patch`** (bsd_init.c `sweet_axprefs`, boot-arg `sweetreducetransp=1`): before userland, writes `/private/var/mobile/Library/Preferences/com.apple.Accessibility.plist` = {EnhancedBackgroundContrastEnabled: true, ReduceMotionEnabled: true} (keys/domain confirmed in libAccessibility.dylib of the 20H392 cache), chown 501:501; the phone's original is kept once as `.plist.sweet-old` (not overwritten on later boots). Idea: CoreAnimation renders in software, blur materials are its most expensive layers.
+- Boot 0110k (`sweetreducetransp=1 sweetreboot=180`, `logs/live-0110k.txt`): reached the lockscreen, triangle + present OK, no backboardd/SpringBoard crash. The `SWEET AXPREFS` line is printed before the live log connects; not read yet (next cycle pulls the ring via recovery). **Lag effect not measured** (needs touch interaction: user).
+
 ### >>> MILESTONE 2026-11-15: FIRST 3D TRIANGLE ON THE ADRENO 618 (boot 0110j) <<<
 
 - **Boot 0110j (commit e29708a, `logs/live-0110j.txt`, observed):** after the 2D fill, `cp3d.rs` draws one triangle in direct/sysmem mode (turnip a6xx gen1 state, VS = `end` with VFD writing the vec4 position straight into r0, FS = 4x `mov.f32f32 r0.c, (imm)` + `end`, THREAD64, CP_LOAD_STATE6 icache preload, CP_DRAW_INDX_OFFSET 0x184): `triangle: done (rptr 667, 200 us)`, **`inside red 1922/1922, outside untouched 1922/1922, edge red 126, other values 0`**, px(32,16)=px(32,48)=0xff0000ff, `3D TRIANGLE OK`. Orientation: NDC y=-1 is row 0 (not flipped). The present engine still comes up afterwards (2D blits after the 3D state are fine).

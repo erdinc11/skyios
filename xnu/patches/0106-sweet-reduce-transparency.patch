@@ -1,0 +1,70 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -597,6 +597,59 @@
+ 	printf("SWEET AUTOBAHN: Autobahn %s (%d bytes, err %d resid %d)\n",
+ 	    on ? "enabled" : "disabled", len, err, resid);
+ 	sweet_note("autobahn %s err %d resid %d; ", on ? "enabled" : "disabled", err, resid);
++}
++
++/*
++ * sweetreducetransp=1: Reduce Transparency + Reduce Motion in the mobile
++ * accessibility preferences before cfprefsd starts. CoreAnimation renders in
++ * software here, and the blur materials it then skips are its most expensive
++ * layers. The phone's own plist is kept once as .sweet-old.
++ */
++static void
++sweet_axprefs(void)
++{
++	static const char path[] = "/private/var/mobile/Library/Preferences/com.apple.Accessibility.plist";
++	static const char old[] = "/private/var/mobile/Library/Preferences/com.apple.Accessibility.plist.sweet-old";
++	static const char body[] =
++	    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++	    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
++	    "<plist version=\"1.0\">\n<dict>\n"
++	    "\t<key>EnhancedBackgroundContrastEnabled</key>\n\t<true/>\n"
++	    "\t<key>ReduceMotionEnabled</key>\n\t<true/>\n"
++	    "</dict>\n</plist>\n";
++	unsigned int on = 0;
++	(void)PE_parse_boot_argn("sweetreducetransp", &on, sizeof(on));
++	if (!on) {
++		return;
++	}
++	vfs_context_t ctx = vfs_context_kernel();
++	vnode_t vp = NULLVP;
++	int saved = -1;
++	if (vnode_lookup(old, 0, &vp, ctx) == 0) {
++		vnode_put(vp);
++		vp = NULLVP;
++	} else {
++		saved = sweet_rename(path, old);
++	}
++	int err = vnode_open(path, O_CREAT | O_TRUNC | FWRITE, 0600, 0, &vp, ctx);
++	if (err) {
++		printf("SWEET AXPREFS: open %s: %d\n", path, err);
++		sweet_note("axprefs open: %d; ", err);
++		return;
++	}
++	int resid = 0;
++	err = vn_rdwr(UIO_WRITE, vp, (caddr_t)(uintptr_t)body, sizeof(body) - 1, 0, UIO_SYSSPACE, IO_SYNC,
++	    vfs_context_ucred(ctx), &resid, vfs_context_proc(ctx));
++	/* mobile (501) owns its preferences; cfprefsd rewrites them as that user */
++	struct vnode_attr va;
++	VATTR_INIT(&va);
++	VATTR_SET(&va, va_uid, 501);
++	VATTR_SET(&va, va_gid, 501);
++	int cherr = vnode_setattr(vp, &va, ctx);
++	(void)vnode_close(vp, FWRITE, ctx);
++	printf("SWEET AXPREFS: reduce transparency + motion written (backup %d, err %d resid %d chown %d)\n",
++	    saved, err, resid, cherr);
++	sweet_note("axprefs backup %d err %d chown %d; ", saved, err, cherr);
+ }
+ #endif
+ 
+@@ -1072,6 +1125,7 @@
+ 		sweet_pbfix();
+ 		sweet_autobahn();
+ 		sweet_lsreset();
++		sweet_axprefs();
+ 		extern void sweet_iokit_daemon_stand_in(void);
+ 		sweet_iokit_daemon_stand_in();
+ #endif
