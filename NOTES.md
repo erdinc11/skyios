@@ -2,6 +2,18 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> PLAN 2026-11-15: Metal driver for the Adreno 618 ("SkyAdrenoMetal"), user request <<<
+
+How iOS 16 finds a Metal GPU (observed in the 20H392 dyld cache, `ipsw dyld str`): Metal.framework and IOGPU.framework read the IORegistry properties `MetalPluginName` / `MetalPluginClassName` of the accelerator service and load `/System/Library/Extensions/<MetalPluginName>.bundle` (on this IPSW `AGXMetalA11.bundle`, in the shared cache); the class is an IOGPU-based MTLDevice. QuartzCore links Metal, loads a `.metallib` (AIR = LLVM bitcode) for its renderer and soft-links `IOGPUDeviceCreate` / `IOGPUDeviceSetDisplayParams`. Today no accelerator service exists, so `MTLCreateSystemDefaultDevice()` is nil and CA renders in software (backboardd 100-325 % CPU).
+
+Stages (guesses about effort, not measured):
+1. **3D engine in the kernel self test** (assistant): a6xx draw state for one triangle with hand-assembled ir3 VS/FS (freedreno/turnip as reference), sysmem (bypass) rendering into a linear RGBA8 target, checked like the solid fill. Foundation for everything below.
+2. **Kernel accelerator service + user client** (XNU patch): IORegistry entry with `MetalPluginName=SkyAdrenoMetal`, `MetalPluginClassName`, gated by a boot-arg / process allow list so CA keeps the software path until the driver is complete. Methods: GPU buffer alloc/map (and IOSurface import), submit a command stream (validated, through the existing CP ring and fence), wait.
+3. **Userland bundle** (ObjC, iOS SDK): the MTLDevice/MTLCommandQueue/MTLCommandBuffer/render + blit encoder/MTLTexture/MTLBuffer/MTLSamplerState/MTLRenderPipelineState subset, first driven by a test tool on the phone, then the subset CoreAnimation uses.
+4. **Shaders:** AIR -> Adreno. No existing frontend; plan: offline on the host, AIR (LLVM bitcode) -> SPIR-V (SPIRV-LLVM-Translator after rewriting `air.*` intrinsics) -> Mesa `spirv_to_nir` -> ir3, table keyed by function hash for QuartzCore's metallib shaders; a runtime compiler later.
+5. Switch CA to Metal (risk: CA may need Apple-GPU-family features such as programmable blending/framebuffer fetch).
+- **Prerequisite outside the assistant's part:** GPU frequency (GX DCVS level) + DDR bandwidth vote. At the current ~9.6 MHz boot clock a GPU-rendered UI would be slower than the CPU.
+
 ### >>> RESULT 2026-11-15: asynchronous GPU present works (boot 0110i) <<<
 
 - **Boot 0110i (commit daed19b, `logs/live-0110i.txt`, observed):** self tests as 0110g; GPU present 1..8 synchronous, `gpu ~34090 us, check 0/64 bad`; 9..12 `queued, clean ~610 us, submit ~75 us`. Idle presents now cost ~0.8 ms on the CPU (was 34.8 ms in 0110h, ~2.6 ms with the CPU memcpy). Under touch/scroll load: `copy avg 4271..10278 us, max 25496..28490 us` at 4.4..7 swaps/s. The max is the wait for the previous copy, which still takes 34 ms on the GPU. No timeout, no `did not finish`, no panic.
