@@ -2,7 +2,13 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
-### >>> UPDATE 2026-11-15: fence + 2D solid fill written (image 0110b, NOT booted) <<<
+### >>> UPDATE 2026-11-15: FENCE WORKS; 2D fill wrote nothing in 0110b; 0110c adds the a618 mesa magic regs (NOT booted) <<<
+
+- **Boot 0110b (commit 929f6eb, `logs/live-0110b.txt`, observed):** first command OK again; `fence 1 (want 1): FENCE SIGNALLED`; `solid fill: done (rptr 82, 140 us)`, fill fence 2 == 2, CCU flush TS word == 3 (so all CP_EVENT_WRITEs ran), but **0/1536 rect pixels written** (all still 0xdeadbeef), border intact. cb0 fsr `0x400` = only the FSR FORMAT field (no fault), gfsr 0. No panic.
+- Checked against real mesa source this time (fetched into the session scratchpad, not committed: `fd6_blitter.cc`, `fd6_emit.cc/.h`, `freedreno_devices.py`, `fd6_gmem_cache.h`, `tu_clear_blit.cc`). Findings: our register sequence / CCU bypass value (color offset 64 KiB) / clear colour format match; `CP_SET_MARKER RM6_BLIT2DSCALE` is a no-op per the xml. Differences: a618 has **no QCTDD04536579 quirk**, so mesa never toggles RB_DBG_ECO_CNTL around CP_BLIT; instead a618 `raw_magic_regs` set it statically to **0x04100000** (0110b wrote 0x00100000, then 0), plus PC_MODE_CNTL 0x1f, TPL1_DBG_ECO 0x108000, GRAS_DBG_ECO 0x880, SP_CHICKEN_BITS 0x430, HLSQ_DBG_ECO 0x80000, UCHE_UNKNOWN_0E12 1, RB_RBP_CNTL 1 etc. a618 has `blit_wfi_quirk` (WFI before CP_BLIT).
+- **0110c:** emits all a618 magic regs + RB_MODE_CNTL 0x10 / GRAS_MODE_CNTL 2 / GRAS_SC_CNTL 2 before the fill, LABEL event + WFI before CP_BLIT, no ECO toggle; prints an `after fill:` register readback (blt cntl, dst, ccu, eco, int0, hw_fault, status). Image `skyios-shim/out/shim-boot-0110c.img` (build log `research/localbuild/build37.log`). Watcher -> `logs/live-0110c.txt`.
+
+### (superseded) fence + 2D solid fill written (image 0110b)
 
 - `cp.rs` additions (assistant): hw_init ADDR_MODE_CNTL=1 for all blocks, UCHE trap/write-thru base `0x1fffffffff000`, write range max, GMEM range 1 MiB..+512 KiB, UCHE_FILTER 0x804 / CACHE_WAYS 4 / CLIENT_PF 0x81.
 - Fence: `CP_EVENT_WRITE CACHE_FLUSH_TS` (4 dwords, no IRQ bit) writes the seqno to the scratch page (+0x40); `fence 1` test after the first command.

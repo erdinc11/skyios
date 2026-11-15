@@ -110,14 +110,36 @@ const PC_CCU_INVALIDATE_DEPTH: u32 = 0x18;
 const PC_CCU_INVALIDATE_COLOR: u32 = 0x19;
 const PC_CCU_FLUSH_DEPTH_TS: u32 = 0x1c;
 const PC_CCU_FLUSH_COLOR_TS: u32 = 0x1d;
+const FD_LABEL: u32 = 0x3f;
 
 const BLIT_OP_SCALE: u32 = 3;
 const FMT6_8_8_8_8_UNORM: u32 = 0x30;
 // a6xx_gen1 (a618): one CCU, sysmem/bypass colour cache at GMEM 64 KiB
 // (mesa ccu_offset_bypass = num_ccu * A6XX_CCU_DEPTH_SIZE)
 const CCU_CNTL_BYPASS: u32 = (0x10000 >> 12) << 23;
-// mesa a6xx_gen1 magic RB_DBG_ECO_CNTL_blit (from memory, not verified)
-const RB_DBG_ECO_CNTL_BLIT: u32 = 0x0010_0000;
+// mesa freedreno_devices.py, GPUId 615/616/618/619 raw_magic_regs, written
+// once per context by fd6_emit_static_non_context_regs(). No QCTDD04536579
+// quirk on a618, so RB_DBG_ECO_CNTL is not toggled around CP_BLIT.
+const A618_MAGIC: [(u32, u32); 12] = [
+    (0x9804, 0x1f),         // PC_MODE_CNTL
+    (0x9805, 0),            // PC_POWER_CNTL
+    (0xa0f8, 0),            // VFD_POWER_CNTL
+    (0xb600, 0x0010_8000),  // TPL1_DBG_ECO_CNTL
+    (0x8600, 0x0000_0880),  // GRAS_DBG_ECO_CNTL
+    (0xae03, 0x0000_0430),  // SP_CHICKEN_BITS
+    (0xae00, 0),            // SP_DBG_ECO_CNTL
+    (0xbe04, 0x0008_0000),  // HLSQ_DBG_ECO_CNTL
+    (0x9600, 0),            // VPC_DBG_ECO_CNTL
+    (0x0e12, 1),            // UCHE_UNKNOWN_0E12
+    (0x8e01, 1),            // RB_RBP_CNTL
+    (RB_DBG_ECO_CNTL, 0x0410_0000),
+];
+// a subset of fd6_emit_static_context_regs()
+const STATIC_CTX: [(u32, u32); 3] = [
+    (0x8811, 0x10), // RB_MODE_CNTL
+    (0x8110, 0x2),  // GRAS_MODE_CNTL
+    (0x80a0, 0x2),  // GRAS_SC_CNTL ccusinglecachelinesize 2
+];
 const UCHE_TRAP: u64 = 0x0001_ffff_ffff_f000;
 const GMEM_MIN: u64 = 0x10_0000;
 const GMEM_SIZE: u64 = 0x8_0000;
@@ -471,6 +493,10 @@ fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) {
     mem.dma.clean();
     let ts = mem.iova(CCU_TS_OFF);
 
+    for (r, v) in A618_MAGIC.iter().chain(STATIC_CTX.iter()) {
+        ring.reg(*r, &[*v]);
+    }
+
     ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 1)));
     ring.event(PC_CCU_FLUSH_DEPTH_TS, Some((ts, 2)));
     ring.event(PC_CCU_INVALIDATE_COLOR, None);
@@ -492,12 +518,11 @@ fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) {
     ring.reg(RB_A2D_CLEAR_COLOR_DW0, &RGBA);
     ring.reg(GRAS_A2D_DEST_TL, &[X0 | (Y0 << 16), (X1 - 1) | ((Y1 - 1) << 16)]);
 
+    // emit_blit_fini(): LABEL event, then (a618 blit_wfi_quirk, turnip) WFI
+    ring.event(FD_LABEL, None);
     ring.wfi();
-    ring.reg(RB_DBG_ECO_CNTL, &[RB_DBG_ECO_CNTL_BLIT]);
     ring.emit(pkt7(CP_BLIT, 1));
     ring.emit(BLIT_OP_SCALE);
-    ring.wfi();
-    ring.reg(RB_DBG_ECO_CNTL, &[0]);
 
     ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 3)));
     ring.wfi();
@@ -532,6 +557,20 @@ fn solid_fill(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) {
         mem.r32(CCU_TS_OFF),
         mem.r32(DST_OFF + (Y0 * DST_PITCH + 4 * X0) as usize),
         mem.r32(DST_OFF)
+    );
+    crate::log!(
+        "SWEET CP: after fill: rb blt {:#010x} gras blt {:#010x} dst info {:#x} base {:#x} br {:#010x} color0 {:#x} ccu {:#010x} eco {:#010x} int0 {:#010x} hw_fault {:#x} status {:#010x}",
+        gpu.read(RB_A2D_BLT_CNTL as usize),
+        gpu.read(GRAS_A2D_BLT_CNTL as usize),
+        gpu.read(RB_A2D_DEST_BUFFER_INFO as usize),
+        (gpu.read(RB_A2D_DEST_BUFFER_INFO as usize + 2) as u64) << 32 | gpu.read(RB_A2D_DEST_BUFFER_INFO as usize + 1) as u64,
+        gpu.read(GRAS_A2D_DEST_TL as usize + 1),
+        gpu.read(RB_A2D_CLEAR_COLOR_DW0 as usize),
+        gpu.read(RB_CCU_CNTL as usize),
+        gpu.read(RB_DBG_ECO_CNTL as usize),
+        gpu.read(RBBM_INT_0_STATUS),
+        gpu.read(CP_HW_FAULT),
+        gpu.read(RBBM_STATUS)
     );
     if let Some((x, y, v)) = first_bad {
         crate::log!("SWEET CP: first mismatch at ({x},{y}) = {v:#010x}");
