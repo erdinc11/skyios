@@ -299,12 +299,12 @@ impl Ring {
         body[1] = GMU_OPP.len() as u32;
         for i in 0..GX_SLOTS {
             body[2 + 2 * i] = gx[i];
-            body[3 + 2 * i] = if i < opp.len() { opp[i].0 } else { 0 };
+            body[3 + 2 * i] = if i < opp.len() { opp[i].0 * 1000 } else { 0 }; // kHz, as Linux sends
         }
         let off = 2 + 2 * GX_SLOTS;
         for i in 0..CX_SLOTS {
             body[off + 2 * i] = cx[i];
-            body[off + 2 * i + 1] = if i < GMU_OPP.len() { GMU_OPP[i].0 } else { 0 };
+            body[off + 2 * i + 1] = if i < GMU_OPP.len() { GMU_OPP[i].0 * 1000 } else { 0 };
         }
 
         crate::log!("SWEET HFI: perf table speed bin {bin}, {} gpu levels", opp.len());

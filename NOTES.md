@@ -2,6 +2,11 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: image 0109j = user's perf table (9ace15a) + kHz fix (waiting for boot) <<<
+
+- Reviewed 9ace15a against `a6xx_gmu_rpmh_arc_votes_init` / `a6xx_gmu_rpmh_arc_index`: vote packing and index rules match. One fix (this commit): the perf table freq fields are kHz in Linux (`gpu_freqs[i] / 1000`, Hz -> kHz); the code sent MHz. Now `MHz * 1000`.
+- Image `skyios-shim/out/shim-boot-0109j.img` (build log `research/localbuild/build33.log`, usual cmdline). Watcher -> `logs/live-0109j.txt`.
+
 ### >>> UPDATE 2026-11-15: perf_table rewritten from the OPP tables + cmd-db corner votes <<<
 
 - **Boot 0109i (commit ae5c155, `logs/live-0109i.txt`, observed):** `msg 0 seq 1 acked` (init), `msg 1 seq 2 acked` (fw_version), GMU fw version `0x10110000`. Then `perf table level count out of range (gfx 9, cx 7)` -> boot aborted at perf_table (host-side check, nothing sent). No panic.
