@@ -35,7 +35,7 @@ const DST_PITCH: u32 = DST_W * 4;
 const DST_BYTES: usize = (DST_PITCH * DST_H) as usize;
 // 3D self test: shaders, vertices (cp3d.rs)
 const D3_OFF: usize = DST_OFF + DST_BYTES;
-const D3_BYTES: usize = 2 * PAGE;
+const D3_BYTES: usize = 5 * PAGE;
 const WINDOW: usize = D3_OFF + D3_BYTES;
 
 #[cfg(feature = "sqefw")]
@@ -499,7 +499,9 @@ pub fn bringup() -> bool {
         return false;
     }
     // a hung 3D test leaves the CP stuck: no present engine then
-    if cp3d::triangle(&gpu, &mem, &mut ring) == cp3d::Outcome::Hung {
+    if cp3d::triangle(&gpu, &mem, &mut ring) == cp3d::Outcome::Hung
+        || cp3d::texquad(&gpu, &mem, &mut ring) == cp3d::Outcome::Hung
+    {
         return false;
     }
     let wptr = ring.wptr;

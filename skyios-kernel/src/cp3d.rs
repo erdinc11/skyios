@@ -29,6 +29,10 @@ const VS_OFF: usize = D3_OFF;
 const FS_OFF: usize = D3_OFF + 0x80;
 const VB_OFF: usize = D3_OFF + 0x100;
 const BORDER_OFF: usize = D3_OFF + 0x200;
+const FS_TEX_OFF: usize = D3_OFF + 0x300;
+const VB_TEX_OFF: usize = D3_OFF + 0x380;
+const DESC_OFF: usize = D3_OFF + 0x400;
+const TEX_OFF: usize = D3_OFF + PAGE;
 
 const NOP: [u32; 2] = [0, 0];
 const END: [u32; 2] = [0, 0x0300_0000];
@@ -292,6 +296,124 @@ fn inside(x: u32, y: u32) -> Option<bool> {
     }
 }
 
+fn lohi(a: u64) -> [u32; 2] {
+    [a as u32, (a >> 32) as u32]
+}
+
+// tu_init_hw() static state, then the CCU in sysmem mode (same value as the 2D path)
+fn emit_init(ring: &mut Ring, mem: &GpuMem) {
+    let ts = mem.iova(CCU_TS_OFF);
+    ring.event(CACHE_INVALIDATE, None);
+    ring.reg(SP_UPDATE_CNTL, &[0x000f_ffff]);
+    ring.wfi();
+    for (r, v) in INIT {
+        ring.reg(*r, &[*v]);
+    }
+    let border = mem.iova(BORDER_OFF);
+    ring.reg(0xb302, &lohi(border)); // TPL1_GFX_BORDER_COLOR_BASE
+    ring.reg(0xb180, &lohi(border)); // TPL1_CS_BORDER_COLOR_BASE
+    ring.emit(pkt7(CP_SET_DRAW_STATE, 3));
+    for v in [1 << 18, 0, 0] {
+        ring.emit(v); // DISABLE_ALL_GROUPS
+    }
+    ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 0x10)));
+    ring.event(PC_CCU_FLUSH_DEPTH_TS, Some((ts, 0x11)));
+    ring.event(PC_CCU_INVALIDATE_COLOR, None);
+    ring.event(PC_CCU_INVALIDATE_DEPTH, None);
+    ring.wfi();
+    ring.reg(RB_CCU_CNTL, &[CCU_CNTL_BYPASS]);
+}
+
+pub struct Target {
+    pub base: u64,
+    pub pitch: u32,
+    // RB_MRT[0].BUF_INFO: format | swap << 13
+    pub info: u32,
+}
+
+pub struct Draw<'a> {
+    // written after STATE, so these win
+    pub overlay: &'a [(u32, u32)],
+    pub vs: u64,
+    pub fs: u64,
+    pub vb: u64,
+    // texture descriptor (16 dwords) + sampler (4 dwords) at +64
+    pub desc: Option<u64>,
+    pub initiator: u32,
+    pub verts: u32,
+}
+
+// program + fixed function state of one draw into `t`
+fn emit_state(ring: &mut Ring, t: &Target, d: &Draw) {
+    ring.reg(SP_UPDATE_CNTL, &[0x19f]);
+    for (r, v) in STATE.iter().chain(d.overlay) {
+        ring.reg(*r, &[*v]);
+    }
+    let [lo, hi] = lohi(t.base);
+    ring.reg(0x8822, &[t.info, t.pitch >> 6, 0, lo, hi, 0]);
+    ring.reg(0xa996, &[t.info & 0xff]); // SP_PS_MRT[0].REG: format only
+    for i in 1..8u32 {
+        ring.reg(0x8822 + 8 * i, &[0, 0, 0, 0, 0, 0]);
+        ring.reg(0xa996 + i, &[0]);
+    }
+    ring.reg(0xa81c, &lohi(d.vs)); // SP_VS_BASE
+    ring.reg(0xa983, &lohi(d.fs)); // SP_PS_BASE
+    ring.reg(0xa010, &lohi(d.vb)); // VFD_VERTEX_BUFFER[0].BASE
+
+    ring.emit(pkt7(CP_SET_MARKER, 1));
+    ring.emit(RM6_DIRECT_RENDER);
+    ring.emit(pkt7(CP_SKIP_IB2_ENABLE_GLOBAL, 1));
+    ring.emit(0);
+    ring.emit(pkt7(CP_SET_VISIBILITY_OVERRIDE, 1));
+    ring.emit(1);
+    ring.emit(pkt7(CP_SET_MODE, 1));
+    ring.emit(0);
+
+    // instruction cache preload: ST6_SHADER, SS6_INDIRECT, SB6_VS/FS_SHADER, 1 unit
+    ring.emit(pkt7(CP_LOAD_STATE6_GEOM, 3));
+    ring.emit((2 << 16) | (8 << 18) | (1 << 22));
+    ring.emit(d.vs as u32);
+    ring.emit((d.vs >> 32) as u32);
+    ring.emit(pkt7(CP_LOAD_STATE6_FRAG, 3));
+    ring.emit((2 << 16) | (0xc << 18) | (1 << 22));
+    ring.emit(d.fs as u32);
+    ring.emit((d.fs >> 32) as u32);
+
+    if let Some(desc) = d.desc {
+        // samplers: ST6_SHADER, SB6_FS_TEX; textures: ST6_CONSTANTS, SB6_FS_TEX
+        let samp = desc + 64;
+        ring.emit(pkt7(CP_LOAD_STATE6_FRAG, 3));
+        ring.emit((2 << 16) | (4 << 18) | (1 << 22));
+        ring.emit(samp as u32);
+        ring.emit((samp >> 32) as u32);
+        ring.reg(0xa9e0, &lohi(samp)); // SP_PS_SAMPLER_BASE
+        ring.emit(pkt7(CP_LOAD_STATE6_FRAG, 3));
+        ring.emit((1 << 14) | (2 << 16) | (4 << 18) | (1 << 22));
+        ring.emit(desc as u32);
+        ring.emit((desc >> 32) as u32);
+        ring.reg(0xa9e4, &lohi(desc)); // SP_PS_TEXMEMOBJ_BASE
+        ring.reg(0xa9a7, &[1]); // SP_PS_TSIZE
+    }
+}
+
+fn emit_draw(ring: &mut Ring, d: &Draw) {
+    ring.emit(pkt7(CP_DRAW_INDX_OFFSET, 3));
+    ring.emit(d.initiator);
+    ring.emit(1);
+    ring.emit(d.verts);
+}
+
+// CCU colour to memory, then the fence
+fn emit_finish(ring: &mut Ring, mem: &GpuMem) -> u32 {
+    let ts = mem.iova(CCU_TS_OFF);
+    ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 0x12)));
+    ring.event(PC_CCU_INVALIDATE_COLOR, None);
+    ring.wfi();
+    let fseq = fence_read(mem) + 1;
+    ring.fence(fseq);
+    fseq
+}
+
 pub fn triangle(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) -> Outcome {
     for i in 0..DST_BYTES / 4 {
         mem.w32(DST_OFF + 4 * i, POISON);
@@ -309,78 +431,21 @@ pub fn triangle(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) -> Outcome {
     }
     mem.dma.clean();
 
-    let ts = mem.iova(CCU_TS_OFF);
-    let (rt, vs, fs, vb, border) =
-        (mem.iova(DST_OFF), mem.iova(VS_OFF), mem.iova(FS_OFF), mem.iova(VB_OFF), mem.iova(BORDER_OFF));
-    let lohi = |a: u64| [a as u32, (a >> 32) as u32];
-
-    // tu_init_hw()
-    ring.event(CACHE_INVALIDATE, None);
-    ring.reg(SP_UPDATE_CNTL, &[0x000f_ffff]);
-    ring.wfi();
-    for (r, v) in INIT {
-        ring.reg(*r, &[*v]);
-    }
-    ring.reg(0xb302, &lohi(border)); // TPL1_GFX_BORDER_COLOR_BASE
-    ring.reg(0xb180, &lohi(border)); // TPL1_CS_BORDER_COLOR_BASE
-    ring.emit(pkt7(CP_SET_DRAW_STATE, 3));
-    for v in [1 << 18, 0, 0] {
-        ring.emit(v); // DISABLE_ALL_GROUPS
-    }
-
-    // CCU in sysmem mode (same value as the 2D path)
-    ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 0x10)));
-    ring.event(PC_CCU_FLUSH_DEPTH_TS, Some((ts, 0x11)));
-    ring.event(PC_CCU_INVALIDATE_COLOR, None);
-    ring.event(PC_CCU_INVALIDATE_DEPTH, None);
-    ring.wfi();
-    ring.reg(RB_CCU_CNTL, &[CCU_CNTL_BYPASS]);
-
-    ring.reg(SP_UPDATE_CNTL, &[0x19f]);
-    for (r, v) in STATE {
-        ring.reg(*r, &[*v]);
-    }
-    // MRT0: linear RGBA8, pitch 256 B, then MRT1..7 off
-    let [lo, hi] = lohi(rt);
-    ring.reg(0x8822, &[0x30, DST_PITCH >> 6, (DST_PITCH * DST_H) >> 6, lo, hi, 0]);
-    for i in 1..8u32 {
-        ring.reg(0x8822 + 8 * i, &[0, 0, 0, 0, 0, 0]);
-        ring.reg(0xa996 + i, &[0]);
-    }
-    ring.reg(0xa81c, &lohi(vs)); // SP_VS_BASE
-    ring.reg(0xa983, &lohi(fs)); // SP_PS_BASE
-    ring.reg(0xa010, &lohi(vb)); // VFD_VERTEX_BUFFER[0].BASE
-
-    ring.emit(pkt7(CP_SET_MARKER, 1));
-    ring.emit(RM6_DIRECT_RENDER);
-    ring.emit(pkt7(CP_SKIP_IB2_ENABLE_GLOBAL, 1));
-    ring.emit(0);
-    ring.emit(pkt7(CP_SET_VISIBILITY_OVERRIDE, 1));
-    ring.emit(1);
-    ring.emit(pkt7(CP_SET_MODE, 1));
-    ring.emit(0);
-
-    // instruction cache preload: ST6_SHADER, SS6_INDIRECT, SB6_VS/FS_SHADER, 1 unit
-    ring.emit(pkt7(CP_LOAD_STATE6_GEOM, 3));
-    ring.emit((2 << 16) | (8 << 18) | (1 << 22));
-    ring.emit(vs as u32);
-    ring.emit((vs >> 32) as u32);
-    ring.emit(pkt7(CP_LOAD_STATE6_FRAG, 3));
-    ring.emit((2 << 16) | (0xc << 18) | (1 << 22));
-    ring.emit(fs as u32);
-    ring.emit((fs >> 32) as u32);
-
-    // DI_PT_TRILIST, AUTO_INDEX, USE_VISIBILITY; 1 instance, 3 vertices
-    ring.emit(pkt7(CP_DRAW_INDX_OFFSET, 3));
-    ring.emit(0x184);
-    ring.emit(1);
-    ring.emit(3);
-
-    ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 0x12)));
-    ring.event(PC_CCU_INVALIDATE_COLOR, None);
-    ring.wfi();
-    let fseq = fence_read(mem) + 1;
-    ring.fence(fseq);
+    emit_init(ring, mem);
+    let t = Target { base: mem.iova(DST_OFF), pitch: DST_PITCH, info: 0x30 };
+    // DI_PT_TRILIST, AUTO_INDEX, USE_VISIBILITY; 3 vertices
+    let d = Draw {
+        overlay: &[],
+        vs: mem.iova(VS_OFF),
+        fs: mem.iova(FS_OFF),
+        vb: mem.iova(VB_OFF),
+        desc: None,
+        initiator: 0x184,
+        verts: 3,
+    };
+    emit_state(ring, &t, &d);
+    emit_draw(ring, &d);
+    let fseq = emit_finish(ring, mem);
     let ok = ring.submit(gpu, "triangle");
     let f = fence_read(mem);
     mem.dma.flush(TABLES + DST_OFF, DST_BYTES);
@@ -444,6 +509,178 @@ pub fn triangle(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) -> Outcome {
         Outcome::Drawn
     } else {
         // a flipped triangle (viewport y) shows up as inside 0 / outside mostly wrong
+        Outcome::Wrong
+    }
+}
+
+// Textured quad (turnip's r3d blit shape): vertex = pos vec4 + uv vec2,
+// VS still `end` (r0 = pos, r1.xy = uv straight out), FS = a6xx texture
+// prefetch of r1 at the interpolated uv plus the dummy `bary.f (ei)` ir3
+// inserts and `(sy)end`. Linear BGRA8 texture, bilinear, clamp to edge.
+const TEXQ: &[(u32, u32)] = &[
+    (0xa000, 0x202),      // VFD_CNTL_0: 2 fetches, 2 decodes
+    (0xa0d1, 0x43),       // VFD_DEST_CNTL[1]: r1.xy
+    (0xa092, 0xc670_0200), // VFD_FETCH_INSTR[1]: FMT6_32_32_FLOAT at +16
+    (0xa093, 0),
+    (0xa013, 24),         // VFD_VERTEX_BUFFER[0].STRIDE
+    (0xa012, 96),         // VFD_VERTEX_BUFFER[0].SIZE
+    (0xa800, 0x0010_0100), // SP_VS_CNTL_0: footprint 2
+    (0xa803, 0x0f00_0304), // SP_VS_OUTPUT[0]: uv r1.xy, pos r0.xyzw
+    (0xa813, 0x200),      // SP_VS_VPC_DEST[0]: uv loc 0, pos loc 2
+    (0x9301, 0x00ff_0206), // VPC_VS_CNTL: stride 6, position loc 2
+    (0x9b01, 6),          // PC_VS_CNTL
+    (0xa802, 2),          // SP_VS_OUTPUT_CNTL
+    (0x9200, 0),          // VPC_VARYING_INTERP_MODE[0..7]: smooth
+    (0x9201, 0),
+    (0x9202, 0),
+    (0x9203, 0),
+    (0x9204, 0),
+    (0x9205, 0),
+    (0x9206, 0),
+    (0x9207, 0),
+    (0x9208, 0),          // VPC_VARYING_REPLACE_MODE[0..7]
+    (0x9209, 0),
+    (0x920a, 0),
+    (0x920b, 0),
+    (0x920c, 0),
+    (0x920d, 0),
+    (0x920e, 0),
+    (0x920f, 0),
+    (0xa980, 0x8540_0100), // SP_PS_CNTL_0: footprint 2, VARYING, PIXLODENABLE
+    (0xb980, 2),          // SP_PS_WAVE_CNTL: THREAD64, VARYINGS
+    (0xab04, 0x0002_0300), // SP_PS_CONFIG: 1 tex, 1 sampler
+    (0xa99e, 0x11),       // SP_PS_INITIAL_TEX_LOAD_CNTL: 1 prefetch, ENDOFQUAD
+    (0xa99f, 0x23c4_0000), // ..._CMD[0]: SAM loc 0 -> r1.xyzw, s#0 t#0
+    (0xa9a3, 0),          // SP_PS_INITIAL_TEX_INDEX[0]
+    (0xb984, 0xfcfc_fc00), // SP_REG_PROG_ID_1: IJ_PERSP_PIXEL in r0.xy
+    (0x8005, 1),          // GRAS_CL_INTERP_CNTL: IJ_PERSP_PIXEL
+    (0x8809, 0x401),      // RB_INTERP_CNTL: IJ_PERSP_PIXEL, INTERP_EN
+    (0x9212, 0xffff_fffc), // VPC_VARYING_LM_TRANSFER_CNTL[0]: locs 0,1
+    (0x9304, 0xff01_ff02), // VPC_PS_CNTL: 2 varyings
+    (0xa98e, 4),          // SP_PS_OUTPUT[0].REG: r1
+];
+
+const BARY_EI_R63: [u32; 2] = [0x0000_2000, 0x4730_80fc];
+const SY_END: [u32; 2] = [0, 0x1300_0000];
+
+// A6XX_TEX_MEMOBJ for a linear BGRA8 ('BGRA' IOSurface) image + sampler
+fn tex_desc(mem: &GpuMem, off: usize, base: u64, w: u32, h: u32, pitch: u32) {
+    // FMT6_8_8_8_8_UNORM, swap WXYZ, identity swizzle, linear
+    let d = [
+        0x4c00_6880,
+        w | (h << 15),
+        2 | (pitch << 7) | (1 << 29),
+        0,
+        base as u32,
+        (base >> 32) as u32 | (1 << 17),
+    ];
+    for i in 0..16 {
+        mem.w32(off + 4 * i, d.get(i).copied().unwrap_or(0));
+    }
+    // bilinear, clamp to edge, no mips
+    for (i, v) in [0x92a, 0x40, 0, 0].iter().enumerate() {
+        mem.w32(off + 64 + 4 * i, *v);
+    }
+}
+
+fn texel(x: u32, y: u32) -> u32 {
+    // memory order B, G, R, A
+    let (b, g, r, a) = (4 * x, 4 * y, (4 * (x ^ y)) & 0xfc, 0x80 + x);
+    b | (g << 8) | (r << 16) | (a << 24)
+}
+
+pub fn texquad(gpu: &Gpu, mem: &GpuMem, ring: &mut Ring) -> Outcome {
+    for i in 0..DST_BYTES / 4 {
+        mem.w32(DST_OFF + 4 * i, POISON);
+    }
+    for y in 0..DST_H {
+        for x in 0..DST_W {
+            mem.w32(TEX_OFF + (y * DST_PITCH + 4 * x) as usize, texel(x, y));
+        }
+    }
+    put(mem, FS_TEX_OFF, &[BARY_EI_R63, SY_END], 16);
+    const M1: u32 = 0xbf80_0000;
+    // tristrip (x, y, z, w, u, v)
+    let verts = [
+        M1, M1, 0, ONE, 0, 0, //
+        ONE, M1, 0, ONE, ONE, 0, //
+        M1, ONE, 0, ONE, 0, ONE, //
+        ONE, ONE, 0, ONE, ONE, ONE,
+    ];
+    for (i, v) in verts.iter().enumerate() {
+        mem.w32(VB_TEX_OFF + 4 * i, *v);
+    }
+    tex_desc(mem, DESC_OFF, mem.iova(TEX_OFF), DST_W, DST_H, DST_PITCH);
+    mem.dma.clean();
+
+    emit_init(ring, mem);
+    let t = Target { base: mem.iova(DST_OFF), pitch: DST_PITCH, info: 0x30 };
+    let d = Draw {
+        overlay: TEXQ,
+        vs: mem.iova(VS_OFF),
+        fs: mem.iova(FS_TEX_OFF),
+        vb: mem.iova(VB_TEX_OFF),
+        desc: Some(mem.iova(DESC_OFF)),
+        initiator: 0x186, // DI_PT_TRISTRIP
+        verts: 4,
+    };
+    emit_state(ring, &t, &d);
+    emit_draw(ring, &d);
+    let fseq = emit_finish(ring, mem);
+    let ok = ring.submit(gpu, "textured quad");
+    let f = fence_read(mem);
+    mem.dma.flush(TABLES + DST_OFF, DST_BYTES);
+
+    let (mut exact, mut near, mut poison) = (0u32, 0u32, 0u32);
+    let mut first_bad = None;
+    for y in 0..DST_H {
+        for x in 0..DST_W {
+            let v = mem.r32(DST_OFF + (y * DST_PITCH + 4 * x) as usize);
+            let t = texel(x, y);
+            // the render target is RGBA in memory: B and R trade places
+            let want = (t & 0xff00_ff00) | ((t & 0xff) << 16) | ((t >> 16) & 0xff);
+            let close = (0..4).all(|c| ((v >> (8 * c)) & 0xff).abs_diff((want >> (8 * c)) & 0xff) <= 1);
+            if v == want {
+                exact += 1;
+            } else if close {
+                near += 1;
+            } else {
+                poison += (v == POISON) as u32;
+                if first_bad.is_none() {
+                    first_bad = Some((x, y, v, want));
+                }
+            }
+        }
+    }
+    let n = DST_W * DST_H;
+    crate::log!(
+        "SWEET CP: textured quad fence {f} (want {fseq}); exact {exact}/{n}, within 1 {near}, untouched {poison}; px(0,0) {:#010x} px(33,17) {:#010x} (want {:#010x})",
+        mem.r32(DST_OFF),
+        mem.r32(DST_OFF + (17 * DST_PITCH + 4 * 33) as usize),
+        {
+            let t = texel(33, 17);
+            (t & 0xff00_ff00) | ((t & 0xff) << 16) | ((t >> 16) & 0xff)
+        }
+    );
+    if let Some((x, y, v, w)) = first_bad {
+        crate::log!("SWEET CP: textured quad first mismatch at ({x},{y}) = {v:#010x} want {w:#010x}");
+    }
+    if !ok || f != fseq {
+        crate::log!(
+            "SWEET CP: textured quad did not finish: rptr {} wptr {} status {:#010x} int0 {:#010x} hw_fault {:#x}",
+            gpu.read(CP_RB_RPTR),
+            ring.wptr,
+            gpu.read(RBBM_STATUS),
+            gpu.read(RBBM_INT_0_STATUS),
+            gpu.read(CP_HW_FAULT)
+        );
+        smmu_fault();
+        return if f == fseq { Outcome::Wrong } else { Outcome::Hung };
+    }
+    if exact + near == n {
+        crate::log!("SWEET CP: 3D TEXTURED QUAD OK (64x64 BGRA8 texture, bilinear, {exact} exact)");
+        Outcome::Drawn
+    } else {
         Outcome::Wrong
     }
 }
