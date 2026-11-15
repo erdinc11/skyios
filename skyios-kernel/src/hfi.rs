@@ -279,41 +279,46 @@ impl Ring {
     }
 
     pub fn send_perf_table(&mut self, gmu: &Gmu) -> Result<(), i32> {
-        let mut body = [0u32; 2 + 2 * 16 + 2 * 4];
-        let mut gx = [0u16; 16];
-        let mut mx = [0u16; 16];
-        let mut cx = [0u16; 16];
+        const GX_SLOTS: usize = 16;
+        const CX_SLOTS: usize = 4;
+        let mut body = [0u32; 2 + 2 * GX_SLOTS + 2 * CX_SLOTS];
         let Some(db) = crate::cmddb::CmdDb::open() else {
             return Err(-4);
         };
-        let ng = db.aux("gfx.lvl", &mut gx);
-        let nm = db.aux("cx.lvl", &mut cx);
-        db.aux("mx.lvl", &mut mx);
-        if ng > 16 || nm > 4 || ng == 0 || nm == 0 {
-            crate::log!("SWEET HFI: perf table level count out of range (gfx {ng}, cx {nm})");
+        let bin = gpu_speed_bin();
+        let opp = gpu_opp(bin);
+        if opp.len() > GX_SLOTS || GMU_OPP.len() > CX_SLOTS {
             return Err(-3);
         }
-        body[0] = ng as u32;
-        body[1] = nm as u32;
-        let mut off = 2;
-        for (i, v) in gx[..ng].iter().enumerate() {
-            body[off + 2 * i] = *v as u32;
-            body[off + 2 * i + 1] = FREQ_MHZ[0][i];
+        let mut gx = [0u32; GX_SLOTS];
+        let mut cx = [0u32; CX_SLOTS];
+        arc_votes(&db, opp, &mut gx, "gfx.lvl", gx_secondary())?;
+        arc_votes(&db, &GMU_OPP, &mut cx, "cx.lvl", "mx.lvl")?;
+
+        body[0] = opp.len() as u32;
+        body[1] = GMU_OPP.len() as u32;
+        for i in 0..GX_SLOTS {
+            body[2 + 2 * i] = gx[i];
+            body[3 + 2 * i] = if i < opp.len() { opp[i].0 } else { 0 };
         }
-        off += 2 * 16;
-        for (i, v) in cx[..nm].iter().enumerate() {
-            body[off + 2 * i] = *v as u32;
-            body[off + 2 * i + 1] = FREQ_MHZ[1][i];
+        let off = 2 + 2 * GX_SLOTS;
+        for i in 0..CX_SLOTS {
+            body[off + 2 * i] = cx[i];
+            body[off + 2 * i + 1] = if i < GMU_OPP.len() { GMU_OPP[i].0 } else { 0 };
         }
-        crate::log!(
-            "SWEET HFI: perf table gx {} levels {:?} / {:?} MHz, cx {} levels {:?} / {:?} MHz",
-            ng,
-            &gx[..ng],
-            &FREQ_MHZ[0][..ng],
-            nm,
-            &cx[..nm],
-            &FREQ_MHZ[1][..nm]
-        );
+
+        crate::log!("SWEET HFI: perf table speed bin {bin}, {} gpu levels", opp.len());
+        for i in 0..opp.len() {
+            crate::log!("SWEET HFI:   gx {i}: {} MHz corner {} vote {:#010x}", opp[i].0, opp[i].1, gx[i]);
+        }
+        for i in 0..GMU_OPP.len() {
+            crate::log!(
+                "SWEET HFI:   cx {i}: {} MHz corner {} vote {:#010x}",
+                GMU_OPP[i].0,
+                GMU_OPP[i].1,
+                cx[i]
+            );
+        }
         let mut out = [0u32; 0];
         self.send(gmu, H2F_PERF_TABLE, &body, &mut out)
     }
@@ -420,9 +425,154 @@ impl Ring {
     }
 }
 
-const FREQ_MHZ: [[u32; 16]; 2] = [
-    [980, 850, 745, 700, 550, 435, 355, 260, 180, 0, 0, 0, 0, 0, 0, 0],
-    [500, 200, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+const RPMH_LEVEL_MIN_SVS: u16 = 48;
+const RPMH_LEVEL_LOW_SVS: u16 = 64;
+const RPMH_LEVEL_SVS: u16 = 128;
+const RPMH_LEVEL_SVS_L1: u16 = 192;
+const RPMH_LEVEL_NOM: u16 = 256;
+const RPMH_LEVEL_NOM_L1: u16 = 320;
+const RPMH_LEVEL_TURBO: u16 = 384;
+const RPMH_LEVEL_TURBO_L1: u16 = 416;
+
+// SM7150 `gpu_opp_table`, ascending, as a6xx_gmu_build_freq_table() builds it
+// (`dev_pm_opp_find_freq_ceil` from 1). The second field is the `opp-level`
+// RPMh corner. Speed bins and frequencies come from the sweet DT
+// (`qcom,gpu-pwrlevel-bins`); the corners are mainline sm7150's.
+const GPU_OPP_825: [(u32, u16); 9] = [
+    (0, 0),
+    (180, RPMH_LEVEL_MIN_SVS),
+    (267, RPMH_LEVEL_LOW_SVS),
+    (355, RPMH_LEVEL_SVS),
+    (430, RPMH_LEVEL_SVS_L1),
+    (565, RPMH_LEVEL_NOM),
+    (650, RPMH_LEVEL_NOM_L1),
+    (800, RPMH_LEVEL_TURBO),
+    (825, RPMH_LEVEL_TURBO_L1),
 ];
+const GPU_OPP_800: [(u32, u16); 8] = [
+    (0, 0),
+    (180, RPMH_LEVEL_MIN_SVS),
+    (267, RPMH_LEVEL_LOW_SVS),
+    (355, RPMH_LEVEL_SVS),
+    (430, RPMH_LEVEL_SVS_L1),
+    (565, RPMH_LEVEL_NOM),
+    (650, RPMH_LEVEL_NOM_L1),
+    (800, RPMH_LEVEL_TURBO),
+];
+const GPU_OPP_700: [(u32, u16); 8] = [
+    (0, 0),
+    (180, RPMH_LEVEL_MIN_SVS),
+    (267, RPMH_LEVEL_LOW_SVS),
+    (355, RPMH_LEVEL_SVS),
+    (430, RPMH_LEVEL_SVS_L1),
+    (565, RPMH_LEVEL_NOM),
+    (650, RPMH_LEVEL_NOM_L1),
+    (700, RPMH_LEVEL_TURBO),
+];
+const GPU_OPP_610: [(u32, u16); 7] = [
+    (0, 0),
+    (180, RPMH_LEVEL_MIN_SVS),
+    (267, RPMH_LEVEL_LOW_SVS),
+    (355, RPMH_LEVEL_SVS),
+    (430, RPMH_LEVEL_SVS_L1),
+    (565, RPMH_LEVEL_NOM),
+    (610, RPMH_LEVEL_NOM_L1),
+];
+
+const GMU_OPP: [(u32, u16); 2] = [(0, 0), (200, RPMH_LEVEL_MIN_SVS)];
+
+const QFPROM_PA: u64 = 0x0078_0000;
+const QFPROM_SIZE: usize = 0x6300;
+const GPU_SPEED_BIN_OFF: usize = 0x41a0;
+const GPU_SPEED_BIN_MASK: u32 = 0x1fe0_0000;
+const GPU_SPEED_BIN_SHIFT: u32 = 21;
+
+// kgsl reads the speed bin fuse from the QFPROM window in its own reg range and
+// picks the pwrlevel bin by it; an unknown or unreadable fuse uses bin 0.
+fn gpu_speed_bin() -> u32 {
+    let Some(fuse) = crate::xnu::Mmio::map(QFPROM_PA, QFPROM_SIZE) else {
+        return 0;
+    };
+    let raw = fuse.read(GPU_SPEED_BIN_OFF);
+    let bin = (raw & GPU_SPEED_BIN_MASK) >> GPU_SPEED_BIN_SHIFT;
+    match bin {
+        128 | 146 | 167 | 172 => bin,
+        _ => 0,
+    }
+}
+
+fn gpu_opp(bin: u32) -> &'static [(u32, u16)] {
+    match bin {
+        128 => &GPU_OPP_610,
+        146 => &GPU_OPP_700,
+        167 => &GPU_OPP_800,
+        _ => &GPU_OPP_825,
+    }
+}
+
+/// Perf index of the highest GPU level; HFI_GX_BW_PERF_VOTE and the OOB rail
+/// vote use it (`gmu->nr_gpu_freqs - 1`).
+pub fn gpu_top_level() -> u32 {
+    (gpu_opp(gpu_speed_bin()).len() - 1) as u32
+}
+
+/// (GX vote idx, MX vote idx) of the highest GPU level, for the OOB
+/// boot_slumber rail vote (`gmu->gx_arc_votes[nr_gpu_freqs - 1]`).
+pub fn gx_rail_vote() -> Option<(u32, u32)> {
+    let db = crate::cmddb::CmdDb::open()?;
+    let opp = gpu_opp(gpu_speed_bin());
+    let mut votes = [0u32; 16];
+    arc_votes(&db, opp, &mut votes, "gfx.lvl", gx_secondary()).ok()?;
+    let v = votes[opp.len() - 1];
+    Some((v & 0xff, (v >> 8) & 0xff))
+}
+
+fn gx_secondary() -> &'static str {
+    let mut gmxc = [0u16; 16];
+    match crate::cmddb::CmdDb::open() {
+        Some(db) if db.aux("gmxc.lvl", &mut gmxc) > 0 => "gmxc.lvl",
+        _ => "mx.lvl",
+    }
+}
+
+// a6xx_gmu_rpmh_arc_index(): first corner >= level, optionally clamped to the
+// highest available corner.
+fn arc_index(arc: &[u16], level: u16, clamp: bool) -> Option<usize> {
+    if let Some(i) = arc.iter().position(|&a| a >= level) {
+        return Some(i);
+    }
+    if clamp { Some(arc.len() - 1) } else { None }
+}
+
+// a6xx_gmu_rpmh_arc_votes_init(): one vote per OPP level, packing the matched
+// primary corner, the secondary rail's corner index and the primary index.
+fn arc_votes(
+    db: &crate::cmddb::CmdDb,
+    opp: &[(u32, u16)],
+    out: &mut [u32],
+    pri_id: &str,
+    sec_id: &str,
+) -> Result<(), i32> {
+    let mut pri = [0u16; 16];
+    let mut sec = [0u16; 16];
+    let np = db.aux(pri_id, &mut pri);
+    let ns = db.aux(sec_id, &mut sec);
+    if np == 0 || ns == 0 {
+        crate::log!("SWEET HFI: no cmd-db arc levels for {pri_id} ({np}) / {sec_id} ({ns})");
+        return Err(-5);
+    }
+    for (i, &(_, level)) in opp.iter().enumerate() {
+        let Some(pi) = arc_index(&pri[..np], level, false) else {
+            crate::log!("SWEET HFI: corner {level} not in {pri_id} {:?}", &pri[..np]);
+            return Err(-6);
+        };
+        let Some(si) = arc_index(&sec[..ns], pri[pi], true) else {
+            return Err(-6);
+        };
+        out[i] = ((pri[pi] as u32) << 16) | ((si as u32) << 8) | pi as u32;
+    }
+    Ok(())
+}
+
 
 

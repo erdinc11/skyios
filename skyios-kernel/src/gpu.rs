@@ -333,19 +333,6 @@ fn rpmh_start(gmu: &Gmu) -> bool {
     ack.is_some() && idle
 }
 
-fn arc_vote(db: &crate::cmddb::CmdDb) -> Option<(u32, u32)> {
-    let mut gfx = [0u16; 16];
-    let mut mx = [0u16; 16];
-    let ng = db.aux("gfx.lvl", &mut gfx);
-    let nm = db.aux("mx.lvl", &mut mx);
-    if ng == 0 || nm == 0 {
-        return None;
-    }
-    let gi = ng - 1;
-    let mi = mx[..nm].iter().position(|&l| l >= gfx[gi]).unwrap_or(nm - 1);
-    Some((gi as u32, mi as u32))
-}
-
 fn gfx_rail_on(gmu: &Gmu, gx: u32, mx: u32) -> bool {
     gmu.write(GMU_BOOT_SLUMBER_OPTION, 0);
     gmu.write(GMU_GX_VOTE_IDX, gx);
@@ -474,7 +461,7 @@ fn gpu_probe(gpu: &Mmio, gmu: &Gmu) {
 }
 
 fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuBoot) {
-    let Some((gx, mx)) = crate::cmddb::CmdDb::open().as_ref().and_then(arc_vote) else {
+    let Some((gx, mx)) = crate::hfi::gx_rail_vote() else {
         crate::log!("SWEET GPU: no arc levels from cmd-db");
         return;
     };
@@ -502,10 +489,9 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuB
             crate::log!("SWEET GPU: stage D done (GMU memory mapped, HFI started)");
             if ring.boot(gmu, boot.boot_state) {
                 hfi_up = true;
-                let mut lv = [0u16; 16];
-                let n = crate::cmddb::CmdDb::open().map_or(0, |db| db.aux("gfx.lvl", &mut lv));
-                if n > 0 && ring.send_freq(gmu, (n - 1) as u32, 0).is_ok() {
-                    crate::log!("SWEET GPU: gx perf vote level {} accepted", n - 1);
+                let level = crate::hfi::gpu_top_level();
+                if ring.send_freq(gmu, level, 0).is_ok() {
+                    crate::log!("SWEET GPU: gx perf vote level {level} accepted");
                 }
             }
         }

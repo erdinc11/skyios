@@ -2,6 +2,22 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: perf_table rewritten from the OPP tables + cmd-db corner votes <<<
+
+- **Boot 0109i (commit ae5c155, `logs/live-0109i.txt`, observed):** `msg 0 seq 1 acked` (init), `msg 1 seq 2 acked` (fw_version), GMU fw version `0x10110000`. Then `perf table level count out of range (gfx 9, cx 7)` -> boot aborted at perf_table (host-side check, nothing sent). No panic.
+- **Root cause (code, observed):** `Ring::send_perf_table` (`skyios-kernel/src/hfi.rs`) used the raw cmd-db `gfx.lvl` / `cx.lvl` hlvl counts (9 / 7) as the perf table counts and the hardcoded `FREQ_MHZ` list as frequencies. Linux (`a6xx_hfi_send_perf_table_v1`, `research/linux-ref/drivers/gpu/drm/msm/adreno/a6xx_hfi.c:258`) sends the GPU OPP frequency count and the GMU OPP frequency count, and every vote comes from `a6xx_gmu_rpmh_arc_votes_init` (`a6xx_gmu.c:1772`).
+- **Where the tables come from now (all in `hfi.rs`):**
+  - GPU OPP: the sweet DT `qcom,gpu-pwrlevel-bins` in `dtb/boot_unpacked/dtb` (LineageOS boot.img DT, parsed with a small FDT walker): bins 0/172 -> 180,267,355,430,565,650,800,825 MHz; 167 -> ...800; 146 -> ...700; 128 -> ...610. `+ 0` inserted first = `nr_gpu_freqs` (9 for bin 172), ascending as `a6xx_gmu_build_freq_table()` returns them.
+  - Corners (`opp-level`): mainline sm7150 `gpu_opp_table` (`sm7150-mainline` fork; the ref tree has no sm7150.dtsi). 180 MIN_SVS(48), 267 LOW_SVS(64), 355 SVS(128), 430 SVS_L1(192), 565 NOM(256), 610/650 NOM_L1(320), 700/800 TURBO(384), 825 TURBO_L1(416).
+  - GMU OPP: DT `qcom,gmu-pwrlevels` = 0 and 200 MHz, `opp-level` MIN_SVS -> `nr_gmu_freqs` = 2.
+  - Speed bin: read from QFPROM (kgsl's 4th reg, `0x780000` + `0x41a0`, mask `0x1fe00000` >> 21). Unknown/unreadable -> bin 0 (825 table). Not observed on iOS yet.
+- **Vote computation (ported 1:1):** primary = `gfx.lvl` for GX (`gmxc.lvl` if cmd-db has it, else `mx.lvl` as secondary), `cx.lvl` + `mx.lvl` for CX. First primary corner >= the OPP level (no clamp, fail+log if missing); secondary = first corner >= the selected primary corner (clamped to the last). `vote = (pri << 16) | (sindex << 8) | pindex`.
+- **Expected votes with the 0109i cmd-db** (gfx `[0,16,64,128,192,256,320,384,416]`, mx `[0,16,192,320,384]`, cx `[0,16,64,128,192,256,384]`): gx `0x0, 0x400202, 0x400202, 0x800203, 0xc00204, 0x1000405, 0x1400306, 0x1800407, 0x1a00408` for 0..825 MHz (180 and 267 share LOW_SVS because gfx.lvl has no corner between 16 and 64); cx `0x0, 0x400202` for 0/200 MHz.
+- **Also changed:** the OOB boot_slumber rail vote (`gx_rail_vote()`, was `gpu.rs::arc_vote`) and the `GX_BW_PERF_VOTE` index (`gpu_top_level()`) now use the same table, so a lower fused bin no longer votes the 416 corner. `send_freq` still sends bw index 0.
+- **New log lines to read after the fix:** `SWEET HFI: perf table speed bin N, 9 gpu levels` + one `gx i: <MHz> corner <c> vote <v>` per level + the two `cx` lines, then `msg 4 seq 3 acked`, `bw_table`, `test`, `start`, and `gx perf vote level 8 accepted`.
+- **Not verified:** the QFPROM read on iOS and the real fused bin; whether the legacy firmware accepts 9 GPU levels with these corners (nothing sent yet).
+- **Next:** build locally (`SWEET_GMU_FW=$PWD/research/gpu-fw/a618_gmu.bin skyios-kernel/build.sh`, log to `research/localbuild/build33.log`), `skyios mkshim` with the usual cmdline (`sweetgpu=4 sweetgpu_delay=60`), boot, and read the perf table lines.
+
 ### >>> UPDATE 2026-11-15: 0109i HFI init + fw_version ACKED; stops at perf_table <<<
 
 - **Boot 0109i (commit ae5c155, `logs/live-0109i.txt`, observed):** `msg 0 seq 1 acked` (init), `msg 1 seq 2 acked` (fw_version), GMU fw version `0x10110000`. Then `perf table level count out of range (gfx 9, cx 7)` -> boot aborted at perf_table (host-side check, nothing sent). No panic.
