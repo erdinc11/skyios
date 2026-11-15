@@ -2,6 +2,12 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> MILESTONE 2026-11-15: GMU HFI v1 boot COMPLETE + OOB gpu_set ACK + GPU clock running (boot 0109k) <<<
+
+- **Boot 0109k (commit 2250df6, `logs/live-0109k.txt`, observed on hardware):** init / fw_version (`0x10110000`) / perf_table (bin 167, 8 levels) / bw_table / test all acked, `boot sequence done (v1, boot state 0)`; queues drained (q0 rd=wr=211, q1 rd=wr=20), no GMU errors. Then `oob gpu_set: ACK intr info 0x01000000`, RBBM status `0x00000001`, status3 0. `gpu_clock_probe`: CP perfcounter **running** (105856 counts in ~10 ms), GMU AON advanced 211712 ticks; the CP always-on counter did NOT advance (`0x0007f5f9` both reads; guess: needs CP/SQE init or a different enable, not verified). No panic; phone stays on the lockscreen.
+- **Meaning:** the GPU is powered, clocked and the GMU grants register access the Linux way. Command processor (SQE fw `research/gpu-fw/a630_sqe.fw`), ringbuffer and any rendering are NOT started yet.
+- **Next:** a6xx_hw_init-equivalent: load the SQE microcode, set up a ringbuffer, CP_ME_INIT, then a trivial submission (CP scratch / memory write) as the "first GPU command" test. Also zap shader (`a615_zap.*`) via SCM is required before leaving secure mode on Qualcomm (Linux `a6xx_zap_shader_init`); not investigated.
+
 ### >>> UPDATE 2026-11-15: 0109j full HFI v1 table exchange ACKED; 0109k drops START (waiting for boot) <<<
 
 - **Boot 0109j (commit d3602c7, `logs/live-0109j.txt`, observed):** speed bin fuse read OK = **167** (8 GPU levels, top 800 MHz, OOB vote gx idx 7 / mx idx 4). Votes as predicted (`0x400202 ... 0x1800407`, cx `0x400202`). `msg 4 seq 3 acked` (perf table), bw table (1 level, `0x6005007f`) `msg 3 seq 4 acked`, test `msg 5 seq 5 acked`. Then `msg 10 seq 6` (START) consumed (q0 rd=wr=212) but never answered -> timeout, abort. No panic.
