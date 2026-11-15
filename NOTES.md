@@ -2,6 +2,13 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: HFI test 0109g -> fix -> 0109h (waiting for boot) <<<
+
+- **Boot 0109g (commit 976bd27, `logs/live-0109g.txt`, real hardware, observed):** reached the lockscreen; Settings > About opens (0104 fix confirmed by the user). GPU: stage A/B OK (`0xbabeface`), GMUMEM cb4 mapped (pa 0x104848000), OOB boot_slumber ACK `0x40000000`, sptprac on, GX GDSC `0xf8222000`, but `hfi ctrl status 0x0 (TIMEOUT)` -> no HFI messages sent, no panic (the 976bd27 no-HFI branch fix worked).
+- **Cause (guess, from code order):** `stage_c` wrote `GMU_HFI_CTRL_INIT` while the queue table at `HFI_IOVA` was still all zero (`gmumem::hfi_init` zeroes it; the user's `Ring::boot` -> `init_queues` filled it only after `hfi_start`). Linux fills the table at probe, before the fw starts.
+- **Fix (commit 4283b2f):** `Ring::new` + `init_queues()` (made `pub`) before `hfi_start`; on timeout also dump the CM3 crash record and SMMU cb4 fault. Image `skyios-shim/out/shim-boot-0109h.img` (kernel build log `research/localbuild/build31.log`, same cmdline as 0109g incl. `sweetgpu=4 sweetgpu_delay=60`). A watcher boots it at the next fastboot -> `logs/live-0109h.txt`. Note: `SWEET_GMU_FW` must be the firmware path (`$PWD/research/gpu-fw/a618_gmu.bin`), not `1`.
+- **If 0109h still times out:** check the new crash-record / `SWEET GMUMEM: cb4 fsr` lines; next suspect is HFI_CTRL_INIT ordering relative to the OOB boot_slumber (Linux does hfi ctrl init right after the fw start, before any OOB).
+
 ### >>> UPDATE 2026-11-15: GPU HFI v1 boot sequence ported (image 0107h, NOT booted) <<<
 
 - **State before this change (boot 0105g, `logs/usbnet-0105g.out`, real hardware):** stages A-D all pass: CX/GX up, GMU fw runs (`0xbabeface`), GMU memory in the adreno SMMU (cb4, SID 5, iova `0x60000000+0xd000`), OOB boot_slumber ACK, SPTPRAC on, `hfi ctrl status 0x1`. The old "clock probe" read the **CP** perfcounter (`0x0400`) and the **CP** always-on counter (`0x0980` = `CP_ALWAYS_ON_COUNTER` in the freedreno xml) and printed garbage: CP is still in reset (only Linux's `a6xx_hw_init` resets it), so 0105g's "~10 MHz / 0 TKHz" is meaningless for the GPU clock. The GMU always-on counter is `0x1f888/0x1f889`.
