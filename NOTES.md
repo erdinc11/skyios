@@ -2,7 +2,18 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
-### >>> UPDATE 2026-11-15: CP / SQE / ringbuffer bring-up written (image 0110a, NOT booted) <<<
+### >>> MILESTONE 2026-11-15: FIRST GPU COMMAND EXECUTED (boot 0110a) <<<
+
+- **Boot 0110a (commit 2fb8f51, `logs/live-0110a.txt`, observed on hardware):** HFI v1 boot + OOB gpu_set as 0109k, then:
+  - `SWEET CP: 0x14000 bytes at pa 0x104854000, iova 0x1000000 via cb0 (sctlr 0x00000067), smr[0] 0x80000000 s2cr 0x00000000`
+  - `sqe ucode 32132 bytes, version 0x19a`; `rb cntl 0x0800020c rptr 0 wptr 0, starting SQE`
+  - `CP_ME_INIT: done (rptr 9, 70 us)`; `first command: done (rptr 16, 10 us)`
+  - `scratch reg 0x5ca1ab1e (want 0x5ca1ab1e), memory 0xc0ffee01 (want 0xc0ffee01): FIRST GPU COMMAND EXECUTED`
+  - No SMMU fault printed, no kernel panic (only the `DumpPanic` userland daemon), phone reaches the lockscreen as before.
+- **Meaning (observed):** SQE microcode runs, the CP fetches the ringbuffer through SMMU cb0 / SID 0, executes PKT4 register writes and PKT7 CP_MEM_WRITE into system memory, all while still in secure mode (no zap shader). 
+- **Not done / next:** hwcg, UCHE ranges, CP protect, RBBM IRQs (polling only), UBWC config; zap shader + leave secure mode (needed before draw/compute that reads non-secure memory? unverified); a timestamp/fence path (CP_EVENT_WRITE / CACHE_FLUSH_TS) and then a first 2D/compute job (e.g. CP_BLIT or a solid fill) toward an IOSurface/framebuffer.
+
+### >>> UPDATE 2026-11-15: CP / SQE / ringbuffer bring-up written (image 0110a, booted -> see milestone above) <<<
 
 - **New `skyios-kernel/src/cp.rs`** (written by the assistant, follows Linux `hw_init()` / `a6xx_cp_init()` / `adreno_fw_create_bo()` / `a6xx_ucode_check_version()`, a618 subset), runs from `stage_c` after `gpu_probe` while OOB gpu_set is held, only with **`sweetgpu=5`**:
   - GPU memory: SMMU **cb0, SMR0 = SID 0** (sc7180/a618 `iommus = <&adreno_smmu 0>`), VMID 1, same CB programming as `gmumem` (cb4/SID 5). Needed because sCR0 has USFCFG set and the unused S2CRs are type FAULT (`0x000200ff`), so unmatched GPU traffic faults. iova `0x0100_0000`: SQE (32 KiB) | ring (32 KiB) | scratch page.
