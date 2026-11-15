@@ -2,6 +2,14 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> UPDATE 2026-11-15: zap shader loader via SCM PAS written (image 0110f, NOT booted) <<<
+
+- User goal now (2026-11-15): "lanjutkan sampai GPU jalan dan gantiin CPU buat render layar".
+- New `skyios-kernel/src/scm.rs` (Qualcomm SMCCC: STD/SMC64/SIP fnid `0x42000000|svc<<8|cmd`, arginfo, x6 cookie resume on INTERRUPTED, EBUSY retry; like Linux `qcom_scm-smc.c`) and `zap.rs` (like `adreno_zap_shader_load` + `qcom_mdt_load`): PAS_IS_SUPPORTED(13) -> INIT_IMAGE(13, metadata = whole `.mdt` = ELF hdr+phdrs (148 B) + hash seg (0x1a38) in a cleaned contiguous DMA page in high DDR) -> MEM_SETUP(13, 0x97715000, 0x1000) (segment 2 is RELOCATABLE, p_paddr 0x5000, 0x7c0 bytes) -> copy `.b02` into the DT `gpu_region@97715000` (no-map, 8 KiB, low bank unused by XNU) -> AUTH_AND_RESET(13). Feature `zapfw`, env `SWEET_ZAP_MDT` / `SWEET_ZAP_B02` (build.sh); firmware stays in `research/gpu-fw/` (gitignored).
+- cp.rs: after ME_INIT, if zap loads: `CP_SET_SECURE_MODE(0)` (pkt7 0x66), then log TRUST_CNTL, then fence + fill. The sweetcp_trust0 experiment is removed.
+- Open risk (guess): TZ may reject metadata above 4 GiB (Linux allocates it with the SCM device's default 32-bit DMA mask). The log shows init_image status/result.
+- Build: `F=$PWD/research/gpu-fw; SWEET_GMU_FW=$F/a618_gmu.bin SWEET_SQE_FW=$F/a630_sqe.fw SWEET_ZAP_MDT=$F/a615_zap.mdt SWEET_ZAP_B02=$F/a615_zap.b02 skyios-kernel/build.sh`. Image `skyios-shim/out/shim-boot-0110f.img` (build log `research/localbuild/build39.log`, cmdline as 0110c). Watcher -> `logs/live-0110f.txt`.
+
 ### >>> RESULT 2026-11-15: GPU IS IN SECURE MODE; direct TRUST_CNTL write hangs (boot 0110e) -> zap shader needed <<<
 
 - **Boot 0110e (commit ebad83e, `logs/live-0110e.txt`, observed):** `rbbm secvid trust cntl 0x00000001` (secure) before SQE start. Fence / first command OK, fill again 0/1536 pixels. Then `writing RBBM_SECVID_TRUST_CNTL = 0` is the **last CP line**: the following readback log never appeared and `stage C done` is missing, i.e. the GPU bring-up thread hangs on the write/readback (blocked access, as Linux warns). The rest of the system keeps running (SpringBoard, SWEET TOP continue), no panic, no reset.

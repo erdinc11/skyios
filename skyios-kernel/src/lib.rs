@@ -7,7 +7,9 @@ mod cp;
 mod gmumem;
 mod gpu;
 mod hfi;
+mod scm;
 mod smmu;
+mod zap;
 
 extern "C" fn gpu_thread(stage: usize) {
     let secs = xnu::boot_arg_u32(c"sweetgpu_delay").unwrap_or(60);

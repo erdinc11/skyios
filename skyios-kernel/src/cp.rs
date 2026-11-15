@@ -104,6 +104,7 @@ const CP_BLIT: u32 = 0x2c;
 const CP_MEM_WRITE: u32 = 0x3d;
 const CP_EVENT_WRITE: u32 = 0x46;
 const CP_ME_INIT: u32 = 0x48;
+const CP_SET_SECURE_MODE: u32 = 0x66;
 
 // vgt_event_type
 const CACHE_FLUSH_TS: u32 = 0x04;
@@ -436,6 +437,17 @@ pub fn bringup() {
         return;
     }
 
+    // a6xx_hw_init(): with the zap shader authenticated by TZ the CP may drop
+    // the GPU out of secure mode; without it RB/CCU writes never land (0110c)
+    // and a direct RBBM_SECVID_TRUST_CNTL write hangs (0110e)
+    if crate::zap::load() {
+        ring.emit(pkt7(CP_SET_SECURE_MODE, 1));
+        ring.emit(0);
+        if ring.submit(&gpu, "CP_SET_SECURE_MODE(0)") {
+            crate::log!("SWEET CP: rbbm secvid trust cntl now {:#010x}", gpu.read(RBBM_SECVID_TRUST_CNTL));
+        }
+    }
+
     // first command: one register write and one memory write by the CP
     const REG_MAGIC: u32 = 0x5ca1_ab1e;
     const MEM_MAGIC: u32 = 0xc0ff_ee01;
@@ -468,19 +480,7 @@ pub fn bringup() {
         smmu_fault();
         return;
     }
-    if solid_fill(&gpu, &mem, &mut ring) {
-        return;
-    }
-    // Experiment (boot-arg sweetcp_trust0=1): the Linux path for GPUs without
-    // a zap shader, leave secure mode by RBBM_SECVID_TRUST_CNTL = 0. On a zap
-    // target Linux warns this may be blocked ("a permissions violation will
-    // soon follow").
-    if crate::xnu::boot_arg_u32(c"sweetcp_trust0") == Some(1) {
-        crate::log!("SWEET CP: writing RBBM_SECVID_TRUST_CNTL = 0 (no zap shader)");
-        gpu.write(RBBM_SECVID_TRUST_CNTL, 0);
-        crate::log!("SWEET CP: trust cntl now {:#010x}, retrying the fill", gpu.read(RBBM_SECVID_TRUST_CNTL));
-        solid_fill(&gpu, &mem, &mut ring);
-    }
+    solid_fill(&gpu, &mem, &mut ring);
 }
 
 fn fence_read(mem: &GpuMem) -> u32 {
