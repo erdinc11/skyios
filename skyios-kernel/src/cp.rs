@@ -319,25 +319,10 @@ impl Ring<'_> {
     // Per-frame submit: done when the CP consumed the ring and the trailing
     // CACHE_FLUSH_TS wrote `seq` (RBBM_STATUS is not used: 0110c read
     // 0x00c00001 right after an idle fill). 2 us polls, 100 ms limit.
-    fn submit_quiet(&mut self, gpu: &Gpu, seq: u32) -> bool {
+    fn publish(&mut self, gpu: &Gpu) {
         self.mem.dma.clean();
         unsafe { core::arch::asm!("dsb sy", options(nostack, preserves_flags)) };
         gpu.write(CP_RB_WPTR, self.wptr);
-        for _ in 0..50_000 {
-            if gpu.read(CP_RB_RPTR) == self.wptr && fence_read(self.mem) == seq {
-                return true;
-            }
-            delay_us(2);
-        }
-        crate::log!(
-            "SWEET CP: present TIMEOUT rptr {} wptr {} status {:#010x} int0 {:#010x}",
-            gpu.read(CP_RB_RPTR),
-            self.wptr,
-            gpu.read(RBBM_STATUS),
-            gpu.read(RBBM_INT_0_STATUS)
-        );
-        smmu_fault();
-        false
     }
 
     // a6xx_flush() + a6xx_idle(): publish the ring, then wait for the CP to
@@ -511,6 +496,27 @@ pub fn bringup() -> bool {
     engine_init(gpu, mem, wptr)
 }
 
+// the fence write is the last packet of a present, so seeing it also means
+// the CP has consumed the ring up to `wptr`
+fn wait_fence(gpu: &Gpu, mem: &GpuMem, wptr: u32, seq: u32) -> bool {
+    for _ in 0..50_000 {
+        if gpu.read(CP_RB_RPTR) == wptr && fence_read(mem) == seq {
+            return true;
+        }
+        delay_us(2);
+    }
+    crate::log!(
+        "SWEET CP: present TIMEOUT rptr {} wptr {} fence {} want {seq} status {:#010x} int0 {:#010x}",
+        gpu.read(CP_RB_RPTR),
+        wptr,
+        fence_read(mem),
+        gpu.read(RBBM_STATUS),
+        gpu.read(RBBM_INT_0_STATUS)
+    );
+    smmu_fault();
+    false
+}
+
 fn fence_read(mem: &GpuMem) -> u32 {
     mem.dma.flush(TABLES + SCRATCH_OFF, PAGE);
     mem.r32(FENCE_OFF)
@@ -653,6 +659,8 @@ struct Engine {
     wptr: u32,
     panel: Option<(u64, usize)>,
     fseq: u32,
+    // a present was published and its fence not seen yet
+    pending: bool,
     dead: bool,
 }
 
@@ -689,7 +697,7 @@ fn engine_init(gpu: Gpu, mem: GpuMem, wptr: u32) -> bool {
     tlb_flush(&smmu);
     let fseq = fence_read(&mem);
     crate::log!("SWEET CP: present engine ready (panel iova {PANEL_IOVA:#x}, surface iova {SURF_IOVA:#x} up to {SURF_MAX:#x} bytes)");
-    unsafe { ENGINE = Some(Engine { gpu, mem, smmu, pt, wptr, panel: None, fseq, dead: false }) };
+    unsafe { ENGINE = Some(Engine { gpu, mem, smmu, pt, wptr, panel: None, fseq, pending: false, dead: false }) };
     true
 }
 
@@ -770,7 +778,9 @@ fn blit_pass(ring: &mut Ring, src: u64, spitch: u32, sx: u32, dst: u64, dpitch: 
 /// Copy a w x h rectangle of a linear 32 bpp surface (physical runs `segs`,
 /// covering at least `off + (sy + h) * spitch` bytes) to panel memory at
 /// `panel_pa` (pitch `dpitch`, `panel_size` bytes). Returns false when the
-/// GPU path is unavailable; the caller then copies with the CPU.
+/// GPU path is unavailable; the caller then copies with the CPU. With
+/// `sync` false it returns once the copy is queued (`sweet_rs_gpu_wait`, or
+/// the next call, waits for it).
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn sweet_rs_gpu_blit(
@@ -787,6 +797,7 @@ pub extern "C" fn sweet_rs_gpu_blit(
     dpitch: u32,
     dx: u32,
     dy: u32,
+    sync: bool,
 ) -> bool {
     use core::sync::atomic::Ordering;
     if segs.is_null() || nseg == 0 || w == 0 || h == 0 || w > 0x3000 || h > 0x3000 {
@@ -795,7 +806,7 @@ pub extern "C" fn sweet_rs_gpu_blit(
     if BUSY.swap(true, Ordering::Acquire) {
         return false;
     }
-    let ok = blit_locked(unsafe { core::slice::from_raw_parts(segs, nseg as usize) }, off, spitch, sx, sy, w, h, panel_pa, panel_size, dpitch, dx, dy);
+    let ok = blit_locked(unsafe { core::slice::from_raw_parts(segs, nseg as usize) }, off, spitch, sx, sy, w, h, panel_pa, panel_size, dpitch, dx, dy, sync);
     BUSY.store(false, Ordering::Release);
     ok
 }
@@ -814,11 +825,16 @@ fn blit_locked(
     dpitch: u32,
     dx: u32,
     dy: u32,
+    sync: bool,
 ) -> bool {
     let Some(e) = (unsafe { (*core::ptr::addr_of_mut!(ENGINE)).as_mut() }) else {
         return false;
     };
     if e.dead || spitch % 4 != 0 || dpitch % 4 != 0 {
+        return false;
+    }
+    // the previous present may still be reading through the surface tables
+    if !e.idle() {
         return false;
     }
     let bytes = off as usize + (sy + h) as usize * spitch as usize;
@@ -873,15 +889,43 @@ fn blit_locked(
     ring.event(PC_CCU_FLUSH_COLOR_TS, Some((ts, 2)));
     ring.wfi();
     ring.fence(seq);
-    let ok = ring.submit_quiet(&e.gpu, seq);
+    ring.publish(&e.gpu);
     e.wptr = ring.wptr;
     e.fseq = seq;
-    if !ok {
-        crate::log!("SWEET CP: present blit failed (fence {} want {seq}), GPU present disabled", fence_read(&e.mem));
-        e.dead = true;
-        return false;
+    e.pending = true;
+    !sync || e.idle()
+}
+
+impl Engine {
+    // wait for the last submitted present; a timeout disables the engine
+    fn idle(&mut self) -> bool {
+        if !self.pending {
+            return true;
+        }
+        if !wait_fence(&self.gpu, &self.mem, self.wptr, self.fseq) {
+            crate::log!("SWEET CP: present blit failed (fence {} want {}), GPU present disabled", fence_read(&self.mem), self.fseq);
+            self.dead = true;
+            return false;
+        }
+        self.pending = false;
+        true
     }
-    true
+}
+
+/// Wait until the last present submitted with `sync = false` has landed in
+/// panel memory. False when it did not (the engine is then disabled).
+#[unsafe(no_mangle)]
+pub extern "C" fn sweet_rs_gpu_wait() -> bool {
+    use core::sync::atomic::Ordering;
+    while BUSY.swap(true, Ordering::Acquire) {
+        core::hint::spin_loop();
+    }
+    let ok = match unsafe { (*core::ptr::addr_of_mut!(ENGINE)).as_mut() } {
+        Some(e) => !e.dead && e.idle(),
+        None => false,
+    };
+    BUSY.store(false, Ordering::Release);
+    ok
 }
 
 /// 0 = present engine not up (yet), 1 = ready, 2 = disabled after a failure

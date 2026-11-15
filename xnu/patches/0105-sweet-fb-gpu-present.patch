@@ -1,6 +1,6 @@
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -37,7 +37,19 @@
+@@ -37,7 +37,21 @@
  #define SWEET_FB_LOGICAL_W              1125
  #define SWEET_FB_LOGICAL_H              2436
  #define SWEET_FB_FORMAT_BGRA            0x42475241
@@ -8,7 +8,8 @@
  
 +extern "C" bool sweet_rs_gpu_blit(const uint64_t (*segs)[2], uint32_t nseg, uint32_t off,
 +    uint32_t spitch, uint32_t sx, uint32_t sy, uint32_t w, uint32_t h, uint64_t panel_pa,
-+    uint64_t panel_size, uint32_t dpitch, uint32_t dx, uint32_t dy);
++    uint64_t panel_size, uint32_t dpitch, uint32_t dx, uint32_t dy, bool sync);
++extern "C" bool sweet_rs_gpu_wait(void);
 +extern "C" void sweet_rs_cache_clean(uintptr_t va, uint64_t size);
 +extern "C" uint32_t sweet_rs_gpu_state(void);
 +
@@ -16,30 +17,73 @@
 +static uint64_t sweet_fb_gpu_segs[SWEET_FB_GPU_SEGS][2];
 +static int sweet_fb_gpu_mode = -1;      /* -1 unknown, 0 off, 1 on */
 +static uint32_t sweet_fb_gpu_frames, sweet_fb_gpu_checked;
++static SweetSurface *sweet_fb_gpu_inflight;  /* source of the queued GPU copy */
 +
  class IOMobileFramebuffer : public IOService {
  	OSDeclareDefaultStructors(IOMobileFramebuffer);
  };
-@@ -83,6 +95,8 @@
+@@ -83,6 +97,9 @@
  	void removeClient(IOMobileFramebufferUserClient *client);
  	void swap(const uint8_t *rec);
  	void present(const uint8_t *rec);
 +	bool gpuPresent(SweetSurface *s, uintptr_t src, int32_t sx, int32_t sy, int32_t dx,
 +	    int32_t dy, int32_t w, int32_t h);
++	void gpuSettle(void);
  	void presentTimed(const uint8_t *rec);
  };
  
-@@ -419,6 +433,9 @@
- 		    (uint64_t)(sx + w) * 4;
- 		if (w <= 0 || h <= 0 || s->elementWidth != 1 || s->elementHeight != 1 ||
+@@ -181,8 +198,10 @@
+ extern "C" volatile int sweet_touch_dbg[3];
+ 
+ static void
+-sweet_fb_touch_dot(uintptr_t pixels, uint32_t width, uint32_t height, uint32_t row_bytes)
++sweet_fb_touch_dot(AppleCLCD *fb)
+ {
++	uintptr_t pixels = fb->fPixels;
++	uint32_t width = fb->fWidth, height = fb->fHeight, row_bytes = fb->fRowBytes;
+ 	static int enabled = -1;
+ 	if (enabled < 0) {
+ 		enabled = 0;
+@@ -192,6 +211,7 @@
+ 		return;
+ 	}
+ 	int cx = sweet_touch_dbg[1], cy = sweet_touch_dbg[2];
++	fb->gpuSettle();
+ 	for (int d = -40; d <= 40; d++) {
+ 		for (int t = -2; t <= 2; t++) {
+ 			int pts[2][2] = { { cx + d, cy + t }, { cx + t, cy + d } };
+@@ -230,6 +250,9 @@
+ 		}
+ 		IOLockUnlock(fb->fLock);
+ 		if (step <= 6) {
++			IOLockLock(fb->fPresentLock);
++			fb->gpuSettle();
++			IOLockUnlock(fb->fPresentLock);
+ 			for (uint32_t y = 0; y < fb->fHeight; y++) {
+ 				volatile uint32_t *row = (volatile uint32_t *)(fb->fPixels + (uint64_t)y * fb->fRowBytes);
+ 				for (uint32_t x = 0; x < fb->fWidth; x++) {
+@@ -255,7 +278,7 @@
+ 		IOFreeData(rec, SWEET_FB_SWAP_REC_SIZE);
+ 	}
+ 	IOLockLock(fb->fPresentLock);
+-	sweet_fb_touch_dot(fb->fPixels, fb->fWidth, fb->fHeight, fb->fRowBytes);
++	sweet_fb_touch_dot(fb);
+ 	IOLockUnlock(fb->fPresentLock);
+ 	if (fb->fStats && (count % 300) == 0) {
+ 		IOLockLock(fb->fLock);
+@@ -421,7 +444,11 @@
  		    s->memory == NULL || last > s->memory->getLength()) {
-+			src = 0;
-+		}
-+		if (src != 0 && bpe == 4 && gpuPresent(s, src, sx, sy, dx, dy, w, h)) {
  			src = 0;
  		}
++		if (src != 0 && bpe == 4 && gpuPresent(s, src, sx, sy, dx, dy, w, h)) {
++			src = 0;
++		}
  		if (src != 0 && bpe == 4) {
-@@ -429,7 +446,90 @@
++			gpuSettle();
+ 			for (int32_t y = 0; y < h; y++) {
+ 				memcpy((void *)(fPixels + (uint64_t)(dy + y) * fRowBytes + (uint64_t)dx * 4),
+ 				    (const void *)(src + s->offset + (uint64_t)(sy + y) * s->bytesPerRow + (uint64_t)sx * 4),
+@@ -429,9 +456,122 @@
  			}
  		}
  		s->release();
@@ -49,9 +93,11 @@
 +/*
 + * Copy one layer with the Adreno 2D engine (skyios-kernel cp.rs). The surface
 + * is cleaned from the CPU caches, its physical runs are handed to the GPU page
-+ * tables and the GPU copy is waited for. The first frames and every 600th are
-+ * checked against the source; any failure or mismatch turns the GPU path off
-+ * for this boot and the caller copies with the CPU (also with sweetfb_gpu=0).
++ * tables and the copy is queued; the surface stays retained until the next
++ * GPU present (which waits for this one) or gpuSettle(). The first frames and
++ * every 600th are waited for and checked against the source; any failure or
++ * mismatch turns the GPU path off for this boot and the caller copies with
++ * the CPU (also with sweetfb_gpu=0). sweetfb_gpu=2 waits for every copy.
 + */
 +bool
 +AppleCLCD::gpuPresent(SweetSurface *s, uintptr_t src, int32_t sx, int32_t sy, int32_t dx,
@@ -60,7 +106,7 @@
 +	if (sweet_fb_gpu_mode < 0) {
 +		int on = 1;
 +		PE_parse_boot_argn("sweetfb_gpu", &on, sizeof(on));
-+		sweet_fb_gpu_mode = on != 0;
++		sweet_fb_gpu_mode = on;
 +	}
 +	if (sweet_fb_gpu_mode == 0 || sweet_rs_gpu_state() != 1) {
 +		/* not up yet (the GPU thread starts sweetgpu_delay s after boot) */
@@ -82,21 +128,35 @@
 +		sweet_fb_gpu_segs[nseg][1] = len;
 +		nseg++;
 +		off += len;
- 	}
++	}
++	uint32_t frame = sweet_fb_gpu_frames + 1;
++	bool check = frame <= 8 || (frame % 600) == 0;
 +	uint64_t t0 = mach_absolute_time();
 +	sweet_rs_cache_clean(src + start, end - start);
 +	uint64_t t1 = mach_absolute_time();
 +	if (!sweet_rs_gpu_blit(sweet_fb_gpu_segs, nseg, s->offset, s->bytesPerRow, (uint32_t)sx,
 +	    (uint32_t)sy, (uint32_t)w, (uint32_t)h, fPhys, (uint64_t)fRowBytes * fHeight, fRowBytes,
-+	    (uint32_t)dx, (uint32_t)dy)) {
++	    (uint32_t)dx, (uint32_t)dy, check || sweet_fb_gpu_mode == 2)) {
 +		IOLog("SWEET FB: GPU present failed after %u frames (%u segs), CPU copy from now on\n",
 +		    sweet_fb_gpu_frames, nseg);
 +		sweet_fb_gpu_mode = 0;
++		OSSafeReleaseNULL(sweet_fb_gpu_inflight);
 +		return false;
-+	}
+ 	}
 +	uint64_t t2 = mach_absolute_time();
-+	sweet_fb_gpu_frames++;
-+	if (sweet_fb_gpu_frames <= 8 || (sweet_fb_gpu_frames % 600) == 0) {
++	/* the call waited for the previous copy, so its source can go */
++	OSSafeReleaseNULL(sweet_fb_gpu_inflight);
++	s->retain();
++	sweet_fb_gpu_inflight = s;
++	sweet_fb_gpu_frames = frame;
++	if (!check && sweet_fb_gpu_frames <= 12) {
++		uint64_t c = 0, g = 0;
++		absolutetime_to_nanoseconds(t1 - t0, &c);
++		absolutetime_to_nanoseconds(t2 - t1, &g);
++		IOLog("SWEET FB: GPU present %u: queued, clean %llu us, submit %llu us%s\n",
++		    sweet_fb_gpu_frames, c / 1000, g / 1000, sweet_fb_gpu_mode == 2 ? " (sync)" : "");
++	}
++	if (check) {
 +		uint32_t bad = 0, first_x = 0, first_y = 0, got = 0, want = 0;
 +		for (uint32_t i = 0; i < 64; i++) {
 +			uint32_t x = (uint32_t)(((uint64_t)i * 977 + 13) % (uint32_t)w);
@@ -129,4 +189,20 @@
 +	return true;
  }
  
++/* wait for a queued GPU copy before the CPU writes panel memory itself */
++void
++AppleCLCD::gpuSettle(void)
++{
++	if (sweet_fb_gpu_inflight == NULL) {
++		return;
++	}
++	if (!sweet_rs_gpu_wait()) {
++		IOLog("SWEET FB: queued GPU present did not finish, CPU copy from now on\n");
++		sweet_fb_gpu_mode = 0;
++	}
++	OSSafeReleaseNULL(sweet_fb_gpu_inflight);
++}
++
  bool
+ IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void *securityID, UInt32 type)
+ {
