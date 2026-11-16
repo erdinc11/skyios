@@ -9,6 +9,7 @@ mod gpu;
 mod hfi;
 mod scm;
 mod smmu;
+mod wlan;
 mod zap;
 
 extern "C" fn gpu_thread(stage: usize) {
@@ -88,6 +89,9 @@ pub extern "C" fn sweet_rs_init() {
     let stage = xnu::boot_arg_u32(c"sweetgpu").unwrap_or(0);
     if stage != 0 {
         xnu::spawn(gpu_thread, stage as usize);
+    }
+    if xnu::boot_arg_u32(c"sweetwifi").unwrap_or(0) != 0 {
+        xnu::spawn(wlan::wlan_thread, 0);
     }
 }
 

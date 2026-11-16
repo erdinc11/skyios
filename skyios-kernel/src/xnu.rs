@@ -132,4 +132,35 @@ impl Dma {
     pub fn flush(&self, off: usize, len: usize) {
         unsafe { sys::sweet_rs_cache_flush(self.va + off, len as u64) };
     }
+
+    pub fn pa(&self) -> u64 {
+        self.pa
+    }
+
+    pub fn sub(&self, off: usize, len: usize) -> Dma {
+        assert!(off + len <= self.size);
+        Dma { va: self.va + off, pa: self.pa + off as u64, size: len }
+    }
+
+    pub fn r64(&self, off: usize) -> u64 {
+        assert!(off + 8 <= self.size && off % 8 == 0);
+        unsafe { core::ptr::read_volatile((self.va + off) as *const u64) }
+    }
+
+    pub fn copy_in(&self, off: usize, data: &[u8]) {
+        assert!(off + data.len() <= self.size);
+        unsafe {
+            core::ptr::copy_nonoverlapping(data.as_ptr(), (self.va + off) as *mut u8, data.len());
+        }
+    }
+
+    pub fn copy_out(&self, off: usize, len: usize) -> &[u8] {
+        assert!(off + len <= self.size);
+        unsafe { core::slice::from_raw_parts((self.va + off) as *const u8, len) }
+    }
+
+    pub fn zero(&self, off: usize, len: usize) {
+        assert!(off + len <= self.size);
+        unsafe { core::ptr::write_bytes((self.va + off) as *mut u8, 0, len) };
+    }
 }
