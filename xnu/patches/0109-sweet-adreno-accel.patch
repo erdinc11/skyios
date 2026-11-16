@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/iokit/Kernel/arm/SkyAdrenoAccel.cpp
-@@ -0,0 +1,403 @@
+@@ -0,0 +1,480 @@
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
@@ -11,6 +11,7 @@
 +#include <IOKit/IOBufferMemoryDescriptor.h>
 +#include <IOKit/IOMemoryDescriptor.h>
 +#include <sys/proc.h>
++#include "SweetSurface.h"
 +
 +/*
 + * Adreno 618 accelerator service (stage 2 of the Metal driver plan): GPU
@@ -29,6 +30,8 @@
 + *   3 submit  handle, byte offset, dwords -> fence sequence
 + *   4 wait    sequence, timeout ms -> 0 done, 1 timed out, 2 engine dead
 + *   5 log     struct in: text for the kernel log
++ *   6 import  IOSurface ID -> handle, gpu address, bytes per row, offset
++ *             (the surface's pages mapped into the GPU; freed by selector 2)
 + */
 +
 +extern "C" uint32_t sweet_rs_gpu_state(void);
@@ -121,6 +124,7 @@
 +
 +struct SkyBuf {
 +	IOBufferMemoryDescriptor *md;
++	SweetSurface *surf;     /* imported IOSurface instead of md/map */
 +	IOMemoryMap *map;
 +	uint64_t iova;
 +	uint64_t size;
@@ -137,6 +141,7 @@
 +	IOReturn release(uint64_t handle);
 +	IOReturn submit(uint64_t handle, uint64_t off, uint64_t dwords, uint64_t *seq);
 +	IOReturn wait(uint64_t seq, uint64_t ms, uint64_t *status);
++	IOReturn import(uint64_t surfaceID, uint64_t *out);
 +	void flushAll(void);
 +
 +public:
@@ -184,7 +189,7 @@
 +	}
 +	sky_step(trace, "gpu open done", 0);
 +	uint32_t slot = 0;
-+	while (slot < SKY_MAX_BUFS && fBufs[slot].md != NULL) {
++	while (slot < SKY_MAX_BUFS && (fBufs[slot].md != NULL || fBufs[slot].surf != NULL)) {
 +		slot++;
 +	}
 +	if (slot == SKY_MAX_BUFS) {
@@ -249,18 +254,81 @@
 +}
 +
 +IOReturn
++SkyAdrenoAccelClient::import(uint64_t surfaceID, uint64_t *out)
++{
++	if (!sweet_rs_gpu_user_open()) {
++		return kIOReturnNotReady;
++	}
++	uint32_t slot = 0;
++	while (slot < SKY_MAX_BUFS && (fBufs[slot].md != NULL || fBufs[slot].surf != NULL)) {
++		slot++;
++	}
++	if (slot == SKY_MAX_BUFS) {
++		return kIOReturnNoResources;
++	}
++	SweetSurface *s = sweet_surface_copy((uint32_t)surfaceID);
++	if (s == NULL || s->memory == NULL) {
++		OSSafeReleaseNULL(s);
++		return kIOReturnNotFound;
++	}
++	uint64_t size = round_page(s->memory->getLength());
++	uint32_t maxseg = (uint32_t)(size / PAGE_SIZE) + 1, nseg = 0;
++	uint64_t (*segs)[2] = (uint64_t (*)[2])IOMalloc(sizeof(uint64_t[2]) * maxseg);
++	IOByteCount off = 0;
++	while (segs != NULL && off < s->memory->getLength() && nseg < maxseg) {
++		IOByteCount len = 0;
++		addr64_t pa = s->memory->getPhysicalSegment(off, &len, kIOMemoryMapperNone);
++		if (pa == 0 || len == 0) {
++			break;
++		}
++		segs[nseg][0] = pa & ~(uint64_t)PAGE_MASK;
++		segs[nseg][1] = round_page(len + (pa & PAGE_MASK));
++		nseg++;
++		off += len;
++	}
++	bool whole = segs != NULL && off >= s->memory->getLength();
++	uint64_t iova = whole ? sweet_rs_gpu_user_map(segs, nseg, size) : 0;
++	if (segs != NULL) {
++		IOFree(segs, sizeof(uint64_t[2]) * maxseg);
++	}
++	if (iova == 0) {
++		s->release();
++		return kIOReturnNoSpace;
++	}
++	fBufs[slot].surf = s;
++	fBufs[slot].iova = iova;
++	fBufs[slot].size = size;
++	out[0] = slot + 1;
++	out[1] = iova;
++	out[2] = s->bytesPerRow;
++	out[3] = s->offset;
++	static uint32_t logged;
++	if (logged++ < 4) {
++		IOLog("SWEET ACCEL: import surface %u %ux%u bpr %u fmt %#x: %u segs at gpu %#llx\n", s->id, s->width,
++		    s->height, s->bytesPerRow, s->pixelFormat, nseg, iova);
++	}
++	return kIOReturnSuccess;
++}
++
++IOReturn
 +SkyAdrenoAccelClient::release(uint64_t handle)
 +{
-+	if (handle == 0 || handle > SKY_MAX_BUFS || fBufs[handle - 1].md == NULL) {
++	if (handle == 0 || handle > SKY_MAX_BUFS || (fBufs[handle - 1].md == NULL && fBufs[handle - 1].surf == NULL)) {
 +		return kIOReturnBadArgument;
 +	}
 +	SkyBuf *b = &fBufs[handle - 1];
 +	/* waits for all submitted work; on a dead engine the pages stay mapped
 +	 * in the GPU and the memory is leaked on purpose */
 +	bool unmapped = sweet_rs_gpu_user_unmap(b->iova, b->size);
-+	b->map->release();
-+	if (unmapped) {
-+		b->md->release();
++	if (b->surf != NULL) {
++		if (unmapped) {
++			b->surf->release();
++		}
++	} else {
++		b->map->release();
++		if (unmapped) {
++			b->md->release();
++		}
 +	}
 +	bzero(b, sizeof(*b));
 +	return kIOReturnSuccess;
@@ -291,6 +359,12 @@
 +	for (uint32_t i = 0; i < SKY_MAX_BUFS; i++) {
 +		if (fBufs[i].md != NULL) {
 +			sweet_rs_cache_flush((uintptr_t)fBufs[i].md->getBytesNoCopy(), fBufs[i].size);
++		} else if (fBufs[i].surf != NULL) {
++			/* CPU writers (software layers) use the cached alias */
++			uintptr_t va = fBufs[i].surf->kernelAddress();
++			if (va != 0) {
++				sweet_rs_cache_flush(va, fBufs[i].surf->memory->getLength());
++			}
 +		}
 +	}
 +}
@@ -334,7 +408,7 @@
 +{
 +	static const struct {
 +		uint32_t in, out;
-+	} shape[] = { { 0, 3 }, { 1, 3 }, { 1, 0 }, { 3, 1 }, { 2, 1 }, { 0, 0 } };
++	} shape[] = { { 0, 3 }, { 1, 3 }, { 1, 0 }, { 3, 1 }, { 2, 1 }, { 0, 0 }, { 1, 4 } };
 +	if (selector >= sizeof(shape) / sizeof(shape[0]) ||
 +	    args->scalarInputCount != shape[selector].in || args->scalarOutputCount != shape[selector].out) {
 +		return kIOReturnBadArgument;
@@ -362,6 +436,9 @@
 +	case 3:
 +		ret = submit(in[0], in[1], in[2], out);
 +		break;
++	case 6:
++		ret = import(in[0], out);
++		break;
 +	case 5: {
 +		char text[160];
 +		uint32_t n = args->structureInputSize < sizeof(text) - 1 ? args->structureInputSize : sizeof(text) - 1;
@@ -386,7 +463,7 @@
 +{
 +	IOLockLock(fLock);
 +	for (uint64_t h = 1; h <= SKY_MAX_BUFS; h++) {
-+		if (fBufs[h - 1].md != NULL) {
++		if (fBufs[h - 1].md != NULL || fBufs[h - 1].surf != NULL) {
 +			(void)release(h);
 +		}
 +	}
