@@ -1,6 +1,25 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
-## Agent handoff / active work (2026-11-15, latest)
+## Agent handoff / active work (2026-11-16, latest)
+
+### >>> HANDOFF 2026-11-16 (read first): state of the GPU / Metal work, blockers, how to continue <<<
+
+**Goal:** CoreAnimation rendering on the Adreno 618 at 60 fps. **Not reached.** Today CA renders in software (7-8 swaps/s under swipes, backboardd ~300 % CPU, profile 0110p).
+
+**Where things stand (all committed, last code commit d09d23e; phone left in fastboot):**
+- Kernel GPU: GMU HFI v1 boot, CP/SQE ring, zap shader, 2D blits, 3D draws (triangle, textured quad, scaled compositor), async present (`cp.rs`, `cp3d.rs`).
+- Stage 2 (done, boot 0111h): user command submission (`cpuser.rs`, xnu 0109 `SkyAdrenoAccel`, root-only unless `sweetaccel=2`), test tool `skyios-metal/test/accel-test.m`.
+- Stage 3 (partial, boots 0111k-t): `SkyAdrenoMetal.bundle` (`skyios-metal/bundle`): runtime `_MTLDevice` subclass, real `MTLBuffer` / `MTLCommandQueue` / `MTLCommandBuffer` / `MTLBlitCommandEncoder` (fill + buffer copy, 0111k exact), everything else recording stand-ins (`SkyRecord.m`) that draw nothing. CA runs its Metal renderer on it when the process is listed in `sweetmetal_procs`; findings below (deep framebuffer turned off via `CAEnableDeepFramebuffer`, CA blends in the shader with framebuffer fetch, shader/pipeline list).
+- Test loop without hands: `sweetrun=DumpPanic` runs the boot tool, `sweetreboot=240`, `sweetwdog=30`, `ufslogsecs=1`; session scripts (scratchpad, not in git): `kbuild.sh N` (Rust lib + local XNU build), `mkimg.sh TAG args` (`RAMDISK=` for tools), `cycle.sh TAG SECS` (boot, usbnet log, recovery log-pull, back to fastboot), `metalcycle.sh TAG args` (bundle + tool + sweetaccel=2 boot, prints Metal lines), `mkpatches.sh` (regenerates xnu 0109/0110 from the local tree; originals of the touched files are `*.0109orig` in the scratchpad - recreate them from a clean dxb checkout if the scratchpad is gone).
+
+**Blockers, in order:**
+1. **GPU clock (~9.6 MHz, perf level 0) = the user's part** (the assistant does not write GPU HFI / RPMh / perf-vote code; its responses on that were stopped by a safety classifier). Reference: `research/linux-ref/drivers/gpu/drm/msm/adreno/a6xx_gmu.c` `a6xx_gmu_set_freq()` legacy branch + DDR bandwidth vote. Measured cost now: 1080x2400 fill 36 ms, compose 82 ms. Measuring a change: CP perfctr vs GMU AO in the `gpu_clock_probe` lines, accel-test test 3 fill time.
+2. **Shader compiler AIR -> ir3 (stage 4), not started.** CA's `default.metallib` (141 functions; `fixed_vert`/`fixed_frag` uber shaders with function constants, blur/path/shading helpers). Planned route was: record the constant sets CA uses (the recorder already logs them), specialise offline on the host, compile with mesa's ir3 compiler, ship a cache keyed by function + constants. **The assistant's response was stopped by a safety classifier while writing the specialisation step (2026-11-16)**; it was not continued. `research/mesa-build/build.sh` (Docker, debian:bookworm) failed: partial clone could not check out 9690e02, and the ninja target name `src/freedreno/ir3/ir3_compiler` is wrong (look up the executable names in `src/freedreno/ir3/meson.build`).
+3. **Driver pieces still missing:** real render encoder (draw state from `cp3d.rs`), textures with GPU memory + IOSurface textures, blit texture copies, framebuffer-fetch emulation (colour attachment sampled at gl_FragCoord, CCU flush + texture cache invalidate between draws), `newBufferWithBytesNoCopy`, missing selectors listed below. **The assistant's response was also stopped by a safety classifier while writing the GPU-backed texture class (2026-11-16)**; nothing of it was saved.
+
+**Uncommitted, local only:** `research/localbuild/dxb/xnu/iokit/Kernel/arm/SkyAdrenoAccel.cpp` has a selector 6 "import IOSurface by ID" (maps a `SweetSurface`'s pages into the user GPU slot via `sweet_rs_gpu_user_map`, returns handle / gpu address / bytesPerRow / offset; `flushAll` also flushes imported surfaces). **Not built, not booted, not in patch 0109.** Keep it (run `mkpatches.sh`, build, test) or drop it (`git -C research/localbuild/dxb/xnu checkout iokit/Kernel/arm/SkyAdrenoAccel.cpp` is NOT right: the file is untracked there; restore it from `xnu/patches/0109-sweet-adreno-accel.patch`).
+
+**Persistent changes on the phone's iOS root from test boots:** `/private/var/root/skyios-accel-test`, `/System/Library/Extensions/SkyAdrenoMetal.bundle/` (only loaded with `sweetaccel=2`), backboardd preference `CAEnableDeepFramebuffer = false` (affects only CA's Metal path; delete the key to restore).
 
 ### >>> RESULT 2026-11-16: CoreAnimation RUNS ITS METAL RENDERER ON OUR DEVICE (recording only, boots 0111l-o) <<<
 
