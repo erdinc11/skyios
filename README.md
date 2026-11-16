@@ -29,6 +29,39 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 | Device identity | iPhone X (`iPhone10,3` / `D22AP`): no Home button, gesture UI |
 | Activation | Native "Hactivation" path of mobileactivationd, chosen through device-tree security status. No Apple servers involved |
 
+## Evidence
+
+<img src="docs/images/lockscreen-0112a.png" width="270" align="right" alt="iOS 16 lock screen on the Redmi Note 10 Pro, captured from the panel">
+
+**Screenshot from the phone (boot 0112a, 2026-11-16).** The iOS 16.7.16 lock screen as it is on the Redmi Note 10 Pro's panel. The kernel copies the framebuffer (every second pixel and row) into spare blocks at the end of `userdata` (`sweetshot=S`), and `skyios shot-pull` turns it into this PNG from recovery: no camera, no editing. The panel is 1080×2400 and iOS draws an iPhone X 1125×2436 frame, so the edges are cropped (the flashlight button on the left is cut off). The date is 31 December because there is no RTC driver.
+
+**GPU log lines from the same kind of boot** (`skyios usbnet` live log; the kernel self tests run once the GPU is up, the user-space tests are `skyios-metal/test/accel-test` run at boot by `sweetrun`):
+
+```
+SWEET CP: scratch reg 0x5ca1ab1e (want 0x5ca1ab1e), memory 0xc0ffee01 (want 0xc0ffee01): FIRST GPU COMMAND EXECUTED
+SWEET CP: 2D SOLID FILL OK (48x32 rgba8 0xffe08020)
+SWEET CP: 3D TRIANGLE OK (64x64 rgba8, 0xff0000ff)
+SWEET CP: 3D TEXTURED QUAD OK (64x64 BGRA8 texture, bilinear, 4096 exact)
+SWEET FB: GPU present 1: 1080x2400, 681 segs, clean 615 us, gpu 34154 us, check 0/64 bad
+
+skyios-accel-test: test 1 CP_MEM_WRITE: OK (word 0x5ca1ab1e, 252 us round trip)
+skyios-accel-test: test 2 user 2D fill: OK (inside 1536/1536, outside 2560/2560, 367 us)
+skyios-accel-test: test 3 1080x2400 fill 0: done, 36091 us (71 Mpx/s), px 0xff302010
+skyios-accel-test: test 4 IOSurface fill: OK (inside 41216/41216, outside 24320/24320, px 0xff332211, 2150 us)
+skyios-accel-test: test 5 user 3D triangle into IOSurface: OK (inside 1922/1922, outside 1922/1922, px(32,16) 0xff0000ff, 1759 us)
+skyios-accel-test: test 6 self-sampling quad, 1 draw: OK (4096/4096 exact, still swapped 0, first wrong 0, 1434 us)
+skyios-accel-test: test 6 self-sampling quad, 2 draws + barrier: OK (4096/4096 exact, still swapped 0, first wrong 0, 2042 us)
+skyios-accel-test: test 6 self-sampling quad, 2 draws, NO barrier: DIFFERENT (64/4096 exact, still swapped 4096, first wrong 0x80000404, 2024 us)
+
+skyios-accel-test: metal: device Adreno 618 (SkyIOS)
+skyios-accel-test: metal: fill 1 MiB: OK, status 4, 5774 us, first bad -1
+skyios-accel-test: metal: copy 1 MiB: OK, status 4, 5471 us, first bad -1
+```
+
+The 36 ms full-screen fill and the 34 ms present copy show the GPU still runs at its boot clock. Boot numbers and full logs of every step are in `NOTES.md`.
+
+<br clear="right">
+
 ## What does not work (yet)
 
 - **No GPU rendering of the UI.** CoreAnimation draws on the CPU, typically 6–15 fps while interacting (7–8 swaps/s measured during synthetic swipes). Two things are missing for a GPU-drawn UI: (1) a GPU frequency / bandwidth vote; at the boot clock a full-screen fill takes 36 ms, so the GPU path would be slower than the CPU; (2) a complete Metal driver for CoreAnimation: a compiler from Metal shaders (AIR) to Adreno ir3, a drawing render encoder, GPU textures and framebuffer-fetch emulation. Building blocks that work are listed in `NOTES.md`.
@@ -52,7 +85,7 @@ There is no serial port (the debug UART is wired as SPI on this board). The kern
 
 ## How to do it yourself
 
-You need a Redmi Note 10 Pro (`sweet`, global or Indian variant, SM7150) with an **unlocked bootloader**, a Linux PC, and a GitHub account for the kernel build. This is the exact path used for the screenshots above; other variants or firmware may need changes. **Everything on `userdata` is lost.** Bootloaders, recovery, modem and persist partitions are never touched.
+You need a Redmi Note 10 Pro (`sweet`, global or Indian variant, SM7150) with an **unlocked bootloader**, a Linux PC, and a GitHub account for the kernel build. This is the exact path used for the boots above; other variants or firmware may need changes. **Everything on `userdata` is lost.** Bootloaders, recovery, modem and persist partitions are never touched.
 
 ### 0. Back up the phone
 
@@ -138,6 +171,7 @@ What the less obvious boot-args do:
 | `sweetreboot=S` | Reset S seconds after boot (unattended test cycles; lands in recovery) |
 | `sweetreducetransp=1` / `2` | Write Reduce Transparency + Reduce Motion before userland / restore the original prefs |
 | `sweettouchsim=S` | 20 synthetic swipes S seconds after the touch driver starts (lag measurements) |
+| `sweetshot=S`, `sweetshot_every=T` | Screenshot of the panel S seconds after the log starts (up to 4, T seconds apart), read with `skyios shot-pull` from recovery |
 
 ### 4. Flash the root and boot
 
@@ -157,7 +191,7 @@ With `sweetusb=2` the console streams live over USB Ethernet once the root is mo
 skyios usbnet logs/live.txt
 ```
 
-The persistent ring at the end of `userdata` also has the early lines:
+The persistent ring at the end of `userdata` also has the early lines (and `skyios shot-pull OUT` reads `sweetshot` screenshots the same way):
 
 ```sh
 fastboot boot recovery/recovery.img        # OrangeFox, temporary
@@ -190,6 +224,7 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 | `skyios mkiosroot` | Builds the HFS+ iOS root from the IPSW images (Linux) |
 | `skyios root-tweaks` | Bring-up changes to the root (Setup skip, activation, daemons) |
 | `skyios log-pull`, `skyios log` | Read the persistent kernel log from recovery |
+| `skyios shot-pull` | Read `sweetshot` screenshots from recovery as PNG |
 | `skyios crash` | Symbolicate console crash reports |
 | `skyios xnu-cc` | Local single-file compile check from a CI log |
 | `skyios qemu` | QEMU test boots with framebuffer text decoding |
@@ -241,6 +276,7 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 | 0106–0108 | Reduce Transparency option, scaled touch mapping + synthetic swipes, sampler timing |
 | 0109 | GPU accelerator service + user client (buffers, IOSurface import, submit, wait), Metal `IOAcceleratorES` |
 | 0110 | Boot-time tool installer from the payload and `sweetrun` exec redirect |
+| 0111 | `sweetshot` panel screenshots into spare blocks at the end of `userdata` |
 
 ## Key hardware facts
 

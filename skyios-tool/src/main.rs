@@ -15,6 +15,7 @@ mod mkpayload;
 mod plistpy;
 mod qemu;
 mod remotezip;
+mod shotpull;
 mod sparsediff;
 mod tweaks;
 mod udp;
@@ -38,6 +39,7 @@ const USAGE: &str = "usage: skyios COMMAND ARGS...
   crash CACHE ROOT [REPORT.txt]
   log AREA.bin [OUT.txt]
   log-pull [-s SERIAL] OUT.txt
+  shot-pull [-s SERIAL] OUT_PREFIX
   usbnet [LOGFILE]
   unpack-bootv2 BOOT.img OUTDIR
   remotezip URL [PATTERN OUTDIR]
@@ -69,6 +71,7 @@ fn main() {
         "crash" => crash::main(args),
         "log" => log::main(args),
         "log-pull" => logpull::main(args),
+        "shot-pull" => shotpull::main(args),
         "usbnet" => usbnet::main(args),
         "unpack-bootv2" => bootimg::main(args),
         "remotezip" => remotezip::main(args),

@@ -1,7 +1,7 @@
 use crate::util::{die, write};
 use std::process::Command;
 
-fn adb(serial: Option<&str>, args: &[&str]) -> Vec<u8> {
+pub fn adb(serial: Option<&str>, args: &[&str]) -> Vec<u8> {
     let mut c = Command::new("adb");
     if let Some(s) = serial {
         c.args(["-s", s]);
@@ -13,7 +13,7 @@ fn adb(serial: Option<&str>, args: &[&str]) -> Vec<u8> {
     out.stdout
 }
 
-fn adb_text(serial: Option<&str>, args: &[&str]) -> String {
+pub fn adb_text(serial: Option<&str>, args: &[&str]) -> String {
     String::from_utf8_lossy(&adb(serial, args)).trim().replace('\r', "")
 }
 
