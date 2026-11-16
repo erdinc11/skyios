@@ -5,7 +5,7 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 out=$1
 mkdir -p "$out"
-xcrun -sdk iphoneos clang -arch arm64 -mios-version-min=16.0 -O2 -Wall -framework IOKit -framework Foundation -framework Metal -fobjc-arc \
+xcrun -sdk iphoneos clang -arch arm64 -mios-version-min=16.0 -O2 -Wall -framework IOKit -framework Foundation -framework Metal -framework IOSurface -fobjc-arc \
 	-o "$out/accel-test" "$here/accel-test.m"
 codesign -f -s - --identifier org.skyios.accel-test "$out/accel-test"
 "$here/../../target/release/skyios" mktool "$out/accel-test.tool" "$out/accel-test=/private/var/root/skyios-accel-test"

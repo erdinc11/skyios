@@ -8,6 +8,7 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #include <IOKit/IOKitLib.h>
+#include <IOSurface/IOSurfaceRef.h>
 #include <fcntl.h>
 #include <mach/mach_time.h>
 #include <stdarg.h>
@@ -16,7 +17,7 @@
 #include <string.h>
 #include <unistd.h>
 
-enum { SEL_INFO, SEL_ALLOC, SEL_FREE, SEL_SUBMIT, SEL_WAIT, SEL_LOG };
+enum { SEL_INFO, SEL_ALLOC, SEL_FREE, SEL_SUBMIT, SEL_WAIT, SEL_LOG, SEL_IMPORT };
 
 static io_connect_t conn;
 
@@ -216,6 +217,55 @@ static int run(void) {
             ns ? 2592000ull * 1000 / ns : 0, probe);
         if (r)
             return -8;
+    }
+    // 4: IOSurface imported into the GPU (selector 6), 2D fill, CPU check
+    {
+        int w = 256, h = 256;
+        NSDictionary *props = @{
+            (id)kIOSurfaceWidth : @(w), (id)kIOSurfaceHeight : @(h), (id)kIOSurfaceBytesPerElement : @4,
+            (id)kIOSurfacePixelFormat : @(0x42475241) // 'BGRA'
+        };
+        IOSurfaceRef surf = IOSurfaceCreate((__bridge CFDictionaryRef)props);
+        if (!surf) {
+            say("test 4 IOSurface: create failed");
+            return -9;
+        }
+        IOSurfaceLock(surf, 0, NULL);
+        uint32_t *px = IOSurfaceGetBaseAddress(surf);
+        size_t bpr = IOSurfaceGetBytesPerRow(surf);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                px[y * bpr / 4 + x] = 0xdeadbeef;
+        IOSurfaceUnlock(surf, 0, NULL);
+        uint64_t sid = IOSurfaceGetID(surf), out[4] = {0};
+        uint32_t n4 = 4;
+        kern_return_t kr = IOConnectCallScalarMethod(conn, SEL_IMPORT, &sid, 1, out, &n4);
+        say("test 4 import surface %llu: kr %#x handle %llu gpu %#llx bpr %llu (cpu %zu) offset %llu", sid, kr, out[0],
+            out[1], out[2], bpr, out[3]);
+        if (kr != KERN_SUCCESS)
+            return -10;
+        static const uint32_t c4[4] = {0x11, 0x22, 0x33, 0xff};
+        cmd.dw = 0;
+        fill(&cmd, out[1] + out[3], (uint32_t)out[2], 16, 16, 240, 200, c4);
+        r = submit_wait(&cmd, 2000, &ns);
+        IOSurfaceLock(surf, kIOSurfaceLockReadOnly, NULL);
+        int in4 = 0, out4 = 0;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                uint32_t v = px[y * bpr / 4 + x];
+                int inside = x >= 16 && x < 240 && y >= 16 && y < 200;
+                if (inside && v == 0xff332211)
+                    in4++;
+                else if (!inside && v == 0xdeadbeef)
+                    out4++;
+            }
+        uint32_t p0 = px[20 * bpr / 4 + 20];
+        IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
+        say("test 4 IOSurface fill: %s (inside %d/%d, outside %d/%d, px %#x, %llu us)",
+            r == 0 && in4 == 224 * 184 && out4 == w * h - 224 * 184 ? "OK" : "FAIL", in4, 224 * 184, out4,
+            w * h - 224 * 184, p0, ns / 1000);
+        IOConnectCallScalarMethod(conn, SEL_FREE, out, 1, NULL, NULL);
+        CFRelease(surf);
     }
     say("ALL USER GPU TESTS DONE");
     return 0;
