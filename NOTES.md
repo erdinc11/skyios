@@ -4,16 +4,41 @@
 
 ### >>> HANDOFF 2026-11-16 (read first): state of the GPU / Metal work, blockers, how to continue <<<
 
-**Goal:** CoreAnimation rendering on the Adreno 618 at 60 fps. **Not reached.** Today CA renders in software (7-8 swaps/s under swipes, backboardd ~300 % CPU, profile 0110p).
+**Goal:** CoreAnimation rendering on the Adreno 618 at 60 fps. **Not reached yet — but GPU is now 430 MHz and present path is fast enough (2.2 ms/frame = 454 fps capable). The bottleneck is now 100 % the CA software renderer (backboardd 142 % CPU at 25.8 fps).**
 
-**Last session (this one, latest commit 43fe3ed):**
-- **GPU FREQUENCY CHANGE WRITTEN (commit 43fe3ed, NOT YET BOOTED):** `gpu_set_freq()` in gpu.rs uses the legacy DCVS register path (GMU_DCVS_PERF_SETTING + OOB_DCVS_SET bit 23/31) to raise the GPU from ~9.6 MHz boot clock to 430 MHz SVS_L1 (perf index 4). Boot-arg `sweetgpu_freq=N` (default 4). This was blocker #1; at 430 MHz the 2D fill drops from ~36ms to <1ms. **Needs phone reboot to fastboot → boot new image to test.**
-- **ir3c shader compiler WORKS:** `skyios-metal/ir3c/ir3c.c` host tool (SPIR-V → ir3 via mesa freedreno) produces **bit-identical** machine code to our hand-assembled shaders (red.frag = sky_red_fragment, pass.vert = sky_position_vertex), validated against phone-tested code. Build: Docker debian:bookworm, `skyios-metal/ir3c/build-mesa.sh`. Fbfetch (subpassInput) compilation not yet working (mesa 27 changed the input_attachment lowering path; image_deref_load needs image_deref_input_attachment_load).
-- **fb-fetch blend program added** to SkyRender.m: `sky_fb_blend_fragment` = premultiplied source-over with two texture prefetches (layer + render-target self-sample), cat2 ALU blend. Not yet tested on phone (device not connected). Draw path sets 2 TEX_MEMOBJ + 2 samplers + SP_PS_INITIAL_TEX_LOAD_CNTL=2.
-- **AIR analysis** of CA's default.metallib (`research/root/qc/ca.ll`, 46k lines): `fixed_vert_lph_spc` takes 4x4 matrix + position + texcoords; `fixed_frag_lph_cpf` (13k lines) has `FragmentShaderConfig` (52 B) + `Uniform` (176 B) in constant memory, 12x texture_2d + 3x texture_3d. Only ~30 distinct `air.*` intrinsic calls, all plain math (fmax/fma/dot/mix/saturate/powr) + `air.sample_texture_2d` + `air.load.implicit_imageblock` (fb fetch). Translation route: AIR IR → (rewrite air.* → standard LLVM/SPIR-V) → spirv_to_nir → ir3c. The uber-shader reads its config from constant memory, not compile-time constants, so **one compiled variant can serve all CA draws**.
-- **Phone state:** USB shows "Google/Android" (probably iOS usbnet) but no adb/fastboot/usbnet IP visible from host. Last boots 0113l-s were the wallpaper investigation (pbfix dylib injection via launchd.plist env vars; not working — launchd doesn't pass DYLD_INSERT_LIBRARIES).
+### >>> MILESTONE 2026-11-16: GPU FREQUENCY 430 MHz CONFIRMED (boot 0114i) <<<
 
-**Where things stand (all committed, last code commit 6b66e24; phone not responding on USB):**
+- **Boot 0114i (`logs/ring-0114i.txt`):** `sweetaccel=1 sweetgpu_freq=4` (default), sbfix + accel-test + Metal bundle installed.
+- `SWEET GPU: set_freq perf_index 4: OK ret 0x0` — DCVS OOB acknowledged, GPU at 430 MHz.
+- CP perfctr 4,735,324 cycles / 11 ms = **430 MHz** (was 9.6 MHz = 45× clock increase).
+- Kernel solid fill: **10 μs** (was 36,000 μs = 3600×).
+- User 1080×2400 fill: **2,267 μs = 1,143 Mpx/s** (was 36,000 μs = 72 Mpx/s, 16×).
+- GPU present copy: **2,167 μs** (was 34,000 μs, 16×).
+- Swap rate **25.8 fps** with Settings open (was max 7-8 fps). backboardd 142 % CPU.
+- GPU present is **2.2 ms/frame = 454 fps capable**; SW CA renderer is the only bottleneck.
+
+**Build process (learned this session, essential for the next agent):**
+- Rust kernel lib: `TOOLCHAIN=nightly-2026-07-28` (current nightly 1.99 produces unbootable kernels). `F=$PWD/research/gpu-fw; TOOLCHAIN=nightly-2026-07-28 SWEET_GMU_FW=$F/a618_gmu.bin SWEET_SQE_FW=$F/a630_sqe.fw SWEET_ZAP_MDT=$F/a615_zap.mdt SWEET_ZAP_B02=$F/a615_zap.b02 skyios-kernel/build.sh`
+- XNU: `cd research/localbuild/dxb && SWEET_RUST_LIB="$PWD/../../../target/aarch64-apple-xnu-sweet/release/libskyios_kernel.a" MACOS_VERSION=13.5 MACHINE_CONFIG=SWEET KERNEL_CONFIG=DEVELOPMENT bash build.sh` (remove `build/xnu.obj/kernel.development.sweet` + `build/xnu.sym/kernel.development.sweet` + the `.unstripped` to force re-link; stage scripts have idempotent fixes).
+- Payload: `skyios mkpayload KERNEL skyios-shim/out/sweet-0081m.adt PAYLOAD.bin --cmdline "..." --ramdisk TOOL.img` (the shim REQUIRES the SWEET container format; passing a raw kernel as ramdisk causes red-screen panic).
+- Boot image: `skyios mkshim target/aarch64-unknown-none-softfloat/release/skyios-shim PAYLOAD.bin dtb/boot_unpacked/dtb OUT.img --cmdline "console=null"`
+- Tool images: `skyios mktool OUT.tool SRC=/dest ...`; for accel-test + sbfix + Metal bundle: see the 0114i build commands in this session.
+
+**ir3c shader compiler (this session):** `skyios-metal/ir3c/ir3c.c` host tool (SPIR-V → ir3 via mesa freedreno, Docker build) produces **bit-identical** machine code to hand-assembled shaders (red.frag = sky_red_fragment, pass.vert = sky_position_vertex). fbfetch via subpassInput not yet working in this mesa version.
+
+**fb-fetch blend program added** to SkyRender.m: `sky_fb_blend_fragment` = premultiplied source-over with two texture prefetches (layer + render-target self-sample), cat2 ALU blend. Not yet tested on phone.
+
+**AIR analysis** of CA's default.metallib (`research/root/qc/ca.ll`, 46k lines): uber-shader reads config from constant memory (not compile-time constants), so **one compiled variant can serve all CA draws**. Only ~30 distinct `air.*` calls: math + sample_texture_2d + load.implicit_imageblock (fb fetch).
+
+**Wallpaper:** sbfix required each boot to clear legacy wallpaper files (SpringBoard crash-loops without it because PBUICALocalRenderer needs Metal for snapshots). Black wallpaper is the stable state.
+
+**Blockers for 60 fps, updated:**
+1. ~~GPU clock~~ **SOLVED** (430 MHz, boot 0114i).
+2. **Shader compiler AIR → ir3 (stage 4).** ir3c works for SPIR-V; need AIR→SPIR-V or AIR→NIR translation of CA's `fixed_vert_lph_spc` + `fixed_frag_lph_cpf`. The uber-shader is 13k lines of LLVM IR with ~30 air.* intrinsics (math + sample + imageblock). Route: rewrite air.* calls → SPIR-V equivalents → spirv_to_nir → ir3c.
+3. **Driver completeness.** Render encoder exists (SkyRender.m) for IOSurface targets + built-in programs. Missing for CA: compiled fixed_vert/fixed_frag, viewport/scissor passthrough, constant buffer layout (FragmentShaderConfig 52 B, Uniform 176 B, matrix), blit texture copies, `newBufferWithBytesNoCopy`, `setVertexBufferOffset:atIndex:`.
+4. **Enable Metal for CA** (`sweetaccel=2 sweetmetal_procs=backboardd`). Already tested in recording mode (0111l-t); CA runs its Metal renderer but draws nothing because shaders are stubs.
+
+**Where things stand (last code commit df50b46, last boot 0114i; phone in OrangeFox recovery):**
 - Kernel GPU: GMU HFI v1 boot, CP/SQE ring, zap shader, 2D blits, 3D draws (triangle, textured quad, scaled compositor), async present (`cp.rs`, `cp3d.rs`).
 - Stage 2 (done, boot 0111h): user command submission (`cpuser.rs`, xnu 0109 `SkyAdrenoAccel`, root-only unless `sweetaccel=2`), test tool `skyios-metal/test/accel-test.m`.
 - Stage 3 (partial, boots 0111k-t): `SkyAdrenoMetal.bundle` (`skyios-metal/bundle`): runtime `_MTLDevice` subclass, real `MTLBuffer` / `MTLCommandQueue` / `MTLCommandBuffer` / `MTLBlitCommandEncoder` (fill + buffer copy, 0111k exact), everything else recording stand-ins (`SkyRecord.m`) that draw nothing. CA runs its Metal renderer on it when the process is listed in `sweetmetal_procs`; findings below (deep framebuffer turned off via `CAEnableDeepFramebuffer`, CA blends in the shader with framebuffer fetch, shader/pipeline list).
