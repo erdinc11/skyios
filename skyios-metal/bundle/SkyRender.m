@@ -2,7 +2,8 @@
 // has GPU code: render target = one IOSurface texture in a 32-bit RGBA/BGRA
 // format (imported with user client selector 6), load action clear by the 2D
 // engine, triangle lists/strips with float4 positions from setVertexBytes /
-// setVertexBuffer, pipelines whose functions are built into this bundle
+// setVertexBuffer (float4 position, + float2 uv for textured programs),
+// fragment texture 0 = a BGRA8 IOSurface, pipelines whose functions are built into this bundle
 // (hand-assembled ir3 below). Register state = the kernel's cp3d.rs tables
 // (../test/cp3d-tables.h). Anything else falls back to the recording
 // encoder (SkyRecord.m) and draws nothing.
@@ -70,7 +71,7 @@ static uint32_t fbits(float f) {
 
 // GPU memory shared by all encoders of the process: shader code (128-byte
 // aligned), zeroed border colours, a CCU timestamp word
-enum { CODE_VS = 0x000, CODE_FS_RED = 0x080, CODE_BORDER = 0x200, CODE_TS = 0x300, CODE_SIZE = 0x4000 };
+enum { CODE_VS = 0x000, CODE_FS_RED = 0x080, CODE_FS_TEX = 0x100, CODE_BORDER = 0x200, CODE_TS = 0x300, CODE_SIZE = 0x4000 };
 
 static SkyMem sky_code;
 
@@ -85,17 +86,26 @@ static BOOL code_ready(void) {
         // FS: mov.f32f32 r0.x..w = 1, 0, 0, 1; end
         const uint32_t red[10] = {0x3f800000, 0x20444000, 0, 0x20444001, 0, 0x20444002, 0x3f800000, 0x20444003, 0, 0x03000000};
         memcpy(&w[CODE_FS_RED / 4], red, sizeof(red));
+        // FS: texture prefetch (SP_PS_INITIAL_TEX_LOAD, uv varying -> r1);
+        // bary.f (ei)r63.x, 0, r0.x; (sy)end
+        const uint32_t tex[4] = {0x00002000, 0x473080fc, 0, 0x13000000};
+        memcpy(&w[CODE_FS_TEX / 4], tex, sizeof(tex));
     }
     os_unfair_lock_unlock(&lock);
     return sky_code.handle != 0;
 }
 
-// fragment function name -> code offset; vertex functions must be "sky_position_vertex"
-static int64_t fragment_code(NSString *name) {
-    if ([name isEqualToString:@"sky_red_fragment"])
-        return CODE_FS_RED;
-    return -1;
-}
+// built-in programs: vertex function, fragment function, fragment code,
+// whether it samples texture 0 (then the vertex layout is float4 position +
+// float2 uv, the cp3d.rs TEXQ state)
+static const struct {
+    NSString *vertex, *fragment;
+    uint32_t code;
+    BOOL textured;
+} sky_programs[] = {
+    {@"sky_position_vertex", @"sky_red_fragment", CODE_FS_RED, NO},
+    {@"sky_position_uv_vertex", @"sky_texture_fragment", CODE_FS_TEX, YES},
+};
 
 #pragma mark - render targets
 
@@ -163,6 +173,7 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
     uint32_t _w, _h, _info; // RB_MRT[0].BUF_INFO
     NSString *_vname, *_fname;
     uint64_t _vb;
+    id<MTLTexture> _tex;
     NSUInteger _draws, _skipped;
 }
 
@@ -217,16 +228,25 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
 
 // cp3d.rs emit_state + emit_draw, viewport/scissors for the whole target
 - (void)draw:(uint32_t)initiator count:(NSUInteger)n start:(NSUInteger)first {
-    int64_t fs = fragment_code(_fname);
-    if (![_vname isEqualToString:@"sky_position_vertex"] || fs < 0 || !_vb || first != 0) {
+    int prog = -1;
+    for (int i = 0; i < (int)(sizeof(sky_programs) / sizeof(sky_programs[0])); i++)
+        if ([_vname isEqualToString:sky_programs[i].vertex] && [_fname isEqualToString:sky_programs[i].fragment])
+            prog = i;
+    BOOL textured = prog >= 0 && sky_programs[prog].textured;
+    uint64_t desc = textured ? [self textureDescriptor] : 0;
+    if (prog < 0 || !_vb || first != 0 || (textured && !desc)) {
         if (_skipped++ == 0)
-            sky_log("draw skipped: no GPU code for %s + %s", _vname.UTF8String, _fname.UTF8String);
+            sky_log("draw skipped: no GPU code for %s + %s (or no usable texture)", _vname.UTF8String, _fname.UTF8String);
         return;
     }
+    uint64_t fs = sky_programs[prog].code;
     NSMutableData *s = _s;
     reg1(s, 0xbb08, 0x19f); // SP_UPDATE_CNTL
     for (size_t i = 0; i < sizeof(CP3D_STATE) / sizeof(CP3D_STATE[0]); i++)
         reg1(s, CP3D_STATE[i][0], CP3D_STATE[i][1]);
+    if (textured)
+        for (size_t i = 0; i < sizeof(CP3D_TEXQ) / sizeof(CP3D_TEXQ[0]); i++)
+            reg1(s, CP3D_TEXQ[i][0], CP3D_TEXQ[i][1]);
     uint32_t br = (_w - 1) | ((_h - 1) << 16);
     reg1(s, 0x80f1, br); // GRAS_SC_WINDOW_SCISSOR_BR
     reg1(s, 0x840b, br); // GRAS_A2D_SCISSOR_BR
@@ -235,7 +255,7 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
     // GRAS_CL_VIEWPORT[0]: x offset, scale, y offset, scale (NDC y = -1 is row 0)
     uint32_t vp[4] = {fbits(_w / 2.0f), fbits(_w / 2.0f), fbits(_h / 2.0f), fbits(_h / 2.0f)};
     reg(s, 0x8010, vp, 4);
-    reg1(s, 0xa012, (uint32_t)(16 * n)); // VFD_VERTEX_BUFFER[0].SIZE
+    reg1(s, 0xa012, (uint32_t)((textured ? 24 : 16) * n)); // VFD_VERTEX_BUFFER[0].SIZE
     uint32_t mrt[6] = {_info, (uint32_t)(_rt.bpr >> 6), 0, (uint32_t)(_rt.iova + _rt.offset),
                        (uint32_t)((_rt.iova + _rt.offset) >> 32), 0};
     reg(s, 0x8822, mrt, 6);
@@ -265,6 +285,20 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
     emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
     emit(s, (uint32_t)fsa);
     emit(s, (uint32_t)(fsa >> 32));
+    if (textured) {
+        uint64_t samp = desc + 64;
+        emit(s, pkt7(0x34, 3)); // samplers: ST6_SHADER, SB6_FS_TEX
+        emit(s, (2 << 16) | (4 << 18) | (1 << 22));
+        emit(s, (uint32_t)samp);
+        emit(s, (uint32_t)(samp >> 32));
+        reg64(s, 0xa9e0, samp);  // SP_PS_SAMPLER_BASE
+        emit(s, pkt7(0x34, 3)); // textures: ST6_CONSTANTS, SB6_FS_TEX
+        emit(s, (1 << 14) | (2 << 16) | (4 << 18) | (1 << 22));
+        emit(s, (uint32_t)desc);
+        emit(s, (uint32_t)(desc >> 32));
+        reg64(s, 0xa9e4, desc);  // SP_PS_TEXMEMOBJ_BASE
+        reg1(s, 0xa9a7, 1);      // SP_PS_TSIZE
+    }
     emit(s, pkt7(0x38, 3)); // CP_DRAW_INDX_OFFSET: auto index, use visibility
     emit(s, initiator);
     emit(s, 1);
@@ -302,7 +336,27 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
 - (void)setDepthStencilState:(id<MTLDepthStencilState>)s {}
 - (void)setFragmentBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {}
 - (void)setFragmentBytes:(const void *)p length:(NSUInteger)l atIndex:(NSUInteger)i {}
-- (void)setFragmentTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i {}
+- (void)setFragmentTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i {
+    if (i == 0)
+        _tex = t;
+}
+
+// A6XX_TEX_MEMOBJ + sampler (cp3d.rs tex_desc) for fragment texture 0, an
+// IOSurface in BGRA8: FMT6_8_8_8_8_UNORM, swap WXYZ, linear; bilinear, clamp
+- (uint64_t)textureDescriptor {
+    IOSurfaceRef surf = _tex.iosurface;
+    SkyImport im;
+    MTLPixelFormat f = _tex.pixelFormat;
+    if (!surf || (f != MTLPixelFormatBGRA8Unorm && f != MTLPixelFormatBGRA8Unorm_sRGB) || !import_surface(surf, &im) ||
+        (im.bpr & 63))
+        return 0;
+    uint64_t base = im.iova + im.offset;
+    uint32_t d[20] = {0x4c006880, (uint32_t)_tex.width | ((uint32_t)_tex.height << 15), 2 | ((uint32_t)im.bpr << 7) | (1u << 29), 0,
+                      (uint32_t)base, (uint32_t)(base >> 32) | (1u << 17)};
+    d[16] = 0x92a;
+    d[17] = 0x40;
+    return [self upload:d length:sizeof(d)];
+}
 - (void)setFragmentSamplerState:(id<MTLSamplerState>)s atIndex:(NSUInteger)i {}
 - (void)pushDebugGroup:(NSString *)s {}
 - (void)popDebugGroup {}

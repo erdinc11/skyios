@@ -775,6 +775,49 @@ static int metal(void) {
         IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
         say("metal: render encoder triangle: %s (red inside %d/%d, blue outside %d/%d, px(32,16) %#x px(2,60) %#x, status %ld, %.0f us)",
             tin == win && tout == wout ? "OK" : "FAIL", tin, win, tout, wout, c, o, (long)cb.status, t1 - t0);
+
+        // textured quad: copy a patterned IOSurface into another one with
+        // sky_position_uv_vertex + sky_texture_fragment (bilinear at texel
+        // centres), expect identical bytes
+        IOSurfaceRef src = IOSurfaceCreate((__bridge CFDictionaryRef)props);
+        id<MTLTexture> stex = [dev newTextureWithDescriptor:td iosurface:src plane:0];
+        pd.vertexFunction = [lib newFunctionWithName:@"sky_position_uv_vertex"];
+        pd.fragmentFunction = [lib newFunctionWithName:@"sky_texture_fragment"];
+        id<MTLRenderPipelineState> tps = [dev newRenderPipelineStateWithDescriptor:pd error:&err];
+        IOSurfaceLock(src, 0, NULL);
+        uint32_t *sp = IOSurfaceGetBaseAddress(src);
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++)
+                sp[y * 64 + x] = pattern_texel(x, y);
+        IOSurfaceUnlock(src, 0, NULL);
+        rp.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+        const float quad[24] = {-1, -1, 0, 1, 0, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1};
+        t0 = now_us();
+        cb = [q commandBuffer];
+        re = [cb renderCommandEncoderWithDescriptor:rp];
+        [re setRenderPipelineState:tps];
+        [re setVertexBytes:quad length:sizeof(quad) atIndex:0];
+        [re setFragmentTexture:stex atIndex:0];
+        [re drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+        [re endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+        t1 = now_us();
+        IOSurfaceLock(surf, kIOSurfaceLockReadOnly, NULL);
+        int same = 0;
+        uint32_t firstbad = 0;
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++) {
+                uint32_t v = px[y * 64 + x], w = pattern_texel(x, y);
+                if (v == w)
+                    same++;
+                else if (!firstbad)
+                    firstbad = v ? v : 1;
+            }
+        IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
+        say("metal: render encoder textured quad: %s (%d/4096 identical, first wrong %#x, status %ld, %.0f us)",
+            same == 4096 ? "OK" : "FAIL", same, firstbad, (long)cb.status, t1 - t0);
+        CFRelease(src);
         CFRelease(surf);
     }
     return 0;
