@@ -318,6 +318,7 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     uint64_t _vtx_base[32];
     NSUInteger _vtx_len[32];
     uint64_t _frag_gpu[8];
+    uint64_t _frag_base[8];
     NSUInteger _frag_len[8];
     MTLViewport _vp;
     BOOL _hasVP;
@@ -461,9 +462,18 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     reg1(s, 0x840b, br); // GRAS_A2D_SCISSOR_BR
     reg1(s, 0x80d1, br); // GRAS_SC_VIEWPORT_SCISSOR[0].BR
     reg1(s, 0x80b1, br); // GRAS_SC_SCREEN_SCISSOR[0].BR
-    // GRAS_CL_VIEWPORT[0]: x offset, scale, y offset, scale (NDC y = -1 is row 0)
-    uint32_t vp[4] = {fbits(_w / 2.0f), fbits(_w / 2.0f), fbits(_h / 2.0f), fbits(_h / 2.0f)};
-    reg(s, 0x8010, vp, 4);
+    // GRAS_CL_VIEWPORT[0]: x offset, scale, y offset, scale
+    if (_hasVP) {
+        float xo = (float)(_vp.originX + _vp.width / 2.0);
+        float xs = (float)(_vp.width / 2.0);
+        float yo = (float)(_vp.originY + _vp.height / 2.0);
+        float ys = (float)(_vp.height / 2.0);
+        uint32_t vp[4] = {fbits(xo), fbits(xs), fbits(yo), fbits(ys)};
+        reg(s, 0x8010, vp, 4);
+    } else {
+        uint32_t vp[4] = {fbits(_w / 2.0f), fbits(_w / 2.0f), fbits(_h / 2.0f), fbits(_h / 2.0f)};
+        reg(s, 0x8010, vp, 4);
+    }
     reg1(s, 0xa012, (uint32_t)((textured ? 24 : 16) * n)); // VFD_VERTEX_BUFFER[0].SIZE
     uint32_t mrt[6] = {_info, (uint32_t)(_rt.bpr >> 6), 0, (uint32_t)(_rt.iova + _rt.offset),
                        (uint32_t)((_rt.iova + _rt.offset) >> 32), 0};
@@ -505,12 +515,18 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
     emit(s, (uint32_t)fsa);
     emit(s, (uint32_t)(fsa >> 32));
+    if (mvp && _frag_gpu[0] && _frag_len[0] > 0) {
+        uint32_t fconst_vec4 = (uint32_t)((_frag_len[0] + 15) / 16);
+        reg1(s, 0xbb10, 0x100 | fconst_vec4); // SP_PS_CONST_CONFIG: enabled + constlen
+        emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS constants
+        emit(s, (1 << 14) | (2 << 16) | (0xc << 18) | (fconst_vec4 << 22));
+        emit(s, (uint32_t)_frag_gpu[0]);
+        emit(s, (uint32_t)(_frag_gpu[0] >> 32));
+    }
     if (textured) {
         uint32_t tex_count = fbfetch_prog ? 2 : 1;
-        // fbfetch layout: 2x16 dwords tex + 2x4 dwords samp; samp at desc+128
-        // normal layout: 1x16 dwords tex + 1x4 dwords samp; samp at desc+64
         uint64_t samp = desc + (fbfetch_prog ? 128 : 64);
-        emit(s, pkt7(0x34, 3)); // samplers: ST6_SHADER, SB6_FS_TEX
+        emit(s, pkt7(0x34, 3)); // samplers
         emit(s, (tex_count << 14) | (2 << 16) | (4 << 18) | (1 << 22));
         emit(s, (uint32_t)samp);
         emit(s, (uint32_t)(samp >> 32));
@@ -591,8 +607,17 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     reg1(s, 0x840b, br);
     reg1(s, 0x80d1, br);
     reg1(s, 0x80b1, br);
-    uint32_t vp[4] = {fbits(_w / 2.0f), fbits(_w / 2.0f), fbits(_h / 2.0f), fbits(_h / 2.0f)};
-    reg(s, 0x8010, vp, 4);
+    if (_hasVP) {
+        float xo = (float)(_vp.originX + _vp.width / 2.0);
+        float xs = (float)(_vp.width / 2.0);
+        float yo = (float)(_vp.originY + _vp.height / 2.0);
+        float ys = (float)(_vp.height / 2.0);
+        uint32_t vpv[4] = {fbits(xo), fbits(xs), fbits(yo), fbits(ys)};
+        reg(s, 0x8010, vpv, 4);
+    } else {
+        uint32_t vpv[4] = {fbits(_w / 2.0f), fbits(_w / 2.0f), fbits(_h / 2.0f), fbits(_h / 2.0f)};
+        reg(s, 0x8010, vpv, 4);
+    }
     uint32_t stride = textured ? 24 : 16;
     reg1(s, 0xa012, (uint32_t)(stride * indexCount)); // VFD_VERTEX_BUFFER[0].SIZE (upper bound)
     uint32_t mrt[6] = {_info, (uint32_t)(_rt.bpr >> 6), 0, (uint32_t)(_rt.iova + _rt.offset),
@@ -630,17 +655,25 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         emit(s, (uint32_t)_vtx_gpu[0]);
         emit(s, (uint32_t)(_vtx_gpu[0] >> 32));
     }
-    emit(s, pkt7(0x34, 3));
+    emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS icache
     emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
     emit(s, (uint32_t)fsa); emit(s, (uint32_t)(fsa >> 32));
+    if (mvp && _frag_gpu[0] && _frag_len[0] > 0) {
+        uint32_t fconst_vec4 = (uint32_t)((_frag_len[0] + 15) / 16);
+        reg1(s, 0xbb10, 0x100 | fconst_vec4);
+        emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS constants
+        emit(s, (1 << 14) | (2 << 16) | (0xc << 18) | (fconst_vec4 << 22));
+        emit(s, (uint32_t)_frag_gpu[0]);
+        emit(s, (uint32_t)(_frag_gpu[0] >> 32));
+    }
     if (textured) {
         uint32_t tex_count = fbfetch_prog ? 2 : 1;
         uint64_t samp = desc + (fbfetch_prog ? 128 : 64);
-        emit(s, pkt7(0x34, 3));
+        emit(s, pkt7(0x34, 3)); // samplers
         emit(s, (tex_count << 14) | (2 << 16) | (4 << 18) | (1 << 22));
         emit(s, (uint32_t)samp); emit(s, (uint32_t)(samp >> 32));
         reg64(s, 0xa9e0, samp);
-        emit(s, pkt7(0x34, 3));
+        emit(s, pkt7(0x34, 3)); // textures
         emit(s, (tex_count << 14) | (2 << 16) | (4 << 18) | (1 << 22));
         emit(s, (uint32_t)desc); emit(s, (uint32_t)(desc >> 32));
         reg64(s, 0xa9e4, desc);
@@ -682,6 +715,7 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 - (void)setDepthStencilState:(id<MTLDepthStencilState>)s {}
 - (void)setFragmentBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {
     if (i < 8) {
+        _frag_base[i] = b.gpuAddress;
         _frag_gpu[i] = b.gpuAddress + o;
         _frag_len[i] = b.length;
     }
@@ -697,6 +731,10 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     static int nlog;
     if (nlog++ < 10)
         sky_log("setFragmentBytes idx=%lu len=%lu", (unsigned long)i, (unsigned long)l);
+}
+- (void)setFragmentBufferOffset:(NSUInteger)o atIndex:(NSUInteger)i {
+    if (i < 8)
+        _frag_gpu[i] = _frag_base[i] + o;
 }
 - (void)setFragmentTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i {
     if (i == 0)
