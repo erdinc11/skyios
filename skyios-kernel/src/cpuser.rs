@@ -317,15 +317,12 @@ pub extern "C" fn sweet_rs_gpu_user_open() -> bool {
         return true;
     }
     // allocate outside the engine lock: kmem_alloc_contig may take long
-    // debug (0111d-f hangs): give the persistent log time to reach the disk
     crate::log!("SWEET CP: user open: allocating page tables");
-    crate::xnu::sleep_ms(1500);
     let Some(pt) = Tables::alloc() else {
         crate::log!("SWEET CP: user: no memory for page tables");
         return false;
     };
     crate::log!("SWEET CP: user open: tables allocated, l2 {:#x}", pt.l2.pa);
-    crate::xnu::sleep_ms(1500);
     let ok = locked(|e| e.user_open(pt), false);
     OPEN.store(ok, Ordering::Release);
     ok

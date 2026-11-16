@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/iokit/Kernel/arm/SkyAdrenoAccel.cpp
-@@ -0,0 +1,396 @@
+@@ -0,0 +1,403 @@
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
@@ -20,7 +20,7 @@
 + * IOAcceleratorES with MetalPluginName/MetalPluginClassName: Metal.framework
 + * (_MTLRegisterDevices) then loads /System/Library/Extensions/
 + * SkyAdrenoMetal.bundle and calls initWithAcceleratorPort: on its class.
-+ * Root only.
++ * Root only, except with sweetaccel=2.
 + *
 + * Selectors (scalars):
 + *   0 info    -> engine state (0 down, 1 up, 2 dead), chip id, user iova base
@@ -46,14 +46,12 @@
 +#define SKY_MAX_SIZE    (32ULL << 20)
 +#define SKY_HANG_MS     3000
 +
-+/* debug: the first allocations log each step and wait for the persistent
-+ * log to reach the disk (0111d-f hung the phone inside the first alloc) */
++/* the first allocations log each step (0111d-g hung inside the first one) */
 +static void
 +sky_step(bool trace, const char *what, uint64_t v)
 +{
 +	if (trace) {
 +		IOLog("SWEET ACCEL: alloc step %s %#llx\n", what, v);
-+		IOSleep(1500);
 +	}
 +}
 +
@@ -110,6 +108,12 @@
 +	setProperty("GPUModel", "Adreno 618");
 +	setProperty("MetalPluginName", "SkyAdrenoMetal");
 +	setProperty("MetalPluginClassName", "SkyAdrenoMetalDevice");
++	/* processes the bundle offers a device to (comma list, "*" = all); the
++	 * others get nil from initWithAcceleratorPort: and keep CoreAnimation's
++	 * software renderer */
++	char procs[128] = "skyios-accel-test";
++	(void)PE_parse_boot_argn("sweetmetal_procs", procs, sizeof(procs));
++	setProperty("SkyMetalProcs", procs);
 +	registerService();
 +	IOLog("SWEET ACCEL: SkyAdrenoMetalAccel (IOAcceleratorES) registered\n");
 +	return true;
@@ -152,7 +156,10 @@
 +	if (!IOUserClient::initWithTask(owningTask, securityID, type)) {
 +		return false;
 +	}
-+	if (clientHasPrivilege(securityID, kIOClientPrivilegeAdministrator) != kIOReturnSuccess) {
++	/* sweetaccel=2 makes this the system's Metal GPU: every process may open */
++	unsigned int mode = 0;
++	(void)PE_parse_boot_argn("sweetaccel", &mode, sizeof(mode));
++	if (mode < 2 && clientHasPrivilege(securityID, kIOClientPrivilegeAdministrator) != kIOReturnSuccess) {
 +		IOLog("SWEET ACCEL: open refused (not root)\n");
 +		return false;
 +	}

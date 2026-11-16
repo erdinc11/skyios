@@ -1,8 +1,12 @@
 // User-space test of the SkyAdrenoAccel service (xnu 0109, skyios-kernel
 // cpuser.rs): GPU buffers shared with this task, command streams run as
-// indirect buffers. Runs once at boot in place of the daemon named by
+// indirect buffers; then, with sweetaccel=2 and SkyAdrenoMetal.bundle
+// installed, the same through Metal (MTLCreateSystemDefaultDevice, blit
+// encoder fill and copy). Runs once at boot in place of the daemon named by
 // sweetrun=, then execs that daemon. Results go to the kernel log.
 
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 #include <IOKit/IOKitLib.h>
 #include <fcntl.h>
 #include <mach/mach_time.h>
@@ -217,8 +221,75 @@ static int run(void) {
     return 0;
 }
 
+static double now_us(void) {
+    static mach_timebase_info_data_t tb;
+    if (!tb.denom)
+        mach_timebase_info(&tb);
+    return (double)mach_absolute_time() * tb.numer / tb.denom / 1e3;
+}
+
+static int check(id<MTLBuffer> b, const uint8_t *want, size_t n) {
+    const uint8_t *p = b.contents;
+    for (size_t i = 0; i < n; i++)
+        if (p[i] != want[i])
+            return (int)i;
+    return -1;
+}
+
+static int metal(void) {
+    @autoreleasepool {
+        id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+        say("metal: device %s", dev ? dev.name.UTF8String : "(nil)");
+        if (!dev)
+            return -1;
+        id<MTLCommandQueue> q = [dev newCommandQueue];
+        const NSUInteger len = 1 << 20;
+        id<MTLBuffer> a = [dev newBufferWithLength:len options:MTLResourceStorageModeShared];
+        id<MTLBuffer> b = [dev newBufferWithLength:len options:MTLResourceStorageModeShared];
+        say("metal: queue %p, buffers %p (gpu %#llx) %p", q, a, a.gpuAddress, b);
+        if (!q || !a || !b)
+            return -2;
+        uint8_t *want = malloc(len);
+
+        // fill: unaligned head/tail words + 2D rows in the middle
+        memset(a.contents, 0xee, len);
+        double t0 = now_us();
+        id<MTLCommandBuffer> cb = [q commandBuffer];
+        id<MTLBlitCommandEncoder> e = [cb blitCommandEncoder];
+        [e fillBuffer:a range:NSMakeRange(8, len - 16) value:0x5a];
+        [e endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+        double t1 = now_us();
+        memset(want, 0xee, len);
+        memset(want + 8, 0x5a, len - 16);
+        int bad = check(a, want, len);
+        say("metal: fill 1 MiB: %s, status %ld, %.0f us, first bad %d", bad < 0 ? "OK" : "FAIL", (long)cb.status, t1 - t0, bad);
+
+        // copy: pattern a -> b
+        for (NSUInteger i = 0; i < len; i++)
+            ((uint8_t *)a.contents)[i] = (uint8_t)(i * 7 + (i >> 12));
+        memset(b.contents, 0, len);
+        t0 = now_us();
+        cb = [q commandBuffer];
+        e = [cb blitCommandEncoder];
+        [e copyFromBuffer:a sourceOffset:0 toBuffer:b destinationOffset:0 size:len];
+        [e endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+        t1 = now_us();
+        bad = check(b, a.contents, len);
+        say("metal: copy 1 MiB: %s, status %ld, %.0f us, first bad %d", bad < 0 ? "OK" : "FAIL", (long)cb.status, t1 - t0, bad);
+        free(want);
+        say("METAL BLIT TESTS DONE");
+    }
+    return 0;
+}
+
 int main(int argc, char **argv, char **envp, char **apple) {
     int r = run();
+    if (r == 0)
+        say("metal exit %d", metal());
     say("exit %d", r);
     if (conn)
         IOServiceClose(conn);
