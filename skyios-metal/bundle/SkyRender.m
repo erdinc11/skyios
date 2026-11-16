@@ -437,6 +437,107 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         [self drawPrimitives:t vertexStart:st vertexCount:n];
 }
 
+// indexed draw: CP_DRAW_INDX_OFFSET with 7 dwords (SOURCE_SELECT=DMA)
+- (void)drawIndexedPrimitives:(MTLPrimitiveType)t indexCount:(NSUInteger)indexCount indexType:(MTLIndexType)indexType indexBuffer:(id<MTLBuffer>)indexBuffer indexBufferOffset:(NSUInteger)indexBufferOffset {
+    [self drawIndexedPrimitives:t indexCount:indexCount indexType:indexType indexBuffer:indexBuffer indexBufferOffset:indexBufferOffset instanceCount:1];
+}
+
+- (void)drawIndexedPrimitives:(MTLPrimitiveType)t indexCount:(NSUInteger)indexCount indexType:(MTLIndexType)indexType indexBuffer:(id<MTLBuffer>)indexBuffer indexBufferOffset:(NSUInteger)indexBufferOffset instanceCount:(NSUInteger)instanceCount {
+    if (instanceCount != 1)
+        return;
+    uint32_t prim = (t == MTLPrimitiveTypeTriangleStrip) ? 6 : 4;
+    uint32_t idxSize = (indexType == MTLIndexTypeUInt32) ? 1 : 0;
+    // SOURCE_SELECT=0 (DMA/indexed), VIS_CULL=1 (USE_VISIBILITY), INDEX_SIZE
+    uint32_t initiator = prim | (0 << 6) | (1 << 8) | (idxSize << 10);
+
+    int prog = [self resolveProgram];
+    BOOL textured = prog >= 0 && sky_programs[prog].textured;
+    BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
+    uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
+    if (prog < 0 || !_vb || (textured && !desc)) {
+        if (_skipped++ < 5)
+            sky_log("indexed draw skipped: prog=%d vb=%llx tex=%d desc=%llx idxBuf=%p n=%lu %s + %s",
+                    prog, _vb, textured, desc, indexBuffer, (unsigned long)indexCount,
+                    _vname.UTF8String ?: "nil", _fname.UTF8String ?: "nil");
+        return;
+    }
+
+    uint64_t fs = sky_programs[prog].code;
+    NSMutableData *s = _s;
+    reg1(s, 0xbb08, 0x19f);
+    for (size_t i = 0; i < sizeof(CP3D_STATE) / sizeof(CP3D_STATE[0]); i++)
+        reg1(s, CP3D_STATE[i][0], CP3D_STATE[i][1]);
+    if (textured)
+        for (size_t i = 0; i < sizeof(CP3D_TEXQ) / sizeof(CP3D_TEXQ[0]); i++)
+            reg1(s, CP3D_TEXQ[i][0], CP3D_TEXQ[i][1]);
+    BOOL blend = (_mrtControl & 3) != 0;
+    reg1(s, 0x8820, _mrtControl ? _mrtControl : 0x7e0);
+    reg1(s, 0x8821, _mrtBlend);
+    reg1(s, 0xa989, blend ? 0x101 : 0x100);
+    reg1(s, 0x8865, blend ? 0xffff0101 : 0xffff0100);
+    uint32_t br = (_w - 1) | ((_h - 1) << 16);
+    reg1(s, 0x80f1, br);
+    reg1(s, 0x840b, br);
+    reg1(s, 0x80d1, br);
+    reg1(s, 0x80b1, br);
+    uint32_t vp[4] = {fbits(_w / 2.0f), fbits(_w / 2.0f), fbits(_h / 2.0f), fbits(_h / 2.0f)};
+    reg(s, 0x8010, vp, 4);
+    uint32_t stride = textured ? 24 : 16;
+    reg1(s, 0xa012, (uint32_t)(stride * indexCount)); // VFD_VERTEX_BUFFER[0].SIZE (upper bound)
+    uint32_t mrt[6] = {_info, (uint32_t)(_rt.bpr >> 6), 0, (uint32_t)(_rt.iova + _rt.offset),
+                       (uint32_t)((_rt.iova + _rt.offset) >> 32), 0};
+    reg(s, 0x8822, mrt, 6);
+    reg1(s, 0xa996, FMT6_8_8_8_8_UNORM);
+    uint32_t zero6[6] = {0};
+    for (uint32_t i = 1; i < 8; i++) {
+        reg(s, 0x8822 + 8 * i, zero6, 6);
+        reg1(s, 0xa996 + i, 0);
+    }
+    uint64_t vs = sky_code.iova + CODE_VS, fsa = sky_code.iova + (uint64_t)fs;
+    reg64(s, 0xa81c, vs);
+    reg64(s, 0xa983, fsa);
+    reg64(s, 0xa010, _vb);
+    emit(s, pkt7(0x65, 1)); emit(s, 1);
+    emit(s, pkt7(0x1d, 1)); emit(s, 0);
+    emit(s, pkt7(0x64, 1)); emit(s, 1);
+    emit(s, pkt7(0x63, 1)); emit(s, 0);
+    emit(s, pkt7(0x32, 3));
+    emit(s, (2 << 16) | (8 << 18) | (1 << 22));
+    emit(s, (uint32_t)vs); emit(s, (uint32_t)(vs >> 32));
+    emit(s, pkt7(0x34, 3));
+    emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
+    emit(s, (uint32_t)fsa); emit(s, (uint32_t)(fsa >> 32));
+    if (textured) {
+        uint32_t tex_count = fbfetch_prog ? 2 : 1;
+        uint64_t samp = desc + (fbfetch_prog ? 128 : 64);
+        emit(s, pkt7(0x34, 3));
+        emit(s, (tex_count << 14) | (2 << 16) | (4 << 18) | (1 << 22));
+        emit(s, (uint32_t)samp); emit(s, (uint32_t)(samp >> 32));
+        reg64(s, 0xa9e0, samp);
+        emit(s, pkt7(0x34, 3));
+        emit(s, (tex_count << 14) | (2 << 16) | (4 << 18) | (1 << 22));
+        emit(s, (uint32_t)desc); emit(s, (uint32_t)(desc >> 32));
+        reg64(s, 0xa9e4, desc);
+        reg1(s, 0xa9a7, tex_count);
+        if (fbfetch_prog) {
+            reg1(s, 0xa99e, 0x12);
+            reg1(s, 0xa9a4, 1);
+        }
+    }
+    // indexed draw: CP_DRAW_INDX_OFFSET with 7 dwords
+    uint64_t idxGpu = indexBuffer.gpuAddress + indexBufferOffset;
+    uint32_t idxBytes = (uint32_t)(indexCount * (indexType == MTLIndexTypeUInt32 ? 4 : 2));
+    emit(s, pkt7(0x38, 7)); // CP_DRAW_INDX_OFFSET
+    emit(s, initiator);
+    emit(s, 1);                        // NUM_INSTANCES
+    emit(s, (uint32_t)indexCount);     // NUM_INDICES
+    emit(s, 0);                        // FIRST_INDX
+    emit(s, (uint32_t)idxGpu);        // INDX_BASE lo
+    emit(s, (uint32_t)(idxGpu >> 32)); // INDX_BASE hi
+    emit(s, (uint32_t)(indexCount));   // MAX_INDICES
+    _draws++;
+}
+
 // colour to memory, caches dropped (later passes may sample this target)
 - (void)endEncoding {
     uint64_t ts = sky_code.iova + CODE_TS;

@@ -91,6 +91,8 @@ pub extern "C" fn sweet_rs_init() {
         xnu::spawn(gpu_thread, stage as usize);
     }
     if xnu::boot_arg_u32(c"sweetwifi").unwrap_or(0) != 0 {
+        unsafe extern "C" { fn sweet_sta_init(); }
+        unsafe { sweet_sta_init() };
         xnu::spawn(wlan::wlan_thread, 0);
     }
 }

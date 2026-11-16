@@ -13,13 +13,11 @@ Subject: [PATCH] private 0115: en0 + Apple80211 for wifid over the Sweet
  bsd/sys/redwood_input.h                 |   5 +
  bsd/sys/redwood_net.h                   |  63 ++
  bsd/sys/redwood_sta.h                   | 122 ++++
- iokit/Kernel/arm/MiniIONetworkStack.cpp | 114 ++++
  iokit/Kernel/arm/RedwoodWLAN.cpp        | 137 +++++
  iokit/Kernel/arm/SweetKeyStore.cpp      |  43 ++
  iokit/Kernel/arm/SweetSurface.cpp       |  14 +-
- iokit/Kernel/arm/TopazModem.cpp         |   3 +
- iokit/conf/files.arm64                  |   2 +
- 14 files changed, 2218 insertions(+), 1 deletion(-)
+ iokit/conf/files.arm64                  |   1 +
+ 12 files changed, 2101 insertions(+), 1 deletion(-)
  create mode 100644 bsd/dev/redwood_apple80211.c
  create mode 100644 bsd/dev/redwood_net.c
  create mode 100644 bsd/dev/redwood_sta.c
@@ -27,7 +25,6 @@ Subject: [PATCH] private 0115: en0 + Apple80211 for wifid over the Sweet
  create mode 100644 bsd/sys/redwood_input.h
  create mode 100644 bsd/sys/redwood_net.h
  create mode 100644 bsd/sys/redwood_sta.h
- create mode 100644 iokit/Kernel/arm/MiniIONetworkStack.cpp
  create mode 100644 iokit/Kernel/arm/RedwoodWLAN.cpp
 
 diff --git a/bsd/conf/files b/bsd/conf/files
@@ -347,7 +344,7 @@ index 0000000..e2674ee
 +	switch (request->req_type) {
 +	case 43:
 +	case 44: {                              /* the driver's and the hardware's name: the text alone, in 256 bytes */
-+		static const char name[256] = "redwood: ath11k for the WCN6750";
++		static const char name[256] = "sweet: ath10k for the WCN3990";
 +
 +		return give(request, name, sizeof(name));
 +	}
@@ -1591,17 +1588,17 @@ index 0000000..f2ffed4
 +extern int sweet_wlan_leave(void);
 +extern bool sweet_wlan_joined(void);
 +extern bool sweet_wlan_transmit(const uint8_t *frame, size_t length);
-+extern void (*sweet_wlan_rx_hook)(const uint8_t *frame, size_t length);
-+extern void (*sweet_wlan_link_hook)(bool up);
++extern void sweet_wlan_set_rx_hook(void (*hook)(const uint8_t *frame, size_t length));
++extern void sweet_wlan_set_link_hook(void (*hook)(bool up));
 +
 +static struct redwood_sta_bss sta_joined_bss;
 +static int sta_last_error;
 +
 +static const uint16_t sta_freqs[] = {
-+	2412, 2417, 2422, 2427, 2432, 2437, 2442, 2447, 2452, 2457, 2462, 2467, 2472,
++	2412, 2417, 2422, 2427, 2432, 2437, 2442, 2447, 2452, 2457, 2462, 2467, 2472, 2484,
 +	5180, 5200, 5220, 5240, 5260, 5280, 5300, 5320,
 +	5500, 5520, 5540, 5560, 5580, 5600, 5620, 5640, 5660, 5680, 5700,
-+	5745, 5765, 5785, 5805, 5825,
++	5745, 5765, 5785, 5805,
 +};
 +
 +static int
@@ -1755,8 +1752,8 @@ index 0000000..f2ffed4
 +{
 +	sweet_wlan_address(sta_link.address);
 +	memcpy(sta_ops.address, sta_link.address, 6);
-+	sweet_wlan_rx_hook = sta_rx;
-+	sweet_wlan_link_hook = sta_link_changed;
++	sweet_wlan_set_rx_hook(sta_rx);
++	sweet_wlan_set_link_hook(sta_link_changed);
 +	if (redwood_net_attach(&sta_link)) {
 +		redwood_sta_attach(&sta_ops);
 +		printf("sweet wifi: en0 and the station are up for iOS\n");
@@ -1773,12 +1770,10 @@ index 0000000..f2ffed4
 +	}
 +}
 +
-+void MiniIONetworkStackStart(void);   /* iokit/Kernel/arm/MiniIONetworkStack.cpp */
 +void sweet_sta_init(void);
 +void
 +sweet_sta_init(void)
 +{
-+	MiniIONetworkStackStart();              /* configd waits for it before it calls the registry quiet */
 +	sweet_wlan_set_ready_hook(sta_ready);
 +}
 diff --git a/bsd/sys/redwood_input.h b/bsd/sys/redwood_input.h
@@ -1871,9 +1866,9 @@ index 0000000..c5ed067
 + * Darwin-on-redwood: the station boundary.
 + *
 + * On one side whatever does the scanning and the joining with a radio: the station logic over
-+ * ath11k on the phone (wifi/lx in the repository). On the other whoever wants a network: the
-+ * Apple80211 requests of iOS's Wi-Fi side, answered in bsd/dev/redwood_apple80211.c, and the
-+ * kernel's own join of the network it was given in a file (bsd/dev/redwood_wifi.c). Frames do
++ * ath10k on the phone (skyios-kernel/src/wlan in this repository). On the other whoever wants a
++ * network: the Apple80211 requests of iOS's Wi-Fi side, answered in bsd/dev/redwood_apple80211.c,
++ * and the kernel's own join of the network it was given in a file. Frames do
 + * not pass here, and neither does "the link is up": those go through bsd/sys/redwood_net.h,
 + * which the station side calls itself.
 + *
@@ -1989,126 +1984,6 @@ index 0000000..c5ed067
 +#endif
 +
 +#endif
-diff --git a/iokit/Kernel/arm/MiniIONetworkStack.cpp b/iokit/Kernel/arm/MiniIONetworkStack.cpp
-new file mode 100644
-index 0000000..081fd35
---- /dev/null
-+++ b/iokit/Kernel/arm/MiniIONetworkStack.cpp
-@@ -0,0 +1,114 @@
-+/*
-+ * MiniIONetworkStack: a stand-in for IONetworkStack of Apple's IONetworkingFamily, as seen by
-+ * configd's interface namer.
-+ *
-+ * The real one gives the BSD names (en0, en1, ...) to the IONetworkInterface objects of the
-+ * drivers, when the interface namer asks. Here interfaces are made with the BSD interface KPI
-+ * (bsd/dev/redwood_net.c) and are born with their names, so there is never anything to name.
-+ * But the namer wants this object all the same: until it has opened it, it does not say in
-+ * configd's store that the registry has gone quiet (the key Plugin:InterfaceNamer, "*QUIET*"),
-+ * and gives up only after five minutes ("*TIMEOUT*"). SystemConfiguration's
-+ * SCNetworkInterfaceCopyAll() waits for one of the two, and with it whoever asks for the list of
-+ * interfaces: wifid as soon as it has a device, and behind wifid SpringBoard.
-+ *
-+ * So: the service, a user client that can be opened, and a refusal of the naming request.
-+ */
-+
-+#include <IOKit/IOLib.h>
-+#include <IOKit/IOKitKeys.h>
-+#include <IOKit/IOService.h>
-+#include <IOKit/IOUserClient.h>
-+#include <sys/systm.h>
-+#include <sys/proc.h>
-+
-+extern "C" void MiniIONetworkStackStart(void);
-+
-+class IONetworkStack : public IOService
-+{
-+	OSDeclareDefaultStructors(IONetworkStack);
-+
-+public:
-+	virtual bool start(IOService * provider) APPLE_KEXT_OVERRIDE;
-+};
-+
-+OSDefineMetaClassAndStructors(IONetworkStack, IOService);
-+
-+bool
-+IONetworkStack::start(IOService * provider)
-+{
-+	if (!IOService::start(provider)) {
-+		return false;
-+	}
-+	setProperty(kIOUserClientClassKey, "IONetworkStackUserClient");
-+	setName("IONetworkStack");
-+	registerService();
-+	return true;
-+}
-+
-+class IONetworkStackUserClient : public IOUserClient
-+{
-+	OSDeclareDefaultStructors(IONetworkStackUserClient);
-+
-+public:
-+	virtual bool start(IOService * provider) APPLE_KEXT_OVERRIDE;
-+	virtual IOReturn clientClose(void) APPLE_KEXT_OVERRIDE;
-+	virtual IOReturn setProperties(OSObject * properties) APPLE_KEXT_OVERRIDE;
-+};
-+
-+OSDefineMetaClassAndStructors(IONetworkStackUserClient, IOUserClient);
-+
-+bool
-+IONetworkStackUserClient::start(IOService * provider)
-+{
-+	char who[32] = "?";
-+
-+	if (!IOUserClient::start(provider)) {
-+		return false;
-+	}
-+	/* whether the registry is quiet at this moment is what the namer goes on to ask */
-+	proc_selfname(who, sizeof(who));
-+	IOLog("MiniIONetworkStack: opened by %s; the registry's busy state is %u\n", who,
-+	    (unsigned) IOService::getServiceRoot()->getBusyState());
-+	return true;
-+}
-+
-+IOReturn
-+IONetworkStackUserClient::clientClose(void)
-+{
-+	if (!isInactive()) {
-+		terminate();
-+	}
-+	return kIOReturnSuccess;
-+}
-+
-+/* "Name this interface" (a dictionary: IONetworkStackUserCommand, IOPathMatch, IOInterfaceUnit). */
-+IOReturn
-+IONetworkStackUserClient::setProperties(OSObject * properties)
-+{
-+	static unsigned said;
-+
-+	if (said++ < 4) {
-+		IOLog("MiniIONetworkStack: asked to name an interface: there are none of that kind\n");
-+	}
-+	return kIOReturnUnsupported;
-+}
-+
-+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-+
-+void
-+MiniIONetworkStackStart(void)
-+{
-+	/* where the real one is: IOService:/IOResources/IONetworkStack */
-+	IOService * resources = IOService::getResourceService();
-+	IONetworkStack * stack = OSTypeAlloc(IONetworkStack);
-+
-+	if (resources == NULL || stack == NULL || !stack->init() || !stack->attach(resources)) {
-+		OSSafeReleaseNULL(stack);
-+		IOLog("MiniIONetworkStack: cannot create the service\n");
-+		return;
-+	}
-+	if (!stack->start(resources)) {
-+		stack->detach(resources);
-+	}
-+	stack->release();
-+}
 diff --git a/iokit/Kernel/arm/RedwoodWLAN.cpp b/iokit/Kernel/arm/RedwoodWLAN.cpp
 new file mode 100644
 index 0000000..89d8840
@@ -2338,40 +2213,17 @@ index 0c07743..21d5d31 100644
  	s->planeCount = 0;
  	if (planes != NULL) {
  		uint64_t next = s->offset;
-diff --git a/iokit/Kernel/arm/TopazModem.cpp b/iokit/Kernel/arm/TopazModem.cpp
-index 2fd4b6f..8aa0c2f 100644
---- a/iokit/Kernel/arm/TopazModem.cpp
-+++ b/iokit/Kernel/arm/TopazModem.cpp
-@@ -6385,6 +6385,8 @@ topaz_modem_thread(void *arg __unused, wait_result_t wr __unused)
- 	thread_terminate(current_thread());
- }
- 
-+extern "C" void sweet_sta_init(void);
-+
- extern "C" void
- topaz_modem_init(void)
- {
-@@ -6396,6 +6398,7 @@ topaz_modem_init(void)
- 		return;
- 	}
- 	started = true;
-+	sweet_sta_init();                           /* private: bsd/dev/sweet_sta.c (en0 + Apple80211 for wifid) */
- 	if (kernel_thread_start(topaz_modem_thread, NULL, &thread) == KERN_SUCCESS) {
- 		thread_deallocate(thread);
- 	}
 diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
 index 60ec873..4d3730b 100644
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
-@@ -15,6 +15,8 @@ iokit/Kernel/arm/TopazAudio.cpp                                  optional iokitc
+@@ -15,6 +15,7 @@ iokit/Kernel/arm/TopazAudio.cpp                                  optional iokitc
  iokit/Kernel/arm/TopazRpm.cpp                                    optional iokitcpp
  iokit/Kernel/arm/SweetAMFIService.cpp                            optional iokitcpp
  iokit/Kernel/arm/SweetBusy.cpp                                   optional iokitcpp
 +iokit/Kernel/arm/RedwoodWLAN.cpp                                 optional iokitcpp
-+iokit/Kernel/arm/MiniIONetworkStack.cpp                          optional iokitcpp
  iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
  iokit/Kernel/arm/SweetKeyStore.cpp                               optional iokitcpp
  iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
 -- 
 2.43.0
-
