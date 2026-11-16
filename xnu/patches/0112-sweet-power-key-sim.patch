@@ -1,0 +1,48 @@
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -560,10 +560,45 @@
+ 	}
+ 	IOLog("SWEET TOUCHSIM: done (40 swipes)\n");
+ }
++
++/*
++ * sweetpowersim=S (sweetpowersim_every=T, up to 8 times): S seconds after the
++ * touch service starts, press the power key once if the display is off, so
++ * unattended boots (sweetshot screenshots) show a lit screen.
++ */
++extern "C" volatile int sweet_fb_power_off;
+ 
++static void
++sweet_powersim_thread(void *arg, wait_result_t wr)
++{
++	(void)wr;
++	uint32_t every = 0;
++	PE_parse_boot_argn("sweetpowersim_every", &every, sizeof(every));
++	IOSleep((uint32_t)(uintptr_t)arg * 1000);
++	for (int n = 0; n < 8; n++) {
++		bool off = sweet_fb_power_off != 0;
++		if (off) {
++			sweet_hid_key(0, 1);
++			IOSleep(120);
++			sweet_hid_key(0, 0);
++		}
++		IOLog("SWEET POWERSIM: display %s\n", off ? "off, power key pressed" : "on, nothing to do");
++		if (every == 0) {
++			return;
++		}
++		IOSleep(every * 1000);
++	}
++}
++
+ extern "C" void
+ sweet_touchsim_start(void)
+ {
++	uint32_t psecs = 0;
++	thread_t pt;
++	if (PE_parse_boot_argn("sweetpowersim", &psecs, sizeof(psecs)) && psecs != 0 &&
++	    kernel_thread_start(sweet_powersim_thread, (void *)(uintptr_t)psecs, &pt) == KERN_SUCCESS) {
++		thread_deallocate(pt);
++	}
+ 	uint32_t secs = 0;
+ 	if (!PE_parse_boot_argn("sweettouchsim", &secs, sizeof(secs)) || secs == 0) {
+ 		return;
