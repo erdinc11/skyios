@@ -179,6 +179,8 @@ What the less obvious boot-args do:
 | `sweetreducetransp=1` / `2` | Write Reduce Transparency + Reduce Motion before userland / restore the original prefs |
 | `sweettouchsim=S` | 20 synthetic swipes S seconds after the touch driver starts (lag measurements) |
 | `sweetunlocksim=S` | Wake the display if needed and swipe up from the bottom edge (home gesture) at S seconds |
+| `sweetdyldvars=1` | Let dyld honour `DYLD_*` variables (answers the AMFI dyld-policy call) |
+| `sweetinsert=NAME:PATH` | Add `DYLD_INSERT_LIBRARIES=PATH` to every exec of a binary called NAME (used for SpringBoard + `SkyPBFix.dylib`) |
 | `sweetpowersim=S`, `sweetpowersim_every=T` | Press the power key at S seconds (up to 8 times, T apart) when the display is off, for unattended screenshots |
 | `sweetshot=S`, `sweetshot_every=T` | Screenshot of the panel S seconds after the log starts (up to 4, T seconds apart), read with `skyios shot-pull` from recovery |
 
@@ -288,6 +290,7 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 | 0110 | Boot-time tool installer from the payload and `sweetrun` exec redirect |
 | 0111 | `sweetshot` panel screenshots into spare blocks at the end of `userdata` |
 | 0112 | `sweetpowersim` power key and `sweetunlocksim` home gesture simulation |
+| 0113 | AMFI dyld policy (`sweetdyldvars`) and `sweetinsert` library insertion |
 
 ## Key hardware facts
 

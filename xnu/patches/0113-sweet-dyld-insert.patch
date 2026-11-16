@@ -1,0 +1,90 @@
+--- a/bsd/kern/sweet_amfi.c
++++ b/bsd/kern/sweet_amfi.c
+@@ -2,6 +2,7 @@
+ #include <kern/debug.h>
+ #include <kern/startup.h>
+ #include <libkern/amfi/amfi.h>
++#include <pexpert/pexpert.h>
+ #include <mach/kern_return.h>
+ #include <sys/codesign.h>
+ #include <sys/mount.h>
+@@ -267,6 +268,31 @@
+ 	case 0x60: {
+ 		uint64_t state = 0;
+ 		error = copyout(&state, arg, sizeof(state));
++		break;
++	}
++	case 0x5a: {
++		/*
++		 * AMFI_SYSCALL_CHECK_DYLD_POLICY (amfi_check_dyld_policy_self):
++		 * args { uint64_t input flags; user pointer to uint64_t output
++		 * flags }. With boot-arg sweetdyldvars=1 answer "everything
++		 * allowed" (DYLD_INSERT_LIBRARIES etc.), else ENOTSUP as before
++		 * (dyld then treats the process as restricted).
++		 */
++		static int allow = -1;
++		if (allow < 0) {
++			allow = 0;
++			(void)PE_parse_boot_argn("sweetdyldvars", &allow, sizeof(allow));
++		}
++		if (!allow) {
++			error = ENOTSUP;
++			break;
++		}
++		uint64_t args[2];
++		error = copyin(arg, args, sizeof(args));
++		if (!error) {
++			uint64_t out = 0xff;
++			error = copyout(&out, (user_addr_t)args[1], sizeof(out));
++		}
+ 		break;
+ 	}
+ 	default:
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -5782,6 +5782,45 @@
+ 		imgp->ip_argspace -= new_ptr_size; /* to hold envv[] entry */
+ 		imgp->ip_envc++;
+ 	}
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	/*
++	 * sweetinsert=NAME:PATH adds DYLD_INSERT_LIBRARIES=PATH to the
++	 * environment of every exec of a binary called NAME (launchd strips
++	 * DYLD_* from job environments, 0113o/s). Used to load
++	 * skyios-ios/pbfix into SpringBoard; dyld honours it only when the
++	 * AMFI dyld policy allows (sweetdyldvars=1).
++	 */
++	{
++		static char spec[160];
++		static int parsed;
++		if (!parsed) {
++			parsed = 1;
++			if (!PE_parse_boot_argn("sweetinsert", spec, sizeof(spec))) {
++				spec[0] = '\0';
++			}
++		}
++		char *colon = spec[0] ? strchr(spec, ':') : NULL;
++		const char *path = imgp->ip_strings;
++		const char *base = path ? strrchr(path, '/') : NULL;
++		base = base ? base + 1 : path;
++		if (colon && base && (size_t)(colon - spec) == strlen(base) &&
++		    strncmp(base, spec, (size_t)(colon - spec)) == 0) {
++			static char var[200];
++			snprintf(var, sizeof(var), "DYLD_INSERT_LIBRARIES=%s", colon + 1);
++			error = exec_add_user_string(imgp, CAST_USER_ADDR_T(var), UIO_SYSSPACE, TRUE);
++			if (error) {
++				goto bad;
++			}
++			if (imgp->ip_argspace < new_ptr_size) {
++				error = E2BIG;
++				goto bad;
++			}
++			imgp->ip_argspace -= new_ptr_size;
++			imgp->ip_envc++;
++			printf("SWEET INSERT: %s gets %s\n", base, var);
++		}
++	}
++#endif
+ 
+ 	/* Save space for envv[] NULL terminator */
+ 	if (imgp->ip_argspace < new_ptr_size) {

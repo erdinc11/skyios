@@ -13,6 +13,11 @@
 #include <fcntl.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
+#include <sys/sysctl.h>
+// libproc (in libSystem; the iOS SDK has no libproc.h)
+extern int proc_listpids(uint32_t type, uint32_t typeinfo, void *buffer, int buffersize);
+extern int proc_name(int pid, void *buffer, uint32_t buffersize);
+#define PROC_ALL_PIDS 1
 #include <unistd.h>
 
 #define STAGED @"/private/var/root/wp/C"
@@ -384,6 +389,71 @@ static void write_snapshots(void) {
     }
 }
 
+// inject: SpringBoard gets /usr/lib/skyios/SkyPBFix.dylib (CPU render of
+// wallpaper snapshots, skyios-ios/pbfix) through DYLD_INSERT_LIBRARIES in its
+// job in launchd's cache (/System/Library/xpc/launchd.plist, read unsigned
+// with launchd_unsecure_cache=1; original kept as .sweet-old; dyld honours
+// it only with boot-arg sweetdyldvars=1); and the legacy wallpaper files
+// (the user's image) come back from the newest sbfix backup. Both take
+// effect at the next boot.
+#define LAUNCHD_PLIST @"/System/Library/xpc/launchd.plist"
+#define PBFIX_DYLIB @"/usr/lib/skyios/SkyPBFix.dylib"
+
+static void inject(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *old = [LAUNCHD_PLIST stringByAppendingString:@".sweet-old"];
+    if (![fm fileExistsAtPath:old] && ![fm copyItemAtPath:LAUNCHD_PLIST toPath:old error:nil]) {
+        say(@"launchd.plist backup failed");
+        return;
+    }
+    NSPropertyListFormat fmt = NSPropertyListBinaryFormat_v1_0;
+    NSMutableDictionary *pl = [NSPropertyListSerialization propertyListWithData:[NSData dataWithContentsOfFile:old]
+                                                                        options:NSPropertyListMutableContainersAndLeaves
+                                                                         format:&fmt
+                                                                          error:nil];
+    NSMutableDictionary *daemons = pl[@"LaunchDaemons"];
+    int found = 0;
+    for (NSString *k in daemons) {
+        NSMutableDictionary *job = daemons[k];
+        if (![job isKindOfClass:[NSDictionary class]] || ![job[@"Label"] isEqual:@"com.apple.SpringBoard"])
+            continue;
+        NSMutableDictionary *env = job[@"EnvironmentVariables"] ?: [NSMutableDictionary dictionary];
+        env[@"DYLD_INSERT_LIBRARIES"] = PBFIX_DYLIB;
+        env[@"SKYIOS_TEST"] = @"1"; // does launchd pass job variables at all? (0113o: no DYLD_*)
+        job[@"EnvironmentVariables"] = env;
+        found++;
+        say(@"SpringBoard job %@: environment %@", k, env);
+    }
+    NSData *out = [NSPropertyListSerialization dataWithPropertyList:pl format:fmt options:0 error:nil];
+    BOOL ok = found && [out writeToFile:LAUNCHD_PLIST atomically:YES];
+    say(@"launchd.plist: %d SpringBoard job(s), written %d (format %lu)", found, ok, (unsigned long)fmt);
+    // newest legacy wallpaper backup back in place
+    NSString *bkroot = @"/private/var/mobile/Library/SpringBoard.sweet-legacy-wallpaper";
+    NSString *newest = nil;
+    for (NSString *d in [fm contentsOfDirectoryAtPath:bkroot error:nil])
+        if ([fm fileExistsAtPath:[[bkroot stringByAppendingPathComponent:d] stringByAppendingPathComponent:@"LockBackground.cpbitmap"]] &&
+            (!newest || d.integerValue > newest.integerValue))
+            newest = d;
+    for (NSString *n in @[ @"LockBackground.cpbitmap", @"OriginalLockBackground.cpbitmap", @"LockBackgroundThumbnail.jpg", @"LockBackgroundThumbnaildark.jpg" ]) {
+        NSString *to = [@"/private/var/mobile/Library/SpringBoard" stringByAppendingPathComponent:n];
+        if (!newest || [fm fileExistsAtPath:to])
+            continue;
+        BOOL c = [fm copyItemAtPath:[[bkroot stringByAppendingPathComponent:newest] stringByAppendingPathComponent:n] toPath:to error:nil];
+        chown_mobile(to);
+        say(@"legacy %@ restored from %@: %d", n, newest, c);
+    }
+}
+
+static void uninject(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *old = [LAUNCHD_PLIST stringByAppendingString:@".sweet-old"];
+    if ([fm fileExistsAtPath:old]) {
+        [fm removeItemAtPath:LAUNCHD_PLIST error:nil];
+        BOOL ok = [fm copyItemAtPath:old toPath:LAUNCHD_PLIST error:nil];
+        say(@"launchd.plist restored: %d", ok);
+    }
+}
+
 // PosterBoard creates the default poster when its data store is empty
 static void reset_posterboard(void) {
     if (!dlopen("/System/Library/PrivateFrameworks/PosterBoardServices.framework/PosterBoardServices", RTLD_NOW)) {
@@ -422,31 +492,79 @@ int main(int argc, char **argv, char **envp, char **apple) {
     int lim = memorystatus_control(MEMORYSTATUS_CMD_SET_MEMLIMIT_PROPERTIES, getpid(), 0, &ml, sizeof(ml));
     say(@"memory limit -> 2048 MB: %d (errno %d)", lim, lim ? errno : 0);
     @autoreleasepool {
+        // one mode per boot, from /private/var/root/wp/mode (rewritten by the
+        // boot-time installer; the old per-mode marker files stayed on disk
+        // and picked the wrong mode, 0113p)
+        NSString *mode = [[NSString stringWithContentsOfFile:@"/private/var/root/wp/mode" encoding:NSUTF8StringEncoding error:nil]
+            stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+        say(@"mode '%@'", mode);
         if (argc > 1 && strcmp(argv[1], "undo") == 0) {
             undo();
-        } else if (access("/private/var/root/wp/snap", F_OK) == 0) {
+        } else if ([mode isEqualToString:@"readlog"]) {
+            // SkyPBFix's log from SpringBoard (it cannot write to the console)
+            sleep(230);
+            NSString *log = [NSString stringWithContentsOfFile:@"/private/var/mobile/Library/Logs/SkyPBFix.log" encoding:NSUTF8StringEncoding error:nil];
+            for (NSString *l in [log componentsSeparatedByString:@"\n"])
+                if (l.length)
+                    say(@"SkyPBFix log: %@", l);
+            say(@"SkyPBFix log: %lu bytes", (unsigned long)log.length);
+            // did launchd pass the variable? SpringBoard's env from KERN_PROCARGS2
+            int pids[2048];
+            int n = proc_listpids(PROC_ALL_PIDS, 0, pids, sizeof(pids)) / (int)sizeof(int);
+            for (int i = 0; i < n; i++) {
+                char name[64] = "";
+                proc_name(pids[i], name, sizeof(name));
+                if (strcmp(name, "SpringBoard") != 0)
+                    continue;
+                int mib[3] = {CTL_KERN, KERN_PROCARGS2, pids[i]};
+                static char buf[65536];
+                size_t len = sizeof(buf);
+                if (sysctl(mib, 3, buf, &len, NULL, 0) != 0) {
+                    say(@"procargs %d: errno %d", pids[i], errno);
+                    continue;
+                }
+                int argc2;
+                memcpy(&argc2, buf, 4);
+                char *p = buf + 4, *end = buf + len;
+                p += strlen(p) + 1; // exec path
+                while (p < end && !*p)
+                    p++;
+                for (int a = 0; a < argc2 && p < end; a++)
+                    p += strlen(p) + 1;
+                for (; p < end && *p; p += strlen(p) + 1)
+                    if (strncmp(p, "DYLD", 4) == 0 || strncmp(p, "SKYIOS", 6) == 0 || strncmp(p, "PATH", 4) == 0)
+                        say(@"SpringBoard[%d] env %s", pids[i], p);
+                say(@"SpringBoard[%d] env scanned", pids[i]);
+            }
+        } else if ([mode isEqualToString:@"inject"]) {
+            inject();
+        } else if ([mode isEqualToString:@"uninject"]) {
+            uninject();
+        } else if ([mode isEqualToString:@"snap"]) {
             write_snapshots();
-        } else if (access("/private/var/root/wp/fsprobe", F_OK) == 0) {
+        } else if ([mode isEqualToString:@"fsprobe"]) {
             fs_probe();
-        } else if (access("/private/var/root/wp/wkprobe", F_OK) == 0) {
+        } else if ([mode isEqualToString:@"wkprobe"]) {
             wallpaperkit_probe();
-        } else if (access("/private/var/root/wp/legacy", F_OK) == 0) {
+        } else if ([mode isEqualToString:@"legacy"]) {
             say(@"legacy mode: waiting 90 s for SpringBoard");
             sleep(90);
             legacy_set();
-        } else if (access("/private/var/root/wp/apply", F_OK) == 0) {
+        } else if ([mode isEqualToString:@"apply"]) {
             say(@"apply mode: waiting 90 s for PosterBoard");
             sleep(90);
             apply_poster();
-        } else if (access("/private/var/root/wp/probe", F_OK) == 0) {
+        } else if ([mode isEqualToString:@"probe"]) {
             say(@"probe mode: waiting 90 s for PosterBoard");
             sleep(90);
             probe_posterboard();
-        } else {
+        } else if ([mode isEqualToString:@"install"]) {
             install();
             say(@"waiting 90 s for PosterBoard");
             sleep(90);
             reset_posterboard();
+        } else {
+            say(@"unknown mode, nothing done");
         }
     }
     for (char **a = apple; a && *a; a++)
