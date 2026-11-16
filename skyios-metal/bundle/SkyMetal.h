@@ -5,7 +5,7 @@
 #import <Metal/Metal.h>
 
 // user client of SkyAdrenoAccel / SkyAdrenoMetalAccel (xnu 0109)
-enum { SKY_INFO, SKY_ALLOC, SKY_FREE, SKY_SUBMIT, SKY_WAIT, SKY_LOG };
+enum { SKY_INFO, SKY_ALLOC, SKY_FREE, SKY_SUBMIT, SKY_WAIT, SKY_LOG, SKY_IMPORT };
 
 extern io_connect_t sky_conn;
 void sky_log(const char *fmt, ...) __printflike(1, 2);
@@ -36,6 +36,9 @@ void sky_free(SkyMem *m);
 void sky_record_init(void);
 void sky_log_once(NSString *line);
 id sky_render_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d);
+// a drawing encoder (SkyRender.m) appending to `stream`, or nil when the pass
+// is outside what it supports
+id sky_draw_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d, NSMutableData *stream, id owner);
 
 // methods copied into the runtime-made _MTLDevice subclass
 @interface SkyDeviceMethods : NSObject

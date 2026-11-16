@@ -181,6 +181,7 @@ static NSString *consts_string(MTLFunctionConstantValues *v) {
 
 @interface SkyRenderPipeline : SkyObject <MTLRenderPipelineState>
 @property (copy) NSString *key;
+@property (copy) NSString *vname, *fname; // function names (SkyRender.m looks for built-in code)
 @property (weak) id<MTLDevice> device;
 @end
 @implementation SkyRenderPipeline
@@ -372,6 +373,8 @@ id sky_render_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d) {
     MTLRenderPipelineColorAttachmentDescriptor *c = d.colorAttachments[0];
     SkyRenderPipeline *p = [SkyRenderPipeline new];
     p.device = (id<MTLDevice>)self;
+    p.vname = d.vertexFunction.name;
+    p.fname = d.fragmentFunction.name;
     p.key = [NSString stringWithFormat:@"%@ + %@ fmt %lu blend %d %lu/%lu %lu/%lu wm %lu", [(SkyFunction *)d.vertexFunction key],
                                        [(SkyFunction *)d.fragmentFunction key], (unsigned long)c.pixelFormat, c.blendingEnabled,
                                        (unsigned long)c.sourceRGBBlendFactor, (unsigned long)c.destinationRGBBlendFactor,

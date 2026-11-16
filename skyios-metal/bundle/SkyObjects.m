@@ -382,7 +382,7 @@ static uint32_t pkt7(uint32_t op, uint32_t cnt) {
 - (void)addScheduledHandler:(MTLCommandBufferHandler)block { [_scheduled addObject:[block copy]]; }
 
 - (id<MTLRenderCommandEncoder>)renderCommandEncoderWithDescriptor:(MTLRenderPassDescriptor *)d {
-    return sky_render_encoder(self.device, d);
+    return sky_draw_encoder(self.device, d, _s->data, self) ?: sky_render_encoder(self.device, d);
 }
 
 - (id<MTLBlitCommandEncoder>)blitCommandEncoder {

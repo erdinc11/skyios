@@ -713,6 +713,69 @@ static int metal(void) {
         say("metal: copy 1 MiB: %s, status %ld, %.0f us, first bad %d", bad < 0 ? "OK" : "FAIL", (long)cb.status, t1 - t0, bad);
         free(want);
         say("METAL BLIT TESTS DONE");
+
+        // render encoder: IOSurface texture as render target, clear to blue,
+        // red triangle with the bundle's built-in functions, pixel check
+        NSDictionary *props = @{
+            (id)kIOSurfaceWidth : @64, (id)kIOSurfaceHeight : @64, (id)kIOSurfaceBytesPerElement : @4,
+            (id)kIOSurfaceBytesPerRow : @256, (id)kIOSurfacePixelFormat : @(0x42475241)
+        };
+        IOSurfaceRef surf = IOSurfaceCreate((__bridge CFDictionaryRef)props);
+        MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                      width:64
+                                                                                     height:64
+                                                                                  mipmapped:NO];
+        td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+        id<MTLTexture> tex = [dev newTextureWithDescriptor:td iosurface:surf plane:0];
+        id<MTLLibrary> lib = [dev newDefaultLibrary];
+        MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+        pd.vertexFunction = [lib newFunctionWithName:@"sky_position_vertex"];
+        pd.fragmentFunction = [lib newFunctionWithName:@"sky_red_fragment"];
+        pd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        NSError *err = nil;
+        id<MTLRenderPipelineState> ps = [dev newRenderPipelineStateWithDescriptor:pd error:&err];
+        say("metal: render target %p, pipeline %p", tex, ps);
+        if (!surf || !tex || !ps)
+            return -3;
+        IOSurfaceLock(surf, 0, NULL);
+        memset(IOSurfaceGetBaseAddress(surf), 0x5a, 64 * 256);
+        IOSurfaceUnlock(surf, 0, NULL);
+        MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+        rp.colorAttachments[0].texture = tex;
+        rp.colorAttachments[0].loadAction = MTLLoadActionClear;
+        rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+        rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 1, 1);
+        const float tri[12] = {-1, -1, 0, 1, 1, -1, 0, 1, 0, 1, 0, 1};
+        t0 = now_us();
+        cb = [q commandBuffer];
+        id<MTLRenderCommandEncoder> re = [cb renderCommandEncoderWithDescriptor:rp];
+        [re setRenderPipelineState:ps];
+        [re setVertexBytes:tri length:sizeof(tri) atIndex:0];
+        [re drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        [re endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+        t1 = now_us();
+        IOSurfaceLock(surf, kIOSurfaceLockReadOnly, NULL);
+        const uint32_t *px = IOSurfaceGetBaseAddress(surf);
+        int tin = 0, win = 0, tout = 0, wout = 0;
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++) {
+                int k = inside(x, y);
+                uint32_t v = px[y * 64 + x];
+                if (k == 1) {
+                    win++;
+                    tin += v == 0xffff0000; // BGRA memory: B 0, G 0, R ff, A ff
+                } else if (k == 0) {
+                    wout++;
+                    tout += v == 0xff0000ff; // B ff, G 0, R 0, A ff
+                }
+            }
+        uint32_t c = px[16 * 64 + 32], o = px[60 * 64 + 2];
+        IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
+        say("metal: render encoder triangle: %s (red inside %d/%d, blue outside %d/%d, px(32,16) %#x px(2,60) %#x, status %ld, %.0f us)",
+            tin == win && tout == wout ? "OK" : "FAIL", tin, win, tout, wout, c, o, (long)cb.status, t1 - t0);
+        CFRelease(surf);
     }
     return 0;
 }
