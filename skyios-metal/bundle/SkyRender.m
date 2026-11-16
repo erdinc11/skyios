@@ -71,7 +71,7 @@ static uint32_t fbits(float f) {
 
 // GPU memory shared by all encoders of the process: shader code (128-byte
 // aligned), zeroed border colours, a CCU timestamp word
-enum { CODE_VS = 0x000, CODE_FS_RED = 0x080, CODE_FS_TEX = 0x100, CODE_BORDER = 0x200, CODE_TS = 0x300, CODE_SIZE = 0x4000 };
+enum { CODE_VS = 0x000, CODE_FS_RED = 0x080, CODE_FS_TEX = 0x100, CODE_FS_BLEND = 0x180, CODE_BORDER = 0x280, CODE_TS = 0x380, CODE_SIZE = 0x4000 };
 
 static SkyMem sky_code;
 
@@ -90,21 +90,69 @@ static BOOL code_ready(void) {
         // bary.f (ei)r63.x, 0, r0.x; (sy)end
         const uint32_t tex[4] = {0x00002000, 0x473080fc, 0, 0x13000000};
         memcpy(&w[CODE_FS_TEX / 4], tex, sizeof(tex));
+
+        // FS: premultiplied source-over with framebuffer fetch.
+        // Two texture prefetches (SP_PS_INITIAL_TEX_LOAD=2):
+        //   prefetch 0: layer texture at uv varying -> r1
+        //   prefetch 1: fb (self-sample at frag coord) -> r2
+        // out = src + fb * (1 - src.a)   (premultiplied alpha)
+        //
+        // cat2 encoding: w[0] = src1 | src2<<16; w[1] = 2<<29 | flags
+        // cat2_gpr(opc, dst, s1, s2, sy): add.f/mul.f with two GPR sources
+        // cat2_neg(opc, dst, imm_flut, s2_neg, sy): src1=flut imm, src2=GPR|NEG
+        //
+        // GPR reg encoding: reg*4 + comp (full precision)
+        // r1.w = 1*4+3 = 7, r2.x = 2*4+0 = 8, r3.x = 3*4+0 = 12
+        // flut: 0=0.0, 1=0.5, 2=1.0
+#define GPR(r,c) ((r)*4+(c))
+#define CAT2_GPR(opc, dst, s1, s2, sy) \
+    { (s1) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+#define CAT2_NEG(opc, dst, flut, s2, sy) \
+    { ((flut)|(5u<<11)) | (((s2)|(1u<<15)) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+#define NOP {0, 0}
+        const uint32_t blend[] = {
+            // bary.f (ei)r63.x, 0, r0.x
+            0x00002000, 0x473080fc,
+            // (sy)add.f r3.x, 1.0, -r1.w    (1 - src.a)
+            CAT2_NEG(0, GPR(3,0), 2, GPR(1,3), 1),
+            NOP, NOP, NOP,
+            // mul.f r2.x..w, r2.x..w, r3.x  (fb * (1-a))
+            CAT2_GPR(3, GPR(2,0), GPR(2,0), GPR(3,0), 0),
+            CAT2_GPR(3, GPR(2,1), GPR(2,1), GPR(3,0), 0),
+            CAT2_GPR(3, GPR(2,2), GPR(2,2), GPR(3,0), 0),
+            CAT2_GPR(3, GPR(2,3), GPR(2,3), GPR(3,0), 0),
+            NOP, NOP, NOP,
+            // add.f r0.x..w, r2.x..w, r1.x..w  (fb*(1-a) + src)
+            CAT2_GPR(0, GPR(0,0), GPR(2,0), GPR(1,0), 0),
+            CAT2_GPR(0, GPR(0,1), GPR(2,1), GPR(1,1), 0),
+            CAT2_GPR(0, GPR(0,2), GPR(2,2), GPR(1,2), 0),
+            CAT2_GPR(0, GPR(0,3), GPR(2,3), GPR(1,3), 0),
+            NOP, NOP, NOP,
+            // end
+            0, 0x03000000,
+        };
+#undef GPR
+#undef CAT2_GPR
+#undef CAT2_NEG
+#undef NOP
+        memcpy(&w[CODE_FS_BLEND / 4], blend, sizeof(blend));
     }
     os_unfair_lock_unlock(&lock);
     return sky_code.handle != 0;
 }
 
 // built-in programs: vertex function, fragment function, fragment code,
-// whether it samples texture 0 (then the vertex layout is float4 position +
-// float2 uv, the cp3d.rs TEXQ state)
+// textured: samples fragment texture 0 (vertex = float4 pos + float2 uv, TEXQ state)
+// fbfetch: also self-samples the render target as a second texture (prefetch 1)
 static const struct {
     NSString *vertex, *fragment;
     uint32_t code;
     BOOL textured;
+    BOOL fbfetch;
 } sky_programs[] = {
-    {@"sky_position_vertex", @"sky_red_fragment", CODE_FS_RED, NO},
-    {@"sky_position_uv_vertex", @"sky_texture_fragment", CODE_FS_TEX, YES},
+    {@"sky_position_vertex", @"sky_red_fragment", CODE_FS_RED, NO, NO},
+    {@"sky_position_uv_vertex", @"sky_texture_fragment", CODE_FS_TEX, YES, NO},
+    {@"sky_position_uv_vertex", @"sky_fb_blend_fragment", CODE_FS_BLEND, YES, YES},
 };
 
 #pragma mark - render targets
@@ -257,7 +305,8 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         if ([_vname isEqualToString:sky_programs[i].vertex] && [_fname isEqualToString:sky_programs[i].fragment])
             prog = i;
     BOOL textured = prog >= 0 && sky_programs[prog].textured;
-    uint64_t desc = textured ? [self textureDescriptor] : 0;
+    BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
+    uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
     if (prog < 0 || !_vb || first != 0 || (textured && !desc)) {
         if (_skipped++ == 0)
             sky_log("draw skipped: no GPU code for %s + %s (or no usable texture)", _vname.UTF8String, _fname.UTF8String);
@@ -316,18 +365,26 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     emit(s, (uint32_t)fsa);
     emit(s, (uint32_t)(fsa >> 32));
     if (textured) {
-        uint64_t samp = desc + 64;
+        uint32_t tex_count = fbfetch_prog ? 2 : 1;
+        // fbfetch layout: 2x16 dwords tex + 2x4 dwords samp; samp at desc+128
+        // normal layout: 1x16 dwords tex + 1x4 dwords samp; samp at desc+64
+        uint64_t samp = desc + (fbfetch_prog ? 128 : 64);
         emit(s, pkt7(0x34, 3)); // samplers: ST6_SHADER, SB6_FS_TEX
-        emit(s, (2 << 16) | (4 << 18) | (1 << 22));
+        emit(s, (tex_count << 14) | (2 << 16) | (4 << 18) | (1 << 22));
         emit(s, (uint32_t)samp);
         emit(s, (uint32_t)(samp >> 32));
         reg64(s, 0xa9e0, samp);  // SP_PS_SAMPLER_BASE
         emit(s, pkt7(0x34, 3)); // textures: ST6_CONSTANTS, SB6_FS_TEX
-        emit(s, (1 << 14) | (2 << 16) | (4 << 18) | (1 << 22));
+        emit(s, (tex_count << 14) | (2 << 16) | (4 << 18) | (1 << 22));
         emit(s, (uint32_t)desc);
         emit(s, (uint32_t)(desc >> 32));
         reg64(s, 0xa9e4, desc);  // SP_PS_TEXMEMOBJ_BASE
-        reg1(s, 0xa9a7, 1);      // SP_PS_TSIZE
+        reg1(s, 0xa9a7, tex_count); // SP_PS_TSIZE
+        if (fbfetch_prog) {
+            // override TEXQ's prefetch count: 2 prefetches + second index
+            reg1(s, 0xa99e, 0x12);    // SP_PS_INITIAL_TEX_LOAD_CNTL: 2 tex, ENDOFQUAD
+            reg1(s, 0xa9a4, 1);       // SP_PS_INITIAL_TEX_INDEX[1]: texture slot 1
+        }
     }
     emit(s, pkt7(0x38, 3)); // CP_DRAW_INDX_OFFSET: auto index, use visibility
     emit(s, initiator);
@@ -385,6 +442,38 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
                       (uint32_t)base, (uint32_t)(base >> 32) | (1u << 17)};
     d[16] = 0x92a;
     d[17] = 0x40;
+    return [self upload:d length:sizeof(d)];
+}
+// Combined descriptor for fbfetch: tex0 = layer, tex1 = render target (self-
+// sample); sampler0 = bilinear clamp, sampler1 = nearest clamp. Returns the
+// GPU address of the texture array; samplers are at +128 (2 * 16 dwords * 4).
+- (uint64_t)fbFetchDescriptor {
+    IOSurfaceRef surf = _tex.iosurface;
+    SkyImport im;
+    MTLPixelFormat f = _tex.pixelFormat;
+    if (!surf || (f != MTLPixelFormatBGRA8Unorm && f != MTLPixelFormatBGRA8Unorm_sRGB) || !import_surface(surf, &im) || (im.bpr & 63))
+        return 0;
+    uint64_t base = im.iova + im.offset;
+    uint64_t rtbase = _rt.iova + _rt.offset;
+    uint32_t d[40] = {0};
+    // tex0: layer texture (same as textureDescriptor)
+    d[0] = 0x4c006880;
+    d[1] = (uint32_t)_tex.width | ((uint32_t)_tex.height << 15);
+    d[2] = 2 | ((uint32_t)im.bpr << 7) | (1u << 29);
+    d[4] = (uint32_t)base;
+    d[5] = (uint32_t)(base >> 32) | (1u << 17);
+    // tex1: render target (fb self-sample), same format/layout
+    d[16] = 0x4c006880;
+    d[17] = (_w) | ((uint32_t)_h << 15);
+    d[18] = 2 | ((uint32_t)_rt.bpr << 7) | (1u << 29);
+    d[20] = (uint32_t)rtbase;
+    d[21] = (uint32_t)(rtbase >> 32) | (1u << 17);
+    // sampler0: bilinear, clamp (0x92a, 0x40)
+    d[32] = 0x92a;
+    d[33] = 0x40;
+    // sampler1: nearest, clamp (for fb fetch - exact pixel)
+    d[36] = 0x920;
+    d[37] = 0x40;
     return [self upload:d length:sizeof(d)];
 }
 - (void)setFragmentSamplerState:(id<MTLSamplerState>)s atIndex:(NSUInteger)i {}
