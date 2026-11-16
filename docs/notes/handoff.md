@@ -55,6 +55,9 @@ Enabled Metal for backboardd (`sweetaccel=2 sweetmetal_procs=skyios-accel-test,b
 - **WLAN/en0 patch (0115) cleaned up:** removed TopazModem.cpp hunk (sweet doesn't have it) and MiniIONetworkStack.cpp (overlaps with 0104's SweetNetworkStack). `sweet_sta_init()` called from lib.rs FFI when `sweetwifi=1`; it sets the en0 ready hook so the C side creates the BSD en0 interface when the Rust radio comes up.
 - Notes restructured into `docs/notes/` (previous session, commit b95988b).
 
+**What changed (session 3, en0 patch final fixes):**
+- **0115 patch corrected:** hardware name `ath10k for the WCN3990` (was ath11k/WCN6750), hook API uses setter functions `sweet_wlan_set_rx_hook`/`sweet_wlan_set_link_hook` (was global pointer assignment), channel list 37 entries matching wmi.rs SCAN_FREQS (added 2484, removed 5825), removed SweetKeyStore.cpp and SweetSurface.cpp diffs (unrelated to en0), removed `redwood_virtio_net_init` from redwood_net.h, updated redwood_sta.h comment to reference ath10k/skyios-kernel.
+
 **Next concrete action (for the next agent):**
 1. **Test boot with sweetaccel=2:** indexed draws should now execute for CA. The screen should show SOMETHING (even if wrong colours/positions, confirming GPU rendering works for CA).
 2. Then fix the vertex shader (CA sends world coords + 4×4 matrix; our VS just passes through).
