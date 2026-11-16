@@ -11,6 +11,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <objc/message.h>
+#include <objc/runtime.h>
 #include <unistd.h>
 
 static void say(NSString *fmt, ...) {
@@ -81,12 +82,60 @@ static void set_wallpaper(void) {
     say(@"SBSUIWallpaperSetImageAsWallpaperForLocations called");
 }
 
+// iOS 16 lock/home screens are PosterBoard posters; the legacy call above
+// only stores a legacy wallpaper. PosterBoardServices can turn that into a
+// "legacy poster" and select it. The completion arguments are logged as raw
+// pointers + class names (their types are not known).
+static NSString *describe(id o) {
+    uintptr_t v = (uintptr_t)(__bridge void *)o;
+    if (v < 0x100000000ULL)
+        return [NSString stringWithFormat:@"%#lx", (unsigned long)v];
+    return [NSString stringWithFormat:@"<%s %p> %@", object_getClassName(o), o, [o description]];
+}
+
+// completion types are unknown: take three raw words, describe only the
+// ones that look like heap/object pointers (0112p crashed on a BOOL)
+static NSString *describe_raw(uintptr_t v) {
+    if (v < 0x100000000ULL || (v & 7))
+        return [NSString stringWithFormat:@"%#lx", (unsigned long)v];
+    return describe((__bridge id)(void *)v);
+}
+
+static void poster_from_legacy(void) {
+    if (!dlopen("/System/Library/PrivateFrameworks/PosterBoardServices.framework/PosterBoardServices", RTLD_NOW)) {
+        say(@"dlopen PosterBoardServices: %s", dlerror());
+        return;
+    }
+    Class cls = NSClassFromString(@"PRSService");
+    id svc = [cls new];
+    say(@"PRSService %@", describe(svc));
+    if (!svc)
+        return;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    void (^log2)(uintptr_t, uintptr_t, uintptr_t) = ^(uintptr_t a, uintptr_t b, uintptr_t c) {
+        say(@"createAndSelectLegacyPosterConfiguration -> %@, %@, %@", describe_raw(a), describe_raw(b), describe_raw(c));
+        dispatch_semaphore_signal(done);
+    };
+    ((void (*)(id, SEL, id))objc_msgSend)(svc, NSSelectorFromString(@"createAndSelectLegacyPosterConfigurationIfNeededWithCompletion:"), log2);
+    long w = dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC));
+    if (w)
+        say(@"createAndSelectLegacyPosterConfiguration: no answer in 20 s");
+    void (^list)(uintptr_t, uintptr_t, uintptr_t) = ^(uintptr_t a, uintptr_t b, uintptr_t c) {
+        say(@"fetchPosterConfigurations -> %@, %@, %@", describe_raw(a), describe_raw(b), describe_raw(c));
+        dispatch_semaphore_signal(done);
+    };
+    ((void (*)(id, SEL, id))objc_msgSend)(svc, NSSelectorFromString(@"fetchPosterConfigurations:"), list);
+    dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC));
+}
+
 int main(int argc, char **argv, char **envp, char **apple) {
     @autoreleasepool {
         unsigned delay = 90;
         say(@"waiting %u s for SpringBoard", delay);
         sleep(delay);
         set_wallpaper();
+        sleep(5);
+        poster_from_legacy();
         // 0112d: the display went off right after the change; keep it on for
         // the sweetshot screenshots (SpringBoardServices SBSUndimScreen)
         dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_NOW);

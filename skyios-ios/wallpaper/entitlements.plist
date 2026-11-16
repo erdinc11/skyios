@@ -4,6 +4,10 @@
 <dict>
 	<key>com.apple.springboard.wallpaper-access</key>
 	<true/>
+	<key>com.apple.posterboardservices.data-store</key>
+	<true/>
+	<key>com.apple.posterboardservices.data-store.refreshConfigurations</key>
+	<true/>
 	<key>com.apple.springboard.wake</key>
 	<true/>
 	<key>com.apple.springboard.spurious-screen-undimming-assertions</key>
