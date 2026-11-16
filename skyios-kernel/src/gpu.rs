@@ -218,6 +218,13 @@ const OOB_BOOT_SLUMBER_SET: u32 = 22;
 const OOB_BOOT_SLUMBER_ACK: u32 = 30;
 const OOB_GPU_SET_SET: u32 = 16;
 const OOB_GPU_SET_ACK: u32 = 24;
+const OOB_DCVS_SET: u32 = 23;
+const OOB_DCVS_ACK: u32 = 31;
+
+const GMU_DCVS_ACK_OPTION: usize = 0x1cbfc;
+const GMU_DCVS_PERF_SETTING: usize = 0x1cbfd;
+const GMU_DCVS_BW_SETTING: usize = 0x1cbfe;
+const GMU_DCVS_RETURN: usize = 0x1cbff;
 
 const RSC_STATUS0_DRV0: usize = 0x004;
 const RSC_PDC_SEQ_START_ADDR: usize = 0x008;
@@ -371,6 +378,48 @@ fn oob_gpu_clear(gmu: &Gmu) {
     gmu.write(GMU_GMU2HOST_INTR_CLR, 1 << OOB_GPU_SET_ACK);
 }
 
+/// Set the GPU core frequency to the given perf_index (0 = off, 1 = lowest,
+/// n-1 = highest) using the legacy (a618 HFI v1) DCVS register path.
+/// Reference: a6xx_gmu_set_freq() legacy branch in the Linux a6xx_gmu driver.
+fn gpu_set_freq(gmu: &Gmu, perf_index: u32) -> bool {
+    gmu.write(GMU_DCVS_ACK_OPTION, 0);
+    gmu.write(GMU_DCVS_PERF_SETTING, (3u32 << 28) | perf_index);
+    gmu.write(GMU_DCVS_BW_SETTING, 0xff);
+
+    // trigger the DCVS OOB and wait for the GMU to acknowledge
+    gmu.write(GMU_HOST2GMU_INTR_SET, 1 << OOB_DCVS_SET);
+    let ack = gmu.poll(
+        GMU_GMU2HOST_INTR_INFO,
+        1 << OOB_DCVS_ACK,
+        1 << OOB_DCVS_ACK,
+        20000,
+    );
+    gmu.write(GMU_GMU2HOST_INTR_CLR, 1 << OOB_DCVS_ACK);
+
+    // clear the OOB (like a6xx_gmu_clear_oob for DCVS_SET)
+    gmu.write(GMU_HOST2GMU_INTR_SET, 1 << OOB_DCVS_ACK);
+
+    let ret = gmu.read(GMU_DCVS_RETURN);
+    let ok = ack.is_some() && ret == 0;
+    crate::log!(
+        "SWEET GPU: set_freq perf_index {perf_index}: {} ret {ret:#x}",
+        if ok { "OK" } else { "FAILED" }
+    );
+    ok
+}
+
+/// Exported to XNU / cp.rs: raise the GPU to the requested perf level after
+/// HFI boot.  Called once during bringup.  `sweetgpu_freq=N` boot-arg picks
+/// the index (default 4 = 430 MHz SVS_L1 on most bins).
+#[unsafe(no_mangle)]
+pub extern "C" fn sweet_rs_gpu_set_freq(gmu_pa: u64, gmu_size: u64, level: u32) -> i32 {
+    let Some(gmu_mmio) = crate::xnu::Mmio::map(gmu_pa, gmu_size as usize) else {
+        return -1;
+    };
+    let gmu = Gmu(gmu_mmio);
+    if gpu_set_freq(&gmu, level) { 0 } else { -1 }
+}
+
 fn hfi_start(gmu: &Gmu) -> bool {
     gmu.write(GMU_HFI_CTRL_INIT, 1);
     let r = gmu.poll(GMU_HFI_CTRL_STATUS, 1, 1, 10000);
@@ -488,9 +537,14 @@ fn stage_c(gmu: &Gmu, cc: &Mmio, mem: Option<crate::gmumem::GmuMem>, boot: &GmuB
         } else {
             crate::log!("SWEET GPU: stage D done (GMU memory mapped, HFI started)");
             if ring.boot(gmu, boot.boot_state) {
-                // legacy GMU: no HFI perf vote (Linux sets the level via the DCVS
-                // registers + OOB on v1); the boot_slumber vote already holds the top level
                 hfi_up = true;
+                // Legacy GMU (a618 HFI v1): raise the GPU frequency via the DCVS
+                // registers + OOB.  Boot-arg sweetgpu_freq=N selects the perf index
+                // (default 4 = 430 MHz SVS_L1); 0 = no change (stay at boot clock).
+                let freq_level = crate::xnu::boot_arg_u32(c"sweetgpu_freq").unwrap_or(4);
+                if freq_level > 0 {
+                    gpu_set_freq(gmu, freq_level);
+                }
             }
         }
     }
