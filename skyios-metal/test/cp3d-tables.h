@@ -1,5 +1,5 @@
-// Generated from skyios-kernel/src/cp3d.rs (INIT, STATE): the a6xx gen1
-// register values of the kernel 3D self tests, for user command streams.
+// Generated from skyios-kernel/src/cp3d.rs (INIT, STATE, TEXQ): the a6xx
+// gen1 register values of the kernel 3D self tests, for user command streams.
 #include <stdint.h>
 
 static const uint32_t CP3D_INIT[][2] = {
@@ -211,5 +211,48 @@ static const uint32_t CP3D_STATE[][2] = {
     {0x9b00, 0}, // PC_CNTL
     {0x9803, 0xffffffff}, // PC_RESTART_INDEX
     {0x9802, 0}, // PC_DS_PARAM
+};
+
+static const uint32_t CP3D_TEXQ[][2] = {
+    {0xa000, 0x202}, // VFD_CNTL_0: 2 fetches, 2 decodes
+    {0xa0d1, 0x43}, // VFD_DEST_CNTL[1]: r1.xy
+    {0xa092, 0xc6700200}, // VFD_FETCH_INSTR[1]: FMT6_32_32_FLOAT at +16
+    {0xa093, 0},
+    {0xa013, 24}, // VFD_VERTEX_BUFFER[0].STRIDE
+    {0xa012, 96}, // VFD_VERTEX_BUFFER[0].SIZE
+    {0xa800, 0x00100100}, // SP_VS_CNTL_0: footprint 2
+    {0xa803, 0x0f000304}, // SP_VS_OUTPUT[0]: uv r1.xy, pos r0.xyzw
+    {0xa813, 0x200}, // SP_VS_VPC_DEST[0]: uv loc 0, pos loc 2
+    {0x9301, 0x00ff0206}, // VPC_VS_CNTL: stride 6, position loc 2
+    {0x9b01, 6}, // PC_VS_CNTL
+    {0xa802, 2}, // SP_VS_OUTPUT_CNTL
+    {0x9200, 0}, // VPC_VARYING_INTERP_MODE[0..7]: smooth
+    {0x9201, 0},
+    {0x9202, 0},
+    {0x9203, 0},
+    {0x9204, 0},
+    {0x9205, 0},
+    {0x9206, 0},
+    {0x9207, 0},
+    {0x9208, 0}, // VPC_VARYING_REPLACE_MODE[0..7]
+    {0x9209, 0},
+    {0x920a, 0},
+    {0x920b, 0},
+    {0x920c, 0},
+    {0x920d, 0},
+    {0x920e, 0},
+    {0x920f, 0},
+    {0xa980, 0x85400100}, // SP_PS_CNTL_0: footprint 2, VARYING, PIXLODENABLE
+    {0xb980, 2}, // SP_PS_WAVE_CNTL: THREAD64, VARYINGS
+    {0xab04, 0x00020300}, // SP_PS_CONFIG: 1 tex, 1 sampler
+    {0xa99e, 0x11}, // SP_PS_INITIAL_TEX_LOAD_CNTL: 1 prefetch, ENDOFQUAD
+    {0xa99f, 0x23c40000}, // ..._CMD[0]: SAM loc 0 -> r1.xyzw, s#0 t#0
+    {0xa9a3, 0}, // SP_PS_INITIAL_TEX_INDEX[0]
+    {0xb984, 0xfcfcfc00}, // SP_REG_PROG_ID_1: IJ_PERSP_PIXEL in r0.xy
+    {0x8005, 1}, // GRAS_CL_INTERP_CNTL: IJ_PERSP_PIXEL
+    {0x8809, 0x401}, // RB_INTERP_CNTL: IJ_PERSP_PIXEL, INTERP_EN
+    {0x9212, 0xfffffffc}, // VPC_VARYING_LM_TRANSFER_CNTL[0]: locs 0,1
+    {0x9304, 0xff01ff02}, // VPC_PS_CNTL: 2 varyings
+    {0xa98e, 4}, // SP_PS_OUTPUT[0].REG: r1
 };
 

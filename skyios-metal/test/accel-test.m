@@ -156,9 +156,8 @@ static void event_ts(struct buf *b, uint32_t ev, uint64_t a, uint32_t v) {
     emit(b, v);
 }
 
-static void triangle(struct buf *b, uint64_t d3, uint64_t target, uint32_t pitch) {
-    uint64_t vs = d3, fs = d3 + 0x80, vb = d3 + 0x100, border = d3 + 0x200, ts = d3 + 0x300;
-    // emit_init
+// emit_init of cp3d.rs: static state, CCU in sysmem (bypass) mode
+static void init3d(struct buf *b, uint64_t border, uint64_t ts) {
     event(b, 0x31); // CACHE_INVALIDATE
     reg1(b, 0xbb08, 0x000fffff); // SP_UPDATE_CNTL
     emit(b, pkt7(CP_WAIT_FOR_IDLE, 0));
@@ -176,10 +175,23 @@ static void triangle(struct buf *b, uint64_t d3, uint64_t target, uint32_t pitch
     event(b, 0x18);
     emit(b, pkt7(CP_WAIT_FOR_IDLE, 0));
     reg1(b, 0x8e07, CCU_CNTL_BYPASS);
-    // emit_state
+}
+
+struct draw3d {
+    const uint32_t (*overlay)[2];
+    size_t noverlay;
+    uint64_t vs, fs, vb;
+    uint64_t desc; // texture descriptor (16 dwords) + sampler at +64, or 0
+    uint32_t initiator, verts;
+};
+
+// emit_state + emit_draw of cp3d.rs into an RGBA8 target
+static void draw3d(struct buf *b, const struct draw3d *d, uint64_t target, uint32_t pitch) {
     reg1(b, 0xbb08, 0x19f);
     for (size_t i = 0; i < sizeof(CP3D_STATE) / sizeof(CP3D_STATE[0]); i++)
         reg1(b, CP3D_STATE[i][0], CP3D_STATE[i][1]);
+    for (size_t i = 0; i < d->noverlay; i++)
+        reg1(b, d->overlay[i][0], d->overlay[i][1]);
     uint32_t mrt[6] = {0x30, pitch >> 6, 0, (uint32_t)target, (uint32_t)(target >> 32), 0};
     reg(b, 0x8822, mrt, 6);      // RB_MRT[0]: BUF_INFO, PITCH, ARRAY_PITCH, BASE, BASE_GMEM
     reg1(b, 0xa996, 0x30);
@@ -188,9 +200,9 @@ static void triangle(struct buf *b, uint64_t d3, uint64_t target, uint32_t pitch
         reg(b, 0x8822 + 8 * i, zero6, 6);
         reg1(b, 0xa996 + i, 0);
     }
-    lohi_reg(b, 0xa81c, vs);     // SP_VS_BASE
-    lohi_reg(b, 0xa983, fs);     // SP_PS_BASE
-    lohi_reg(b, 0xa010, vb);     // VFD_VERTEX_BUFFER[0].BASE
+    lohi_reg(b, 0xa81c, d->vs);  // SP_VS_BASE
+    lohi_reg(b, 0xa983, d->fs);  // SP_PS_BASE
+    lohi_reg(b, 0xa010, d->vb);  // VFD_VERTEX_BUFFER[0].BASE
     emit(b, pkt7(0x65, 1));      // CP_SET_MARKER: RM6_DIRECT_RENDER
     emit(b, 1);
     emit(b, pkt7(0x1d, 1));      // CP_SKIP_IB2_ENABLE_GLOBAL
@@ -201,21 +213,47 @@ static void triangle(struct buf *b, uint64_t d3, uint64_t target, uint32_t pitch
     emit(b, 0);
     emit(b, pkt7(0x32, 3));      // CP_LOAD_STATE6_GEOM: VS icache preload
     emit(b, (2 << 16) | (8 << 18) | (1 << 22));
-    emit(b, (uint32_t)vs);
-    emit(b, (uint32_t)(vs >> 32));
+    emit(b, (uint32_t)d->vs);
+    emit(b, (uint32_t)(d->vs >> 32));
     emit(b, pkt7(0x34, 3));      // CP_LOAD_STATE6_FRAG: FS icache preload
     emit(b, (2 << 16) | (0xc << 18) | (1 << 22));
-    emit(b, (uint32_t)fs);
-    emit(b, (uint32_t)(fs >> 32));
-    // emit_draw: DI_PT_TRILIST, AUTO_INDEX, USE_VISIBILITY; 3 vertices
-    emit(b, pkt7(0x38, 3));
-    emit(b, 0x184);
+    emit(b, (uint32_t)d->fs);
+    emit(b, (uint32_t)(d->fs >> 32));
+    if (d->desc) {
+        uint64_t samp = d->desc + 64;
+        emit(b, pkt7(0x34, 3));  // samplers: ST6_SHADER, SB6_FS_TEX
+        emit(b, (2 << 16) | (4 << 18) | (1 << 22));
+        emit(b, (uint32_t)samp);
+        emit(b, (uint32_t)(samp >> 32));
+        lohi_reg(b, 0xa9e0, samp); // SP_PS_SAMPLER_BASE
+        emit(b, pkt7(0x34, 3));  // textures: ST6_CONSTANTS, SB6_FS_TEX
+        emit(b, (1 << 14) | (2 << 16) | (4 << 18) | (1 << 22));
+        emit(b, (uint32_t)d->desc);
+        emit(b, (uint32_t)(d->desc >> 32));
+        lohi_reg(b, 0xa9e4, d->desc); // SP_PS_TEXMEMOBJ_BASE
+        reg1(b, 0xa9a7, 1);      // SP_PS_TSIZE
+    }
+    emit(b, pkt7(0x38, 3));      // CP_DRAW_INDX_OFFSET
+    emit(b, d->initiator);
     emit(b, 1);
-    emit(b, 3);
-    // emit_finish (the fence comes from the kernel)
-    event_ts(b, 0x1d, ts, 0x12);
-    event(b, 0x19);
+    emit(b, d->verts);
+}
+
+// colour cache to memory and texture caches dropped, so the next draw can
+// sample what this one wrote (the barrier framebuffer fetch emulation needs)
+static void barrier3d(struct buf *b, uint64_t ts, uint32_t v) {
+    event_ts(b, 0x1d, ts, v);    // PC_CCU_FLUSH_COLOR_TS
+    event(b, 0x19);              // PC_CCU_INVALIDATE_COLOR
     emit(b, pkt7(CP_WAIT_FOR_IDLE, 0));
+    event(b, 0x31);              // CACHE_INVALIDATE
+    emit(b, pkt7(CP_WAIT_FOR_IDLE, 0));
+}
+
+static void triangle(struct buf *b, uint64_t d3, uint64_t target, uint32_t pitch) {
+    init3d(b, d3 + 0x200, d3 + 0x300);
+    struct draw3d d = {NULL, 0, d3, d3 + 0x80, d3 + 0x100, 0, 0x184, 3}; // DI_PT_TRILIST
+    draw3d(b, &d, target, pitch);
+    barrier3d(b, d3 + 0x300, 0x12);
 }
 
 // coverage of the triangle (0,0) (64,0) (32,64) at pixel centres, 1/0, or
@@ -409,6 +447,86 @@ static int run(void) {
         IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
         say("test 5 user 3D triangle into IOSurface: %s (inside %d/%d, outside %d/%d, px(32,16) %#x, %llu us)",
             r == 0 && tin == win && tout == wout ? "OK" : "FAIL", tin, win, tout, wout, p16, ns / 1000);
+        IOConnectCallScalarMethod(conn, SEL_FREE, so, 1, NULL, NULL);
+        CFRelease(surf);
+    }
+    // 6: framebuffer-fetch emulation check: a textured quad that samples
+    // the IOSurface it renders into. One draw swaps R and B (the texture is
+    // read BGRA, the target written RGBA); a second draw after a cache
+    // barrier must read the first draw's result and swap back.
+    {
+        NSDictionary *props = @{
+            (id)kIOSurfaceWidth : @64, (id)kIOSurfaceHeight : @64, (id)kIOSurfaceBytesPerElement : @4,
+            (id)kIOSurfaceBytesPerRow : @256, (id)kIOSurfacePixelFormat : @(0x42475241)
+        };
+        IOSurfaceRef surf = IOSurfaceCreate((__bridge CFDictionaryRef)props);
+        struct buf d3;
+        if (!surf || alloc(&d3, 16384))
+            return -13;
+        for (int i = 0; i < 16384 / 4; i++)
+            d3.cpu[i] = 0;
+        const uint32_t vsc[2] = {0, 0x03000000};                      // end
+        const uint32_t fsc[4] = {0x00002000, 0x473080fc, 0, 0x13000000}; // bary.f (ei)r63.x; (sy)end
+        memcpy((void *)d3.cpu, vsc, sizeof(vsc));
+        memcpy((void *)(d3.cpu + 0x80 / 4), fsc, sizeof(fsc));
+        const uint32_t M1 = 0xbf800000, ONE = 0x3f800000;
+        const uint32_t verts[24] = {M1, M1, 0, ONE, 0, 0, ONE, M1, 0, ONE, ONE, 0,
+                                    M1, ONE, 0, ONE, 0, ONE, ONE, ONE, 0, ONE, ONE, ONE};
+        memcpy((void *)(d3.cpu + 0x100 / 4), verts, sizeof(verts));
+        IOSurfaceLock(surf, 0, NULL);
+        uint32_t *px = IOSurfaceGetBaseAddress(surf);
+        size_t bpr = IOSurfaceGetBytesPerRow(surf);
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++) // cp3d.rs texel(): memory order B, G, R, A
+                px[y * bpr / 4 + x] = (4 * x) | ((4 * y) << 8) | (((4 * (x ^ y)) & 0xfc) << 16) | ((0x80 + x) << 24);
+        IOSurfaceUnlock(surf, 0, NULL);
+        uint64_t sid = IOSurfaceGetID(surf), so[4] = {0};
+        uint32_t n4 = 4;
+        kern_return_t kr = IOConnectCallScalarMethod(conn, SEL_IMPORT, &sid, 1, so, &n4);
+        if (kr != KERN_SUCCESS || so[2] != 256)
+            return -14;
+        uint64_t img = so[1] + so[3];
+        // A6XX_TEX_MEMOBJ (cp3d.rs tex_desc): BGRA8 linear 64x64, pitch 256; nearest, clamp
+        const uint32_t desc[6] = {0x4c006880, 64 | (64 << 15), 2 | (256 << 7) | (1 << 29), 0, (uint32_t)img,
+                                  (uint32_t)(img >> 32) | (1 << 17)};
+        memcpy((void *)(d3.cpu + 0x400 / 4), desc, sizeof(desc));
+        const uint32_t samp[4] = {0x920, 0x40, 0, 0}; // cp3d.rs 0x92a without the linear filter bits
+        memcpy((void *)(d3.cpu + 0x440 / 4), samp, sizeof(samp));
+        struct draw3d q = {CP3D_TEXQ, sizeof(CP3D_TEXQ) / sizeof(CP3D_TEXQ[0]), d3.iova, d3.iova + 0x80,
+                           d3.iova + 0x100, d3.iova + 0x400, 0x186, 4}; // DI_PT_TRISTRIP
+        for (int pass = 1; pass <= 2; pass++) {
+            cmd.dw = 0;
+            init3d(&cmd, d3.iova + 0x200, d3.iova + 0x300);
+            for (int k = 0; k < pass; k++) {
+                draw3d(&cmd, &q, img, 256);
+                barrier3d(&cmd, d3.iova + 0x300, 0x20 + k);
+            }
+            // restore the pattern first for pass 2
+            if (pass == 2) {
+                IOSurfaceLock(surf, 0, NULL);
+                for (int y = 0; y < 64; y++)
+                    for (int x = 0; x < 64; x++)
+                        px[y * bpr / 4 + x] = (4 * x) | ((4 * y) << 8) | (((4 * (x ^ y)) & 0xfc) << 16) | ((0x80 + x) << 24);
+                IOSurfaceUnlock(surf, 0, NULL);
+            }
+            r = submit_wait(&cmd, 2000, &ns);
+            IOSurfaceLock(surf, kIOSurfaceLockReadOnly, NULL);
+            int ok = 0;
+            uint32_t first = 0;
+            for (int y = 0; y < 64; y++)
+                for (int x = 0; x < 64; x++) {
+                    uint32_t t = (4 * x) | ((4 * y) << 8) | (((4 * (x ^ y)) & 0xfc) << 16) | ((0x80 + x) << 24);
+                    uint32_t want = pass == 1 ? ((t & 0xff00ff00) | ((t & 0xff) << 16) | ((t >> 16) & 0xff)) : t;
+                    uint32_t v = px[y * bpr / 4 + x];
+                    if (v == want)
+                        ok++;
+                    else if (!first)
+                        first = v ? v : 1;
+                }
+            IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
+            say("test 6 self-sampling quad, %d draw%s: %s (%d/4096 exact, first wrong %#x, %llu us)", pass,
+                pass == 1 ? "" : "s + barrier", r == 0 && ok == 4096 ? "OK" : "FAIL", ok, first, ns / 1000);
+        }
         IOConnectCallScalarMethod(conn, SEL_FREE, so, 1, NULL, NULL);
         CFRelease(surf);
     }
