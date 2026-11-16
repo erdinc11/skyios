@@ -58,6 +58,18 @@ static id sky_init(id self, SEL _cmd, io_service_t port) {
     struct objc_super sup = {self, class_getSuperclass(object_getClass(self))};
     self = ((id(*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, @selector(init));
     sky_log("initWithAcceleratorPort: %#x from pid %d -> %p", port, getpid(), self);
+    // CoreAnimation's CADeviceUseCIF10 picks the 10-bit extended-range
+    // ("deep") framebuffer unless this preference of the process is false;
+    // that framebuffer makes CA blend in its shaders with framebuffer fetch
+    // (0111n-r), which the Adreno cannot do in sysmem. Persisted by cfprefsd,
+    // so it holds from the next start at the latest.
+    Boolean have = false;
+    Boolean deep = CFPreferencesGetAppBooleanValue(CFSTR("CAEnableDeepFramebuffer"), kCFPreferencesCurrentApplication, &have);
+    if (!have || deep) {
+        CFPreferencesSetAppValue(CFSTR("CAEnableDeepFramebuffer"), kCFBooleanFalse, kCFPreferencesCurrentApplication);
+        CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
+    }
+    sky_log("CAEnableDeepFramebuffer was %s, now false", have ? (deep ? "true" : "false") : "unset");
     return self;
 }
 
@@ -72,7 +84,7 @@ static const struct {
     {"maxThreadgroupMemoryLength", 0x8000},
     {"requiresRaytracingEmulation", 0x1},
     {"deviceLinearReadOnlyTextureAlignmentBytes", 0x10},
-    {"supportsMemorylessRenderTargets", 0x1},
+    {"supportsMemorylessRenderTargets", 0}, // A11: 1; experiment 0111q
     {"indirectArgumentBufferCapabilities", 0x1},
     {"supportsVertexAmplification", 0},
     {"isRTZRoundingSupported", 0},
@@ -127,6 +139,7 @@ static const struct {
     {"maxRasterizationRateLayerCount", 0},
     {"maximumComputeSubstreams", 0},
     {"buildBVHForRIA", 0},
+    {"supportsExtendedXR10Formats", 0},
     {"maxColorAttachments", 8},
     {"maxIndirectSamplers", 16},
     {"maxIndirectSamplersPerDevice", 2048},

@@ -427,6 +427,8 @@ id sky_render_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d) {
     // Adreno cannot run (0111l: CA's warmup asked for tile_downsample_*)
     // without any Apple family (0111o) CoreAnimation stopped after the
     // shader warm-up and drew no frame
+    // Apple1 only switched CA's shaders between half (_lph) and float (_lpf)
+    // precision (0111p), framebuffer_fetch stayed on
     return f == MTLGPUFamilyApple1 || f == MTLGPUFamilyApple2 || f == MTLGPUFamilyApple3 ||
            f == MTLGPUFamilyCommon1 || f == MTLGPUFamilyCommon2;
 }
