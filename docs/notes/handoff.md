@@ -2,7 +2,7 @@
 
 ## Agent handoff / active work (2026-11-16, latest)
 
-### >>> HANDOFF 2026-11-16 (read first): state of the GPU / Metal work, blockers, how to continue <<<
+### >>> HANDOFF 2026-11-16 (session 2, read first): GPU, Metal, WLAN status <<<
 
 **Goal:** CoreAnimation rendering on the Adreno 618 at 60 fps. **Not reached yet — but GPU is now 430 MHz and present path is fast enough (2.2 ms/frame = 454 fps capable). The bottleneck is now 100 % the CA software renderer (backboardd 142 % CPU at 25.8 fps).**
 
@@ -50,12 +50,17 @@ Enabled Metal for backboardd (`sweetaccel=2 sweetmetal_procs=skyios-accel-test,b
 - **CA uses `drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:`** (not `drawPrimitives:`) — our encoder doesn't implement it → draws silently fail (missing-selector resolver returns nil)
 - Phone in OrangeFox recovery after last log pull
 
+**What changed (session 2, commit 9990b0d):**
+- `drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:` implemented in SkyRender.m (CP_DRAW_INDX_OFFSET with SOURCE_SELECT=DMA, VFD_INDEX_OFFSET/BUFFER_BASE/BUFFER_SIZE). This was the blocker from boot 0114r.
+- **WLAN/en0 patch (0115) cleaned up:** removed TopazModem.cpp hunk (sweet doesn't have it) and MiniIONetworkStack.cpp (overlaps with 0104's SweetNetworkStack). `sweet_sta_init()` called from lib.rs FFI when `sweetwifi=1`; it sets the en0 ready hook so the C side creates the BSD en0 interface when the Rust radio comes up.
+- Notes restructured into `docs/notes/` (previous session, commit b95988b).
+
 **Next concrete action (for the next agent):**
-1. Implement `drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:` on SkyDrawEncoder — `CP_DRAW_INDX_OFFSET` with initiator 0x2184 (indexed triangle list) + index buffer GPU address. The cp3d.rs draw emitter already supports this; just need `VFD_INDEX_OFFSET` + `VFD_INDEX_BUFFER_BASE` + `VFD_INDEX_BUFFER_SIZE` registers + the indexed initiator bits.
-2. After indexed draws execute, the screen should show SOMETHING (even if wrong colours/positions, confirming GPU rendering works for CA).
-3. Then fix the vertex shader (CA sends world coords + 4×4 matrix; our VS just passes through).
-4. Then fix the fragment shader (CA's fb-fetch compositing vs our solid red).
-5. Then implement `setFragmentBuffer:offset:atIndex:` / `setFragmentBufferOffset:` for CA's constant data.
+1. **Test boot with sweetaccel=2:** indexed draws should now execute for CA. The screen should show SOMETHING (even if wrong colours/positions, confirming GPU rendering works for CA).
+2. Then fix the vertex shader (CA sends world coords + 4×4 matrix; our VS just passes through).
+3. Then fix the fragment shader (CA's fb-fetch compositing vs our solid red).
+4. Then implement `setFragmentBuffer:offset:atIndex:` / `setFragmentBufferOffset:` for CA's constant data.
+5. **WLAN test:** boot with `sweetwifi=1` to see if the ath10k radio initializes and en0 comes up. The full 4-way WPA2 handshake is in Rust (`sta.rs`); boot-arg `sweetwifi_ssid=NAME` + `sweetwifi_psk=PASS` to associate.
 
 **Phone state:** OrangeFox recovery, `adb devices` shows `29f6eaa3 recovery`.
 
