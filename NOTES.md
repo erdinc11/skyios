@@ -2,6 +2,13 @@
 
 ## Agent handoff / active work (2026-11-15, latest)
 
+### >>> MILESTONE 2026-11-16: USER-SPACE GPU COMMAND SUBMISSION WORKS (boot 0111h) <<<
+
+- **Boot 0111h (build57, `logs/live-0111h.txt`, `logs/ring-0111h.txt`, observed):** `skyios-accel-test` (run by `sweetrun=DumpPanic`, uid 0) opens SkyAdrenoAccel, `user submissions on ... cp protect cntl 0xb`, maps buffers at `0xc0000000`/`0xc0010000`/`0xc0014000`; **test 1 CP_MEM_WRITE OK (223 us round trip), test 2 user 2D fill OK (1536/1536 inside, 2560/2560 outside, 348 us), test 3 1080x2400 fill 36 ms = 72 Mpx/s** (same clock-bound rate as the kernel present copy), `ALL USER GPU TESTS DONE`, then DumpPanic ran, `sweetreboot` reset at 240 s. No hang.
+- **The 0111d-g hangs, found step by step (each step logged + 1.5 s sleep, `ufslogsecs=1`, `sweetwdog=30`):** 0111g stopped inside `createMappingInTask(..., kIOMapWriteCombineCache)`. Fix: task mapping with the default (cached) mode and explicit cache maintenance: the client flushes (clean+invalidate via the kernel alias) all its buffers before each submit and after each completed wait. Also changed on the way: the user page tables are 17 single 16 KiB pages (`cpuser.rs Tables`), not one 65-page contiguous allocation (not proven to be a problem, but safer). The debug sleeps (`sky_step`, `sleep_ms(1500)` in `sweet_rs_gpu_user_open`) are still in this build.
+- **`sweetwdog=30` works (observed 0111e/f/g):** hangs reset the phone ~30 s later, the cycle found it in recovery/fastboot and pulled the ring log. Keep it in test cmdlines.
+- **Installer is now multi-entry** (xnu 0110, `skyios mktool OUT SRC=/dest ... /dir/`), directories via `sweet_mkdir`; **`SkyAdrenoMetalAccel`** (an `IOAcceleratorES` subclass, only with `sweetaccel=2`) carries `MetalPluginName=SkyAdrenoMetal`, `MetalPluginClassName=SkyAdrenoMetalDevice`. Both built (build54+) but the Metal path is not booted yet. Probe bundle source: `skyios-metal/bundle/SkyAdrenoMetal.m` (class made at load on top of `_MTLDevice`, logs every missing selector once).
+
 ### >>> UPDATE 2026-11-16: Metal stage 2 = kernel accelerator service + user command submission; boot 0111d HUNG the phone (needs a hand reset) <<<
 
 - **What exists now (assistant, this commit):**

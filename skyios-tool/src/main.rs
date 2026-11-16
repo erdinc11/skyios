@@ -29,7 +29,7 @@ const USAGE: &str = "usage: skyios COMMAND ARGS...
   mkpayload KERNEL ADT OUT [--cmdline \"...\"] [--ramdisk IMAGE]
   mkshim SHIM PAYLOAD DTB OUT.img [--cmdline STR] [--image OUT.Image]
   mkinit OBJECT OUT [ENTITLEMENTS.plist]
-  mktool BINARY DEST_PATH OUT
+  mktool OUT SRC=/DEST... | /DIR/...
   adt dump FILE [--hex] | adt unwrap IM4P OUT
   patch-launchd-plist IN.plist OUT.plist LABEL [LABEL ...]
   mkiosroot OS.dmg SystemOS.dmg AppOS.dmg OUT.img [SIZE]

@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/iokit/Kernel/arm/SkyAdrenoAccel.cpp
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,396 @@
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
@@ -15,9 +15,11 @@
 +/*
 + * Adreno 618 accelerator service (stage 2 of the Metal driver plan): GPU
 + * buffers shared with the calling task and command streams run through the
-+ * skyios-kernel CP ring (cpuser.rs). Boot-arg sweetaccel=1 publishes the
-+ * service; sweetaccel=2 also sets MetalPluginName/MetalPluginClassName so
-+ * Metal.framework would try to load SkyAdrenoMetal.bundle (not written yet).
++ * skyios-kernel CP ring (cpuser.rs). Boot-arg sweetaccel=1 publishes
++ * SkyAdrenoAccel; sweetaccel=2 also publishes SkyAdrenoMetalAccel, an
++ * IOAcceleratorES with MetalPluginName/MetalPluginClassName: Metal.framework
++ * (_MTLRegisterDevices) then loads /System/Library/Extensions/
++ * SkyAdrenoMetal.bundle and calls initWithAcceleratorPort: on its class.
 + * Root only.
 + *
 + * Selectors (scalars):
@@ -44,6 +46,17 @@
 +#define SKY_MAX_SIZE    (32ULL << 20)
 +#define SKY_HANG_MS     3000
 +
++/* debug: the first allocations log each step and wait for the persistent
++ * log to reach the disk (0111d-f hung the phone inside the first alloc) */
++static void
++sky_step(bool trace, const char *what, uint64_t v)
++{
++	if (trace) {
++		IOLog("SWEET ACCEL: alloc step %s %#llx\n", what, v);
++		IOSleep(1500);
++	}
++}
++
 +class SkyAdrenoAccel : public IOService {
 +	OSDeclareDefaultStructors(SkyAdrenoAccel);
 +
@@ -64,12 +77,41 @@
 +	setProperty(kIOUserClientClassKey, "SkyAdrenoAccelClient");
 +	setProperty("GPUModel", "Adreno 618");
 +	setProperty("SkyChipID", SKY_CHIP_ID, 64);
-+	if (mode >= 2) {
-+		setProperty("MetalPluginName", "SkyAdrenoMetal");
-+		setProperty("MetalPluginClassName", "SkyAdrenoMetalDevice");
-+	}
 +	registerService();
 +	IOLog("SWEET ACCEL: SkyAdrenoAccel registered (mode %u)\n", mode);
++	return true;
++}
++
++/* what Metal.framework matches on (normally IOAcceleratorFamily's class) */
++class IOAcceleratorES : public IOService {
++	OSDeclareDefaultStructors(IOAcceleratorES);
++};
++
++OSDefineMetaClassAndStructors(IOAcceleratorES, IOService);
++
++class SkyAdrenoMetalAccel : public IOAcceleratorES {
++	OSDeclareDefaultStructors(SkyAdrenoMetalAccel);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(SkyAdrenoMetalAccel, IOAcceleratorES);
++
++bool
++SkyAdrenoMetalAccel::start(IOService *provider)
++{
++	unsigned int mode = 0;
++	(void)PE_parse_boot_argn("sweetaccel", &mode, sizeof(mode));
++	if (mode < 2 || !IOService::start(provider)) {
++		return false;
++	}
++	setProperty(kIOUserClientClassKey, "SkyAdrenoAccelClient");
++	setProperty("GPUModel", "Adreno 618");
++	setProperty("MetalPluginName", "SkyAdrenoMetal");
++	setProperty("MetalPluginClassName", "SkyAdrenoMetalDevice");
++	registerService();
++	IOLog("SWEET ACCEL: SkyAdrenoMetalAccel (IOAcceleratorES) registered\n");
 +	return true;
 +}
 +
@@ -91,6 +133,7 @@
 +	IOReturn release(uint64_t handle);
 +	IOReturn submit(uint64_t handle, uint64_t off, uint64_t dwords, uint64_t *seq);
 +	IOReturn wait(uint64_t seq, uint64_t ms, uint64_t *status);
++	void flushAll(void);
 +
 +public:
 +	bool initWithTask(task_t owningTask, void *securityID, UInt32 type) APPLE_KEXT_OVERRIDE;
@@ -128,12 +171,11 @@
 +	size = round_page(size);
 +	static uint32_t logged;
 +	bool trace = logged++ < 2;
-+	if (trace) {
-+		IOLog("SWEET ACCEL: alloc %llu: open\n", size);
-+	}
++	sky_step(trace, "size", size);
 +	if (!sweet_rs_gpu_user_open()) {
 +		return kIOReturnNotReady;
 +	}
++	sky_step(trace, "gpu open done", 0);
 +	uint32_t slot = 0;
 +	while (slot < SKY_MAX_BUFS && fBufs[slot].md != NULL) {
 +		slot++;
@@ -146,13 +188,14 @@
 +	if (md == NULL) {
 +		return kIOReturnNoMemory;
 +	}
-+	/* zeroed through the cached kernel alias: push it out and drop the lines,
-+	 * user and GPU only ever see the memory uncached */
-+	if (trace) {
-+		IOLog("SWEET ACCEL: alloc: md %p va %p\n", md, md->getBytesNoCopy());
-+	}
++	/* the GPU is not coherent with the CPU caches: buffers are flushed
++	 * (clean + invalidate, through this kernel alias) around every submit
++	 * and wait; mapped cached in the task (a write-combine task mapping hung
++	 * the phone in createMappingInTask, 0111g) */
++	sky_step(trace, "md", (uint64_t)md->getBytesNoCopy());
 +	bzero(md->getBytesNoCopy(), size);
 +	sweet_rs_cache_flush((uintptr_t)md->getBytesNoCopy(), size);
++	sky_step(trace, "zeroed", 0);
 +
 +	uint32_t nseg = 0;
 +	uint64_t (*segs)[2] = (uint64_t (*)[2])IOMalloc(sizeof(uint64_t[2]) * (size / page_size));
@@ -179,15 +222,15 @@
 +		md->release();
 +		return kIOReturnNoSpace;
 +	}
-+	if (trace) {
-+		IOLog("SWEET ACCEL: alloc: %u segs, gpu %#llx\n", nseg, iova);
-+	}
-+	IOMemoryMap *map = md->createMappingInTask(fTask, 0, kIOMapAnywhere | kIOMapWriteCombineCache);
++	sky_step(trace, "segs", nseg);
++	sky_step(trace, "gpu iova", iova);
++	IOMemoryMap *map = md->createMappingInTask(fTask, 0, kIOMapAnywhere);
 +	if (map == NULL) {
 +		sweet_rs_gpu_user_unmap(iova, size);
 +		md->release();
 +		return kIOReturnVMError;
 +	}
++	sky_step(trace, "task map", map->getAddress());
 +	fBufs[slot].md = md;
 +	fBufs[slot].map = map;
 +	fBufs[slot].iova = iova;
@@ -226,12 +269,23 @@
 +	if ((off & 3) != 0 || dwords == 0 || off >= b->size || dwords > (b->size - off) / 4) {
 +		return kIOReturnBadArgument;
 +	}
++	flushAll();
 +	uint32_t s = sweet_rs_gpu_user_submit(b->iova + off, (uint32_t)dwords);
 +	if (s == 0) {
 +		return kIOReturnIOError;
 +	}
 +	*seq = s;
 +	return kIOReturnSuccess;
++}
++
++void
++SkyAdrenoAccelClient::flushAll(void)
++{
++	for (uint32_t i = 0; i < SKY_MAX_BUFS; i++) {
++		if (fBufs[i].md != NULL) {
++			sweet_rs_cache_flush((uintptr_t)fBufs[i].md->getBytesNoCopy(), fBufs[i].size);
++		}
++	}
 +}
 +
 +IOReturn
@@ -242,6 +296,9 @@
 +		int32_t r = sweet_rs_gpu_user_done((uint32_t)seq);
 +		if (r != 0) {
 +			*status = r > 0 ? 0 : 2;
++			IOLockLock(fLock);
++			flushAll();
++			IOLockUnlock(fLock);
 +			return kIOReturnSuccess;
 +		}
 +		now = mach_absolute_time();
@@ -352,13 +409,18 @@
  iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -88,6 +88,11 @@
+@@ -88,6 +88,16 @@
      "     'IOMatchCategory' = SweetHIDTouch;"
      "   },"
      "   {"
 +    "     'IOClass'         = SkyAdrenoAccel;"
 +    "     'IOProviderClass' = IOResources;"
 +    "     'IOMatchCategory' = SkyAdrenoAccel;"
++    "   },"
++    "   {"
++    "     'IOClass'         = SkyAdrenoMetalAccel;"
++    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = SkyAdrenoMetalAccel;"
 +    "   },"
 +    "   {"
      "     'IOClass'         = SweetBattery;"

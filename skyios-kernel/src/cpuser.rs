@@ -61,9 +61,49 @@ const PROTECT: [u32; 32] = [
     nordwr(0x11c00, 0x0000),
 ];
 
+// 16 KiB XNU pages, each one physically contiguous: 4 L3 tables per chunk
+const CHUNK: usize = 0x4000;
+const L3_CHUNKS: usize = USER_L3 * PAGE / CHUNK;
+
+// Page tables for the user slot, allocated as single XNU pages: a 65-page
+// contiguous allocation after boot (0111d/0111e) hung the whole phone,
+// presumably in kmem_alloc_contig's scan of fragmented memory.
+pub struct Tables {
+    l2: Dma,
+    l3: [Option<Dma>; L3_CHUNKS],
+}
+
+impl Tables {
+    fn alloc() -> Option<Tables> {
+        let mut t = Tables { l2: Dma::alloc(CHUNK)?, l3: [const { None }; L3_CHUNKS] };
+        for c in t.l3.iter_mut() {
+            *c = Some(Dma::alloc(CHUNK)?);
+        }
+        Some(t)
+    }
+
+    fn chunk(&self, p: usize) -> &Dma {
+        self.l3[p / 512 / (CHUNK / PAGE)].as_ref().unwrap()
+    }
+
+    fn set(&self, p: usize, pte: u64) {
+        self.chunk(p).w64((p / 512 % (CHUNK / PAGE)) * PAGE + (p % 512) * 8, pte);
+    }
+
+    fn clean(&self, first: usize, n: usize) {
+        let mut last = usize::MAX;
+        for p in first..first + n {
+            let c = p / 512 / (CHUNK / PAGE);
+            if c != last {
+                self.l3[c].as_ref().unwrap().clean();
+                last = c;
+            }
+        }
+    }
+}
+
 pub struct User {
-    // page 0 L2, pages 1.. L3
-    pt: Dma,
+    pt: Tables,
     used: [u64; USER_PAGES / 64],
 }
 
@@ -112,7 +152,7 @@ impl User {
 }
 
 impl Engine {
-    fn user_open(&mut self, pt: Dma) -> bool {
+    fn user_open(&mut self, pt: Tables) -> bool {
         if self.user.is_some() {
             return true;
         }
@@ -120,17 +160,24 @@ impl Engine {
         if !self.idle() {
             return false;
         }
-        for i in 0..pt.size / 8 {
-            pt.w64(8 * i, 0);
+        for i in 0..CHUNK / 8 {
+            pt.l2.w64(8 * i, 0);
+        }
+        for c in pt.l3.iter().flatten() {
+            for i in 0..CHUNK / 8 {
+                c.w64(8 * i, 0);
+            }
+            c.clean();
         }
         for i in 0..USER_L3 {
-            pt.w64(8 * i, pte_table(pt.pa + ((1 + i) * PAGE) as u64));
+            let c = pt.l3[i / (CHUNK / PAGE)].as_ref().unwrap();
+            pt.l2.w64(8 * i, pte_table(c.pa + ((i % (CHUNK / PAGE)) * PAGE) as u64));
         }
-        pt.clean();
-        self.mem.dma.w64(((USER_IOVA >> 30) as usize) * 8, pte_table(pt.pa));
+        pt.l2.clean();
+        self.mem.dma.w64(((USER_IOVA >> 30) as usize) * 8, pte_table(pt.l2.pa));
         self.mem.dma.clean();
         tlb_flush(&self.smmu);
-        crate::log!("SWEET CP: user open: page tables at {:#x}, cp protect next", pt.pa);
+        crate::log!("SWEET CP: user open: L2 at {:#x}, cp protect next", pt.l2.pa);
         let g = &self.gpu;
         g.write(CP_PROTECT_CNTL, (1 << 3) | (1 << 1) | 1);
         for (i, &v) in PROTECT[..CP_PROTECT_COUNT - 1].iter().enumerate() {
@@ -159,20 +206,20 @@ impl Engine {
                 if p == first + n {
                     break;
                 }
-                u.pt.w64(PAGE + 8 * p, pte_page(pa + (k * PAGE) as u64));
+                u.pt.set(p, pte_page(pa + (k * PAGE) as u64));
                 p += 1;
             }
         }
         if p < first + n {
             for q in first..p {
-                u.pt.w64(PAGE + 8 * q, 0);
+                u.pt.set(q, 0);
             }
             return 0;
         }
         for q in first..p {
             u.set_used(q, true);
         }
-        u.pt.clean();
+        u.pt.clean(first, n);
         tlb_flush(&self.smmu);
         crate::log!("SWEET CP: user map {:#x} bytes at iova {:#x}", bytes, USER_IOVA + (first * PAGE) as u64);
         USER_IOVA + (first * PAGE) as u64
@@ -186,10 +233,10 @@ impl Engine {
         let Some(u) = self.user.as_mut() else { return false };
         let Some((first, n)) = User::range(iova, bytes) else { return false };
         for p in first..first + n {
-            u.pt.w64(PAGE + 8 * p, 0);
+            u.pt.set(p, 0);
             u.set_used(p, false);
         }
-        u.pt.clean();
+        u.pt.clean(first, n);
         tlb_flush(&self.smmu);
         true
     }
@@ -270,11 +317,15 @@ pub extern "C" fn sweet_rs_gpu_user_open() -> bool {
         return true;
     }
     // allocate outside the engine lock: kmem_alloc_contig may take long
+    // debug (0111d-f hangs): give the persistent log time to reach the disk
     crate::log!("SWEET CP: user open: allocating page tables");
-    let Some(pt) = Dma::alloc((1 + USER_L3) * PAGE) else {
+    crate::xnu::sleep_ms(1500);
+    let Some(pt) = Tables::alloc() else {
         crate::log!("SWEET CP: user: no memory for page tables");
         return false;
     };
+    crate::log!("SWEET CP: user open: tables allocated, l2 {:#x}", pt.l2.pa);
+    crate::xnu::sleep_ms(1500);
     let ok = locked(|e| e.user_open(pt), false);
     OPEN.store(ok, Ordering::Release);
     ok

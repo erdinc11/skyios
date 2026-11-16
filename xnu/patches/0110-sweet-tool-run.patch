@@ -9,19 +9,19 @@
  
  char sweet_boot_note[256];
  
-@@ -658,6 +660,67 @@
- 	printf("SWEET AXPREFS: reduce transparency + motion written (backup %d, err %d resid %d chown %d)\n",
+@@ -659,6 +661,94 @@
  	    saved, err, resid, cherr);
  	sweet_note("axprefs backup %d err %d chown %d; ", saved, err, cherr);
-+}
+ }
 +
 +/*
 + * Test tool delivery without touching the root image by hand: skyios
-+ * mkpayload --ramdisk puts a "SKYTOOL1" file (128-byte header: size, mode,
-+ * destination path, then the bytes) in /chosen/memory-map RAMDisk; it is
-+ * written to its path here, root:wheel. kern_exec.c (sweetrun=NAME) then
-+ * runs it once in place of the first exec of a binary called NAME; the tool
-+ * execs the original when it is done.
++ * mktool packs entries (128-byte "SKYTOOL1" header: size, mode, destination
++ * path, then the bytes, each entry padded to 16 bytes; a directory has
++ * S_IFDIR in mode and no bytes) that mkpayload --ramdisk puts in
++ * /chosen/memory-map RAMDisk. They are created here in order, root:wheel.
++ * kern_exec.c (sweetrun=NAME) then runs the first regular file once in place
++ * of the first exec of a binary called NAME; the tool execs the original.
 + */
 +struct sweet_tool_hdr {
 +	char magic[8];
@@ -31,6 +31,29 @@
 +};
 +
 +char sweet_tool_path[112];
++extern int sweet_mkdir(const char *path, int mode);
++
++static int
++sweet_tool_write(const struct sweet_tool_hdr *h)
++{
++	vfs_context_t ctx = vfs_context_kernel();
++	vnode_t vp = NULLVP;
++	int err = vnode_open(h->path, O_CREAT | O_TRUNC | FWRITE, h->mode & 0755, 0, &vp, ctx);
++	if (err) {
++		return err;
++	}
++	int resid = 0;
++	err = vn_rdwr(UIO_WRITE, vp, (caddr_t)(uintptr_t)(h + 1), (int)h->size, 0, UIO_SYSSPACE, IO_SYNC,
++	    vfs_context_ucred(ctx), &resid, vfs_context_proc(ctx));
++	struct vnode_attr va;
++	VATTR_INIT(&va);
++	VATTR_SET(&va, va_uid, 0);
++	VATTR_SET(&va, va_gid, 0);
++	VATTR_SET(&va, va_mode, h->mode & 0755);
++	int aerr = vnode_setattr(vp, &va, ctx);
++	(void)vnode_close(vp, FWRITE, ctx);
++	return err ? err : resid ? EIO : aerr;
++}
 +
 +static void
 +sweet_tool_install(void)
@@ -43,41 +66,45 @@
 +		return;
 +	}
 +	const uint64_t *rd = (const uint64_t *)prop;
-+	if (rd[1] < sizeof(struct sweet_tool_hdr)) {
-+		return;
++	const uint8_t *base = (const uint8_t *)ml_static_ptovirt((vm_offset_t)rd[0]);
++	uint64_t off = 0, total = rd[1];
++	int n = 0;
++	while (off + sizeof(struct sweet_tool_hdr) <= total) {
++		const struct sweet_tool_hdr *h = (const struct sweet_tool_hdr *)(base + off);
++		if (memcmp(h->magic, "SKYTOOL1", 8) != 0) {
++			break;
++		}
++		if (h->size > total - off - sizeof(*h) || h->path[0] != '/' ||
++		    strnlen(h->path, sizeof(h->path)) == sizeof(h->path)) {
++			printf("SWEET TOOL: bad entry at %llu\n", off);
++			break;
++		}
++		int err;
++		if ((h->mode & S_IFMT) == S_IFDIR) {
++			err = sweet_mkdir(h->path, h->mode & 0755);
++			if (err == EEXIST) {
++				err = 0;
++			}
++		} else {
++			err = sweet_tool_write(h);
++			if (err == 0 && sweet_tool_path[0] == '\0') {
++				strlcpy(sweet_tool_path, h->path, sizeof(sweet_tool_path));
++			}
++		}
++		printf("SWEET TOOL: %s %s, %u bytes: %d\n", (h->mode & S_IFMT) == S_IFDIR ? "dir" : "file",
++		    h->path, h->size, err);
++		n++;
++		off += (sizeof(*h) + h->size + 15) & ~15ULL;
 +	}
-+	const struct sweet_tool_hdr *h = (const struct sweet_tool_hdr *)ml_static_ptovirt((vm_offset_t)rd[0]);
-+	if (memcmp(h->magic, "SKYTOOL1", 8) != 0 || h->size == 0 ||
-+	    h->size > rd[1] - sizeof(*h) || h->path[0] != '/' || strnlen(h->path, sizeof(h->path)) == sizeof(h->path)) {
-+		printf("SWEET TOOL: RAMDisk is not a tool\n");
-+		return;
++	if (n == 0) {
++		printf("SWEET TOOL: RAMDisk holds no tool\n");
 +	}
-+	vfs_context_t ctx = vfs_context_kernel();
-+	vnode_t vp = NULLVP;
-+	int err = vnode_open(h->path, O_CREAT | O_TRUNC | FWRITE, h->mode & 0755, 0, &vp, ctx);
-+	if (err) {
-+		printf("SWEET TOOL: open %s: %d\n", h->path, err);
-+		return;
-+	}
-+	int resid = 0;
-+	err = vn_rdwr(UIO_WRITE, vp, (caddr_t)(uintptr_t)(h + 1), (int)h->size, 0, UIO_SYSSPACE, IO_SYNC,
-+	    vfs_context_ucred(ctx), &resid, vfs_context_proc(ctx));
-+	struct vnode_attr va;
-+	VATTR_INIT(&va);
-+	VATTR_SET(&va, va_uid, 0);
-+	VATTR_SET(&va, va_gid, 0);
-+	VATTR_SET(&va, va_mode, h->mode & 0755);
-+	int aerr = vnode_setattr(vp, &va, ctx);
-+	(void)vnode_close(vp, FWRITE, ctx);
-+	if (err == 0 && resid == 0) {
-+		strlcpy(sweet_tool_path, h->path, sizeof(sweet_tool_path));
-+	}
-+	printf("SWEET TOOL: %s, %u bytes written (err %d resid %d attr %d)\n", h->path, h->size, err, resid, aerr);
-+	sweet_note("tool %u err %d; ", h->size, err);
- }
++	sweet_note("tool %d entries; ", n);
++}
  #endif
  
-@@ -1134,6 +1197,7 @@
+ void
+@@ -1134,6 +1224,7 @@
  		sweet_autobahn();
  		sweet_lsreset();
  		sweet_axprefs();
