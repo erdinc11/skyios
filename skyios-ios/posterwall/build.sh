@@ -6,7 +6,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 img=$1
 out=$2
 mkdir -p "$out"
-xcrun -sdk iphoneos clang -arch arm64 -mios-version-min=16.0 -O2 -Wall -fobjc-arc -framework Foundation \
+xcrun -sdk iphoneos clang -arch arm64 -mios-version-min=16.0 -O2 -Wall -fobjc-arc -framework Foundation -framework UIKit -framework CoreGraphics \
 	-o "$out/posterwall" "$here/posterwall.m"
 codesign -f -s - --identifier org.skyios.posterwall --entitlements "$here/entitlements.plist" "$out/posterwall"
 "$here/make-collection.sh" "$img" "$out" >/dev/null

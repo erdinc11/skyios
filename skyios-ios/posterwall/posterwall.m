@@ -7,6 +7,7 @@
 // store so it creates the default poster again. `posterwall undo` restores.
 // Run once at boot by sweetrun; then execs the original binary.
 
+#import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -218,6 +219,171 @@ static void legacy_set(void) {
     list_sb(@"after");
 }
 
+// wkprobe: what WallpaperKit (the library CollectionsPoster builds its
+// descriptors from) sees: every collection and its wallpaper bundles
+static id msg0(id o, NSString *sel) {
+    SEL s = NSSelectorFromString(sel);
+    return [o respondsToSelector:s] ? ((id(*)(id, SEL))objc_msgSend)(o, s) : nil;
+}
+
+static void wallpaperkit_probe(void) {
+    if (!dlopen("/System/Library/PrivateFrameworks/WallpaperKit.framework/WallpaperKit", RTLD_NOW)) {
+        say(@"dlopen WallpaperKit: %s", dlerror());
+        return;
+    }
+    for (NSString *which in @[ @"defaultManager", @"defaultLegacyManager" ]) {
+        id m = msg0(NSClassFromString(@"WKWallpaperRepresentingCollectionsManager"), which);
+        NSUInteger n = ((NSUInteger(*)(id, SEL))objc_msgSend)(m, NSSelectorFromString(@"numberOfWallpaperCollections"));
+        say(@"%@: %@, %lu collections", which, m, (unsigned long)n);
+        for (NSUInteger i = 0; i < n; i++) {
+            id c = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(m, NSSelectorFromString(@"wallpaperCollectionAtIndex:"), i);
+            NSUInteger k = [c respondsToSelector:NSSelectorFromString(@"numberOfWallpapers")]
+                               ? ((NSUInteger(*)(id, SEL))objc_msgSend)(c, NSSelectorFromString(@"numberOfWallpapers"))
+                               : 0;
+            say_long([NSString stringWithFormat:@"  [%lu] ", (unsigned long)i],
+                     [NSString stringWithFormat:@"%@ id %@: %lu wallpapers", c, msg0(c, @"identifier"), (unsigned long)k]);
+            for (NSUInteger j = 0; j < k && j < 4; j++) {
+                id b = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(c, NSSelectorFromString(@"wallpaperBundleAtIndex:"), j);
+                say_long(@"      ", [NSString stringWithFormat:@"%@", b]);
+            }
+        }
+    }
+}
+
+// fsprobe: find PosterBoard's data container and list its tree (files with
+// sizes), to see where poster configurations and snapshots live
+static void fs_probe(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    // the PosterBoard data store of the legacy and the collections poster
+    NSString *store = @"/private/var/mobile/Library/Application Support/PRBPosterExtensionDataStore";
+    say(@"store: %@", [[fm contentsOfDirectoryAtPath:store error:nil] componentsJoinedByString:@" "]);
+    for (NSString *v in [fm contentsOfDirectoryAtPath:store error:nil]) {
+        NSString *exts = [[store stringByAppendingPathComponent:v] stringByAppendingPathComponent:@"Extensions"];
+        say(@"%@/Extensions: %@", v, [[fm contentsOfDirectoryAtPath:exts error:nil] componentsJoinedByString:@" "]);
+        for (NSString *x in @[ @"com.apple.PaperBoard.LegacyPoster", @"com.apple.WallpaperKit.CollectionsPoster" ]) {
+            NSString *d = [exts stringByAppendingPathComponent:x];
+            NSDirectoryEnumerator *e = [fm enumeratorAtPath:d];
+            int n = 0;
+            for (NSString *rel in e) {
+                say(@"  %@/%@ %llu", x.pathExtension, rel, e.fileAttributes.fileSize);
+                if (++n >= 80)
+                    break;
+            }
+        }
+    }
+    if (access("/private/var/root/wp/fsprobe-all", F_OK) != 0)
+        return;
+    // every path under /private/var/mobile whose name mentions posters
+    NSDirectoryEnumerator *all = [fm enumeratorAtPath:@"/private/var/mobile"];
+    int hits = 0;
+    for (NSString *rel in all) {
+        if (all.level > 9) {
+            [all skipDescendants];
+            continue;
+        }
+        NSString *last = rel.lastPathComponent;
+        if ([last rangeOfString:@"oster" options:NSCaseInsensitiveSearch].location == NSNotFound &&
+            [last rangeOfString:@"napshot" options:NSCaseInsensitiveSearch].location == NSNotFound)
+            continue;
+        say(@"hit %@ %llu", rel, all.fileAttributes.fileSize);
+        if (++hits >= 60)
+            break;
+    }
+    NSString *base = @"/private/var/mobile/Containers/Data/Application";
+    for (NSString *u in [fm contentsOfDirectoryAtPath:base error:nil]) {
+        NSString *dir = [base stringByAppendingPathComponent:u];
+        NSDictionary *meta = [NSDictionary
+            dictionaryWithContentsOfFile:[dir stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"]];
+        NSString *ident = meta[@"MCMMetadataIdentifier"];
+        if (![ident containsString:@"PosterBoard"] && ![ident containsString:@"Poster"])
+            continue;
+        say(@"container %@ = %@", u, ident);
+        NSDirectoryEnumerator *e = [fm enumeratorAtPath:dir];
+        int n = 0;
+        for (NSString *rel in e) {
+            NSDictionary *a = e.fileAttributes;
+            if ([a.fileType isEqualToString:NSFileTypeDirectory] && e.level > 7)
+                [e skipDescendants];
+            say(@"  %@ %llu", rel, [a.fileType isEqualToString:NSFileTypeDirectory] ? 0 : a.fileSize);
+            if (++n >= 150) {
+                say(@"  ... (stopped at 150 entries)");
+                break;
+            }
+        }
+    }
+}
+
+// snap: write the legacy poster's runtime snapshots ourselves (SpringBoard
+// cannot render them on this port: nil image + trap in
+// -[PBUIImageEncoder saveUIImage:], 0112s/0112z) with PaperBoardUI's own
+// encoder and snapshot format, then put the legacy wallpaper files (written
+// by SpringBoard in 0112y, moved aside by sbfix) back
+#define LEGACY_CFG @"/private/var/mobile/Library/Application Support/PRBPosterExtensionDataStore/59/Extensions/" \
+                   @"com.apple.PaperBoard.LegacyPoster/configurations/A8A6A316-259B-4C29-B15C-3801F78E738D/versions/0"
+
+static void chown_mobile(NSString *path) {
+    [[NSFileManager defaultManager] setAttributes:@{NSFileOwnerAccountID : @501, NSFileGroupOwnerAccountID : @501}
+                                     ofItemAtPath:path
+                                            error:nil];
+}
+
+static void write_snapshots(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *v in @[ @"lock", @"home" ]) {
+        NSString *meta = [LEGACY_CFG stringByAppendingPathComponent:[NSString stringWithFormat:@"RuntimeSnapshotMetadata-%@.plist", v]];
+        say_long([NSString stringWithFormat:@"metadata %@: ", v], [[NSDictionary dictionaryWithContentsOfFile:meta] description] ?: @"(none)");
+    }
+    if (!dlopen("/System/Library/PrivateFrameworks/PaperBoardUI.framework/PaperBoardUI", RTLD_NOW)) {
+        say(@"dlopen PaperBoardUI: %s", dlerror());
+        return;
+    }
+    id fmt = msg0(NSClassFromString(@"PBUIPosterVariantViewController"), @"snapshotFormat");
+    say(@"snapshot format %@", fmt);
+    if (!fmt)
+        return;
+    // the image at screen size (1125x2436, aspect fill), scale 1 so the
+    // pixels are exactly that
+    Class uiimage = NSClassFromString(@"UIImage");
+    id src = ((id(*)(id, SEL, id))objc_msgSend)(uiimage, NSSelectorFromString(@"imageWithContentsOfFile:"), @"/private/var/root/skyios-wallpaper.img");
+    CGImageRef cg = (__bridge CGImageRef)msg0(src, @"CGImage");
+    if (!cg) {
+        say(@"no source image");
+        return;
+    }
+    size_t W = 1125, H = 2436;
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef c = CGBitmapContextCreate(NULL, W, H, 8, 0, cs, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    double sw = CGImageGetWidth(cg), sh = CGImageGetHeight(cg), k = fmax(W / sw, H / sh);
+    CGContextDrawImage(c, CGRectMake((W - sw * k) / 2, (H - sh * k) / 2, sw * k, sh * k), cg);
+    CGImageRef full = CGBitmapContextCreateImage(c);
+    id img = ((id(*)(id, SEL, CGImageRef))objc_msgSend)(uiimage, NSSelectorFromString(@"imageWithCGImage:"), full);
+    CGImageRelease(full);
+    CGContextRelease(c);
+    CGColorSpaceRelease(cs);
+    for (NSString *v in @[ @"lock", @"home" ]) {
+        NSString *path = [LEGACY_CFG stringByAppendingPathComponent:[NSString stringWithFormat:@"RuntimeSnapshot-%@.atx", v]];
+        NSString *old = [path stringByAppendingString:@".sweet-old"];
+        if ([fm fileExistsAtPath:path] && ![fm fileExistsAtPath:old])
+            [fm copyItemAtPath:path toPath:old error:nil];
+        id enc = [NSClassFromString(@"PBUIImageEncoder") alloc];
+        enc = ((id(*)(id, SEL, id, id))objc_msgSend)(enc, NSSelectorFromString(@"initWithURL:format:"), [NSURL fileURLWithPath:path], fmt);
+        NSError *err = nil;
+        BOOL ok = ((BOOL(*)(id, SEL, id, NSError **))objc_msgSend)(enc, NSSelectorFromString(@"saveUIImage:error:"), img, &err);
+        chown_mobile(path);
+        say(@"snapshot %@: saved %d, %llu bytes, %@", v, ok, [[fm attributesOfItemAtPath:path error:nil] fileSize], err ?: @"no error");
+    }
+    // legacy wallpaper files back from the newest sbfix backup
+    NSString *bk = @"/private/var/mobile/Library/SpringBoard.sweet-legacy-wallpaper/70";
+    for (NSString *n in @[ @"LockBackground.cpbitmap", @"OriginalLockBackground.cpbitmap", @"LockBackgroundThumbnail.jpg", @"LockBackgroundThumbnaildark.jpg" ]) {
+        NSString *to = [@"/private/var/mobile/Library/SpringBoard" stringByAppendingPathComponent:n];
+        if ([fm fileExistsAtPath:to])
+            continue;
+        BOOL ok = [fm copyItemAtPath:[bk stringByAppendingPathComponent:n] toPath:to error:nil];
+        chown_mobile(to);
+        say(@"legacy %@ restored: %d", n, ok);
+    }
+}
+
 // PosterBoard creates the default poster when its data store is empty
 static void reset_posterboard(void) {
     if (!dlopen("/System/Library/PrivateFrameworks/PosterBoardServices.framework/PosterBoardServices", RTLD_NOW)) {
@@ -236,10 +402,34 @@ static void reset_posterboard(void) {
         say(@"deleteDataStore: no answer in 30 s");
 }
 
+// jetsam: the job we run in (DumpPanic) has a small per-process memory
+// limit; the ATX/ASTC encode of the snapshots exceeded it (0113g/h: SIGKILL,
+// reason namespace 1 = jetsam, code 7 = per-process limit). Root may raise it.
+// (the kernel is built with the macOS configuration: no CONFIG_JETSAM, so
+// MEMORYSTATUS_CMD_SET_JETSAM_TASK_LIMIT is absent; SET_MEMLIMIT_PROPERTIES is
+// there)
+extern int memorystatus_control(uint32_t command, int32_t pid, uint32_t flags, void *buffer, size_t buffersize);
+#define MEMORYSTATUS_CMD_SET_MEMLIMIT_PROPERTIES 7
+struct sky_memlimit {
+    int32_t active;
+    uint32_t active_attr;
+    int32_t inactive;
+    uint32_t inactive_attr;
+};
+
 int main(int argc, char **argv, char **envp, char **apple) {
+    struct sky_memlimit ml = {2048, 0, 2048, 0};
+    int lim = memorystatus_control(MEMORYSTATUS_CMD_SET_MEMLIMIT_PROPERTIES, getpid(), 0, &ml, sizeof(ml));
+    say(@"memory limit -> 2048 MB: %d (errno %d)", lim, lim ? errno : 0);
     @autoreleasepool {
         if (argc > 1 && strcmp(argv[1], "undo") == 0) {
             undo();
+        } else if (access("/private/var/root/wp/snap", F_OK) == 0) {
+            write_snapshots();
+        } else if (access("/private/var/root/wp/fsprobe", F_OK) == 0) {
+            fs_probe();
+        } else if (access("/private/var/root/wp/wkprobe", F_OK) == 0) {
+            wallpaperkit_probe();
         } else if (access("/private/var/root/wp/legacy", F_OK) == 0) {
             say(@"legacy mode: waiting 90 s for SpringBoard");
             sleep(90);
