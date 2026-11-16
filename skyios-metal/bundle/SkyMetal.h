@@ -36,6 +36,8 @@ void sky_free(SkyMem *m);
 void sky_record_init(void);
 void sky_log_once(NSString *line);
 id sky_render_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d);
+// Metal colour attachment blend state -> RB_MRT[0].CONTROL / BLEND_CONTROL
+void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *control, uint32_t *blend);
 // a drawing encoder (SkyRender.m) appending to `stream`, or nil when the pass
 // is outside what it supports
 id sky_draw_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d, NSMutableData *stream, id owner);

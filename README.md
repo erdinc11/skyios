@@ -24,7 +24,7 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 | USB | Device-mode USB Ethernet (ECM); the kernel console streams to the host as UDP (`skyios usbnet`) |
 | App extensions | A built-in "AMFI" MAC policy and an `AppleMobileFileIntegrity` IOService let ExtensionKit trust `System/Library/xpc/extensions.plist`, so app extensions (wallpaper posters, widgets, ...) are registered and launch |
 | GPU | Adreno 618 in kernel Rust (`skyios-kernel/`): clocks, CX/GX power, GMU firmware + HFI v1, adreno SMMU, SQE microcode + ringbuffer, zap shader (secure mode off), 2D blits, 3D draws with hand-assembled ir3 shaders (triangle, textured quad, scaled compositor). Accelerator service `SkyAdrenoAccel`: GPU buffers and IOSurfaces mapped for user space, user command buffers under CP register protection, fences. Runs at the boot clock (~9.6 MHz): no frequency vote yet |
-| Metal | `SkyAdrenoMetal.bundle` (`skyios-metal/`, `sweetaccel=2`): `MTLCreateSystemDefaultDevice()` returns the Adreno; command queues/buffers, `MTLBuffer`, blit fill/copy and a render encoder (IOSurface render target, clear, triangles and textured quads with the bundle's built-in shaders) run on the GPU. CoreAnimation's Metal renderer starts on it, but only in recording mode (it draws nothing): there is no shader compiler for Metal shaders yet |
+| Metal | `SkyAdrenoMetal.bundle` (`skyios-metal/`, `sweetaccel=2`): `MTLCreateSystemDefaultDevice()` returns the Adreno; command queues/buffers, `MTLBuffer`, blit fill/copy and a render encoder (IOSurface render target, clear, triangles and textured quads with the bundle's built-in shaders, blending from the pipeline state) run on the GPU. CoreAnimation's Metal renderer starts on it, but only in recording mode (it draws nothing): there is no shader compiler for Metal shaders yet |
 | Battery | IOPMPowerSource service (static 100 %) |
 | Device identity | iPhone X (`iPhone10,3` / `D22AP`): no Home button, gesture UI |
 | Activation | Native "Hactivation" path of mobileactivationd, chosen through device-tree security status. No Apple servers involved |
@@ -62,6 +62,7 @@ skyios-accel-test: metal: fill 1 MiB: OK, status 4, 5774 us, first bad -1
 skyios-accel-test: metal: copy 1 MiB: OK, status 4, 5471 us, first bad -1
 skyios-accel-test: metal: render encoder triangle: OK (red inside 1922/1922, blue outside 1922/1922, px(32,16) 0xffff0000 px(2,60) 0xff0000ff, status 4, 2287 us)
 skyios-accel-test: metal: render encoder textured quad: OK (4096/4096 identical, first wrong 0, status 4, 1733 us)
+skyios-accel-test: metal: render encoder source-over blend: OK (4096/4096 within 2, 4096 exact, first wrong 0 want 0, status 4, 1801 us)
 ```
 
 The 36 ms full-screen fill and the 34 ms present copy show the GPU still runs at its boot clock. Boot numbers and full logs of every step are in `NOTES.md`.

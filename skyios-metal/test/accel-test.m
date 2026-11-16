@@ -817,6 +817,52 @@ static int metal(void) {
         IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
         say("metal: render encoder textured quad: %s (%d/4096 identical, first wrong %#x, status %ld, %.0f us)",
             same == 4096 ? "OK" : "FAIL", same, firstbad, (long)cb.status, t1 - t0);
+        // source-over blending (pipeline blend state -> RB_MRT blend): the
+        // same texture over a blue clear, rgb SrcAlpha/OneMinusSrcAlpha,
+        // alpha One/OneMinusSrcAlpha (result alpha 1)
+        pd.colorAttachments[0].blendingEnabled = YES;
+        pd.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        pd.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+        pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        id<MTLRenderPipelineState> bps = [dev newRenderPipelineStateWithDescriptor:pd error:&err];
+        rp.colorAttachments[0].loadAction = MTLLoadActionClear;
+        t0 = now_us();
+        cb = [q commandBuffer];
+        re = [cb renderCommandEncoderWithDescriptor:rp];
+        [re setRenderPipelineState:bps];
+        [re setVertexBytes:quad length:sizeof(quad) atIndex:0];
+        [re setFragmentTexture:stex atIndex:0];
+        [re drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+        [re endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+        t1 = now_us();
+        IOSurfaceLock(surf, kIOSurfaceLockReadOnly, NULL);
+        int near = 0, exact = 0;
+        uint32_t bbad = 0, badwant = 0;
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++) {
+                uint32_t t = pattern_texel(x, y), v = px[y * 64 + x];
+                double a = (t >> 24) / 255.0;
+                double r = ((t >> 16) & 0xff) / 255.0, g = ((t >> 8) & 0xff) / 255.0, b = (t & 0xff) / 255.0;
+                int want[4] = {(int)lround((b * a + (1 - a)) * 255), (int)lround(g * a * 255), (int)lround(r * a * 255), 255};
+                int ok = 1, same = 1;
+                for (int c = 0; c < 4; c++) {
+                    int got = (v >> (8 * c)) & 0xff;
+                    ok &= abs(got - want[c]) <= 2;
+                    same &= got == want[c];
+                }
+                near += ok;
+                exact += same;
+                if (!ok && !bbad) {
+                    bbad = v ? v : 1;
+                    badwant = (uint32_t)want[0] | (uint32_t)want[1] << 8 | (uint32_t)want[2] << 16 | (uint32_t)want[3] << 24;
+                }
+            }
+        IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
+        say("metal: render encoder source-over blend: %s (%d/4096 within 2, %d exact, first wrong %#x want %#x, status %ld, %.0f us)",
+            near == 4096 ? "OK" : "FAIL", near, exact, bbad, badwant, (long)cb.status, t1 - t0);
         CFRelease(src);
         CFRelease(surf);
     }

@@ -159,7 +159,28 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
 @protocol SkyPipelineNames
 - (NSString *)vname;
 - (NSString *)fname;
+- (uint32_t)mrtControl;
+- (uint32_t)mrtBlend;
 @end
+
+// MTLBlendFactor -> adreno_rb_blend_factor; MTLBlendOperation values equal
+// a3xx_rb_blend_opcode (add, src - dst, dst - src, min, max)
+static uint32_t blend_factor(MTLBlendFactor f) {
+    static const uint8_t map[] = {0, 1, 4, 5, 6, 7, 8, 9, 10, 11, 16, 12, 13, 14, 15, 20, 21, 22, 23};
+    return f < sizeof(map) ? map[f] : 1;
+}
+
+void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *control, uint32_t *blend) {
+    MTLColorWriteMask m = c.writeMask;
+    // COMPONENT_ENABLE: bit 0 = R .. bit 3 = A; Metal: R = 8, G = 4, B = 2, A = 1
+    uint32_t comp = (m & MTLColorWriteMaskRed ? 1 : 0) | (m & MTLColorWriteMaskGreen ? 2 : 0) |
+                    (m & MTLColorWriteMaskBlue ? 4 : 0) | (m & MTLColorWriteMaskAlpha ? 8 : 0);
+    // ROP_CODE COPY (0xc) as in cp3d.rs STATE; COLOR_BLEND_EN | ALPHA_BLEND_EN
+    *control = (comp << 7) | (0xc << 3) | (c.blendingEnabled ? 3 : 0);
+    *blend = blend_factor(c.sourceRGBBlendFactor) | ((uint32_t)c.rgbBlendOperation << 5) |
+             (blend_factor(c.destinationRGBBlendFactor) << 8) | (blend_factor(c.sourceAlphaBlendFactor) << 16) |
+             ((uint32_t)c.alphaBlendOperation << 21) | (blend_factor(c.destinationAlphaBlendFactor) << 24);
+}
 
 @interface SkyDrawEncoder : SkyObject <MTLRenderCommandEncoder>
 @property (weak) id<MTLDevice> device;
@@ -172,6 +193,7 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
     SkyImport _rt;
     uint32_t _w, _h, _info; // RB_MRT[0].BUF_INFO
     NSString *_vname, *_fname;
+    uint32_t _mrtControl, _mrtBlend;
     uint64_t _vb;
     id<MTLTexture> _tex;
     NSUInteger _draws, _skipped;
@@ -214,6 +236,8 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
 - (void)setRenderPipelineState:(id<MTLRenderPipelineState>)p {
     _vname = [(id<SkyPipelineNames>)p vname];
     _fname = [(id<SkyPipelineNames>)p fname];
+    _mrtControl = [(id<SkyPipelineNames>)p mrtControl];
+    _mrtBlend = [(id<SkyPipelineNames>)p mrtBlend];
 }
 
 - (void)setVertexBytes:(const void *)p length:(NSUInteger)l atIndex:(NSUInteger)i {
@@ -247,6 +271,12 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
     if (textured)
         for (size_t i = 0; i < sizeof(CP3D_TEXQ) / sizeof(CP3D_TEXQ[0]); i++)
             reg1(s, CP3D_TEXQ[i][0], CP3D_TEXQ[i][1]);
+    // blend state of the pipeline (STATE has blending off, all components)
+    BOOL blend = (_mrtControl & 3) != 0;
+    reg1(s, 0x8820, _mrtControl ? _mrtControl : 0x7e0); // RB_MRT[0].CONTROL
+    reg1(s, 0x8821, _mrtBlend);                         // RB_MRT[0].BLEND_CONTROL
+    reg1(s, 0xa989, blend ? 0x101 : 0x100);              // SP_BLEND_CNTL: ENABLE_BLEND mrt0
+    reg1(s, 0x8865, blend ? 0xffff0101 : 0xffff0100);    // RB_BLEND_CNTL: BLEND_READS_DEST mrt0
     uint32_t br = (_w - 1) | ((_h - 1) << 16);
     reg1(s, 0x80f1, br); // GRAS_SC_WINDOW_SCISSOR_BR
     reg1(s, 0x840b, br); // GRAS_A2D_SCISSOR_BR
