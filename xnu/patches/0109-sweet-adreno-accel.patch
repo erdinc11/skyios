@@ -1,0 +1,366 @@
+--- /dev/null
++++ b/iokit/Kernel/arm/SkyAdrenoAccel.cpp
+@@ -0,0 +1,339 @@
++#include <pexpert/arm64/board_config.h>
++
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++#include <IOKit/IOService.h>
++#include <IOKit/IOUserClient.h>
++#include <IOKit/IOKitKeys.h>
++#include <IOKit/IOLib.h>
++#include <IOKit/IOBufferMemoryDescriptor.h>
++#include <IOKit/IOMemoryDescriptor.h>
++#include <sys/proc.h>
++
++/*
++ * Adreno 618 accelerator service (stage 2 of the Metal driver plan): GPU
++ * buffers shared with the calling task and command streams run through the
++ * skyios-kernel CP ring (cpuser.rs). Boot-arg sweetaccel=1 publishes the
++ * service; sweetaccel=2 also sets MetalPluginName/MetalPluginClassName so
++ * Metal.framework would try to load SkyAdrenoMetal.bundle (not written yet).
++ * Root only.
++ *
++ * Selectors (scalars):
++ *   0 info    -> engine state (0 down, 1 up, 2 dead), chip id, user iova base
++ *   1 alloc   size -> handle, gpu address, user address
++ *   2 free    handle
++ *   3 submit  handle, byte offset, dwords -> fence sequence
++ *   4 wait    sequence, timeout ms -> 0 done, 1 timed out, 2 engine dead
++ *   5 log     struct in: text for the kernel log
++ */
++
++extern "C" uint32_t sweet_rs_gpu_state(void);
++extern "C" bool sweet_rs_gpu_user_open(void);
++extern "C" uint64_t sweet_rs_gpu_user_map(const uint64_t (*segs)[2], uint32_t nseg, uint64_t bytes);
++extern "C" bool sweet_rs_gpu_user_unmap(uint64_t iova, uint64_t bytes);
++extern "C" uint32_t sweet_rs_gpu_user_submit(uint64_t iova, uint32_t dwords);
++extern "C" int32_t sweet_rs_gpu_user_done(uint32_t seq);
++extern "C" void sweet_rs_gpu_user_hung(uint32_t seq);
++extern "C" void sweet_rs_cache_flush(uintptr_t va, uint64_t size);
++
++#define SKY_CHIP_ID     0x06010800ULL
++#define SKY_USER_IOVA   0xc0000000ULL
++#define SKY_MAX_BUFS    64
++#define SKY_MAX_SIZE    (32ULL << 20)
++#define SKY_HANG_MS     3000
++
++class SkyAdrenoAccel : public IOService {
++	OSDeclareDefaultStructors(SkyAdrenoAccel);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(SkyAdrenoAccel, IOService);
++
++bool
++SkyAdrenoAccel::start(IOService *provider)
++{
++	unsigned int mode = 0;
++	(void)PE_parse_boot_argn("sweetaccel", &mode, sizeof(mode));
++	if (mode == 0 || !IOService::start(provider)) {
++		return false;
++	}
++	setProperty(kIOUserClientClassKey, "SkyAdrenoAccelClient");
++	setProperty("GPUModel", "Adreno 618");
++	setProperty("SkyChipID", SKY_CHIP_ID, 64);
++	if (mode >= 2) {
++		setProperty("MetalPluginName", "SkyAdrenoMetal");
++		setProperty("MetalPluginClassName", "SkyAdrenoMetalDevice");
++	}
++	registerService();
++	IOLog("SWEET ACCEL: SkyAdrenoAccel registered (mode %u)\n", mode);
++	return true;
++}
++
++struct SkyBuf {
++	IOBufferMemoryDescriptor *md;
++	IOMemoryMap *map;
++	uint64_t iova;
++	uint64_t size;
++};
++
++class SkyAdrenoAccelClient : public IOUserClient {
++	OSDeclareDefaultStructors(SkyAdrenoAccelClient);
++
++	task_t fTask;
++	IOLock *fLock;
++	SkyBuf fBufs[SKY_MAX_BUFS];
++
++	IOReturn alloc(uint64_t size, uint64_t *out);
++	IOReturn release(uint64_t handle);
++	IOReturn submit(uint64_t handle, uint64_t off, uint64_t dwords, uint64_t *seq);
++	IOReturn wait(uint64_t seq, uint64_t ms, uint64_t *status);
++
++public:
++	bool initWithTask(task_t owningTask, void *securityID, UInt32 type) APPLE_KEXT_OVERRIDE;
++	IOReturn clientClose(void) APPLE_KEXT_OVERRIDE;
++	void free(void) APPLE_KEXT_OVERRIDE;
++	IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *args,
++	    IOExternalMethodDispatch *dispatch, OSObject *target,
++	    void *reference) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(SkyAdrenoAccelClient, IOUserClient);
++
++bool
++SkyAdrenoAccelClient::initWithTask(task_t owningTask, void *securityID, UInt32 type)
++{
++	if (!IOUserClient::initWithTask(owningTask, securityID, type)) {
++		return false;
++	}
++	if (clientHasPrivilege(securityID, kIOClientPrivilegeAdministrator) != kIOReturnSuccess) {
++		IOLog("SWEET ACCEL: open refused (not root)\n");
++		return false;
++	}
++	fTask = owningTask;
++	fLock = IOLockAlloc();
++	bzero(fBufs, sizeof(fBufs));
++	return fLock != NULL;
++}
++
++IOReturn
++SkyAdrenoAccelClient::alloc(uint64_t size, uint64_t *out)
++{
++	if (size == 0 || size > SKY_MAX_SIZE) {
++		return kIOReturnBadArgument;
++	}
++	size = round_page(size);
++	static uint32_t logged;
++	bool trace = logged++ < 2;
++	if (trace) {
++		IOLog("SWEET ACCEL: alloc %llu: open\n", size);
++	}
++	if (!sweet_rs_gpu_user_open()) {
++		return kIOReturnNotReady;
++	}
++	uint32_t slot = 0;
++	while (slot < SKY_MAX_BUFS && fBufs[slot].md != NULL) {
++		slot++;
++	}
++	if (slot == SKY_MAX_BUFS) {
++		return kIOReturnNoResources;
++	}
++	IOBufferMemoryDescriptor *md = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
++	    kIODirectionInOut | kIOMemoryKernelUserShared, size, page_size);
++	if (md == NULL) {
++		return kIOReturnNoMemory;
++	}
++	/* zeroed through the cached kernel alias: push it out and drop the lines,
++	 * user and GPU only ever see the memory uncached */
++	if (trace) {
++		IOLog("SWEET ACCEL: alloc: md %p va %p\n", md, md->getBytesNoCopy());
++	}
++	bzero(md->getBytesNoCopy(), size);
++	sweet_rs_cache_flush((uintptr_t)md->getBytesNoCopy(), size);
++
++	uint32_t nseg = 0;
++	uint64_t (*segs)[2] = (uint64_t (*)[2])IOMalloc(sizeof(uint64_t[2]) * (size / page_size));
++	IOByteCount off = 0;
++	while (segs != NULL && off < size) {
++		IOByteCount len = 0;
++		addr64_t pa = md->getPhysicalSegment(off, &len, kIOMemoryMapperNone);
++		if (pa == 0 || len == 0) {
++			break;
++		}
++		if (len > size - off) {
++			len = size - off;
++		}
++		segs[nseg][0] = pa;
++		segs[nseg][1] = len;
++		nseg++;
++		off += len;
++	}
++	uint64_t iova = (segs != NULL && off == size) ? sweet_rs_gpu_user_map(segs, nseg, size) : 0;
++	if (segs != NULL) {
++		IOFree(segs, sizeof(uint64_t[2]) * (size / page_size));
++	}
++	if (iova == 0) {
++		md->release();
++		return kIOReturnNoSpace;
++	}
++	if (trace) {
++		IOLog("SWEET ACCEL: alloc: %u segs, gpu %#llx\n", nseg, iova);
++	}
++	IOMemoryMap *map = md->createMappingInTask(fTask, 0, kIOMapAnywhere | kIOMapWriteCombineCache);
++	if (map == NULL) {
++		sweet_rs_gpu_user_unmap(iova, size);
++		md->release();
++		return kIOReturnVMError;
++	}
++	fBufs[slot].md = md;
++	fBufs[slot].map = map;
++	fBufs[slot].iova = iova;
++	fBufs[slot].size = size;
++	out[0] = slot + 1;
++	out[1] = iova;
++	out[2] = map->getAddress();
++	return kIOReturnSuccess;
++}
++
++IOReturn
++SkyAdrenoAccelClient::release(uint64_t handle)
++{
++	if (handle == 0 || handle > SKY_MAX_BUFS || fBufs[handle - 1].md == NULL) {
++		return kIOReturnBadArgument;
++	}
++	SkyBuf *b = &fBufs[handle - 1];
++	/* waits for all submitted work; on a dead engine the pages stay mapped
++	 * in the GPU and the memory is leaked on purpose */
++	bool unmapped = sweet_rs_gpu_user_unmap(b->iova, b->size);
++	b->map->release();
++	if (unmapped) {
++		b->md->release();
++	}
++	bzero(b, sizeof(*b));
++	return kIOReturnSuccess;
++}
++
++IOReturn
++SkyAdrenoAccelClient::submit(uint64_t handle, uint64_t off, uint64_t dwords, uint64_t *seq)
++{
++	if (handle == 0 || handle > SKY_MAX_BUFS || fBufs[handle - 1].md == NULL) {
++		return kIOReturnBadArgument;
++	}
++	SkyBuf *b = &fBufs[handle - 1];
++	if ((off & 3) != 0 || dwords == 0 || off >= b->size || dwords > (b->size - off) / 4) {
++		return kIOReturnBadArgument;
++	}
++	uint32_t s = sweet_rs_gpu_user_submit(b->iova + off, (uint32_t)dwords);
++	if (s == 0) {
++		return kIOReturnIOError;
++	}
++	*seq = s;
++	return kIOReturnSuccess;
++}
++
++IOReturn
++SkyAdrenoAccelClient::wait(uint64_t seq, uint64_t ms, uint64_t *status)
++{
++	uint64_t start = mach_absolute_time(), now, ns;
++	for (uint32_t i = 0;; i++) {
++		int32_t r = sweet_rs_gpu_user_done((uint32_t)seq);
++		if (r != 0) {
++			*status = r > 0 ? 0 : 2;
++			return kIOReturnSuccess;
++		}
++		now = mach_absolute_time();
++		absolutetime_to_nanoseconds(now - start, &ns);
++		if (ns / 1000000 >= SKY_HANG_MS) {
++			sweet_rs_gpu_user_hung((uint32_t)seq);
++			*status = 2;
++			return kIOReturnSuccess;
++		}
++		if (ns / 1000000 >= ms) {
++			*status = 1;
++			return kIOReturnSuccess;
++		}
++		if (i < 100) {
++			IODelay(10);
++		} else {
++			IOSleep(1);
++		}
++	}
++}
++
++IOReturn
++SkyAdrenoAccelClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
++    __unused IOExternalMethodDispatch *dispatch, __unused OSObject *target,
++    __unused void *reference)
++{
++	static const struct {
++		uint32_t in, out;
++	} shape[] = { { 0, 3 }, { 1, 3 }, { 1, 0 }, { 3, 1 }, { 2, 1 }, { 0, 0 } };
++	if (selector >= sizeof(shape) / sizeof(shape[0]) ||
++	    args->scalarInputCount != shape[selector].in || args->scalarOutputCount != shape[selector].out) {
++		return kIOReturnBadArgument;
++	}
++	const uint64_t *in = args->scalarInput;
++	uint64_t *out = args->scalarOutput;
++	IOReturn ret = kIOReturnSuccess;
++	if (selector == 4) {
++		/* no lock while waiting */
++		return wait(in[0], in[1], out);
++	}
++	IOLockLock(fLock);
++	switch (selector) {
++	case 0:
++		out[0] = sweet_rs_gpu_state();
++		out[1] = SKY_CHIP_ID;
++		out[2] = SKY_USER_IOVA;
++		break;
++	case 1:
++		ret = alloc(in[0], out);
++		break;
++	case 2:
++		ret = release(in[0]);
++		break;
++	case 3:
++		ret = submit(in[0], in[1], in[2], out);
++		break;
++	case 5: {
++		char text[160];
++		uint32_t n = args->structureInputSize < sizeof(text) - 1 ? args->structureInputSize : sizeof(text) - 1;
++		if (args->structureInput != NULL) {
++			memcpy(text, args->structureInput, n);
++		} else {
++			n = 0;
++		}
++		text[n] = '\0';
++		char name[32];
++		proc_selfname(name, sizeof(name));
++		IOLog("SWEET ACCEL: %s: %s\n", name, text);
++		break;
++	}
++	}
++	IOLockUnlock(fLock);
++	return ret;
++}
++
++IOReturn
++SkyAdrenoAccelClient::clientClose(void)
++{
++	IOLockLock(fLock);
++	for (uint64_t h = 1; h <= SKY_MAX_BUFS; h++) {
++		if (fBufs[h - 1].md != NULL) {
++			(void)release(h);
++		}
++	}
++	IOLockUnlock(fLock);
++	terminate();
++	return kIOReturnSuccess;
++}
++
++void
++SkyAdrenoAccelClient::free(void)
++{
++	if (fLock != NULL) {
++		IOLockFree(fLock);
++	}
++	IOUserClient::free();
++}
++#endif
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -17,6 +17,7 @@
+ iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
+ iokit/Kernel/arm/SweetSurface.cpp                                optional iokitcpp
+ iokit/Kernel/arm/SweetFramebuffer.cpp                            optional iokitcpp
++iokit/Kernel/arm/SkyAdrenoAccel.cpp                              optional iokitcpp
+ iokit/Kernel/arm/SweetBattery.cpp                                optional iokitcpp
+ iokit/Kernel/arm/hid/SweetHID.cpp                                optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -88,6 +88,11 @@
+     "     'IOMatchCategory' = SweetHIDTouch;"
+     "   },"
+     "   {"
++    "     'IOClass'         = SkyAdrenoAccel;"
++    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = SkyAdrenoAccel;"
++    "   },"
++    "   {"
+     "     'IOClass'         = SweetBattery;"
+     "     'IOProviderClass' = IOResources;"
+     "     'IOMatchCategory' = SweetBattery;"

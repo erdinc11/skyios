@@ -7,6 +7,8 @@ use crate::xnu::{Dma, Mmio, delay_us};
 
 #[path = "cp3d.rs"]
 mod cp3d;
+#[path = "cpuser.rs"]
+mod cpuser;
 
 const SMMU: u64 = 0x0504_0000;
 const SMMU_SIZE: usize = 0x10000;
@@ -324,7 +326,7 @@ impl Ring<'_> {
 
     // Per-frame submit: done when the CP consumed the ring and the trailing
     // CACHE_FLUSH_TS wrote `seq` (RBBM_STATUS is not used: 0110c read
-    // 0x00c00001 right after an idle fill). 2 us polls, 100 ms limit.
+    // 0x00c00001 right after an idle fill). 2 us polls, 1 s limit.
     fn publish(&mut self, gpu: &Gpu) {
         self.mem.dma.clean();
         unsafe { core::arch::asm!("dsb sy", options(nostack, preserves_flags)) };
@@ -511,7 +513,7 @@ pub fn bringup() -> bool {
 // the fence write is the last packet of a present, so seeing it also means
 // the CP has consumed the ring up to `wptr`
 fn wait_fence(gpu: &Gpu, mem: &GpuMem, wptr: u32, seq: u32) -> bool {
-    for _ in 0..50_000 {
+    for _ in 0..500_000 {
         if gpu.read(CP_RB_RPTR) == wptr && fence_read(mem) == seq {
             return true;
         }
@@ -674,6 +676,7 @@ struct Engine {
     // a present was published and its fence not seen yet
     pending: bool,
     dead: bool,
+    user: Option<cpuser::User>,
 }
 
 static mut ENGINE: Option<Engine> = None;
@@ -709,7 +712,7 @@ fn engine_init(gpu: Gpu, mem: GpuMem, wptr: u32) -> bool {
     tlb_flush(&smmu);
     let fseq = fence_read(&mem);
     crate::log!("SWEET CP: present engine ready (panel iova {PANEL_IOVA:#x}, surface iova {SURF_IOVA:#x} up to {SURF_MAX:#x} bytes)");
-    unsafe { ENGINE = Some(Engine { gpu, mem, smmu, pt, wptr, panel: None, fseq, pending: false, dead: false }) };
+    unsafe { ENGINE = Some(Engine { gpu, mem, smmu, pt, wptr, panel: None, fseq, pending: false, dead: false, user: None }) };
     true
 }
 

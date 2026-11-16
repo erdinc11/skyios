@@ -10,6 +10,7 @@ mod mkadt;
 mod mkinit;
 mod mkiosroot;
 mod mkshim;
+mod mktool;
 mod mkpayload;
 mod plistpy;
 mod qemu;
@@ -28,6 +29,7 @@ const USAGE: &str = "usage: skyios COMMAND ARGS...
   mkpayload KERNEL ADT OUT [--cmdline \"...\"] [--ramdisk IMAGE]
   mkshim SHIM PAYLOAD DTB OUT.img [--cmdline STR] [--image OUT.Image]
   mkinit OBJECT OUT [ENTITLEMENTS.plist]
+  mktool BINARY DEST_PATH OUT
   adt dump FILE [--hex] | adt unwrap IM4P OUT
   patch-launchd-plist IN.plist OUT.plist LABEL [LABEL ...]
   mkiosroot OS.dmg SystemOS.dmg AppOS.dmg OUT.img [SIZE]
@@ -58,6 +60,7 @@ fn main() {
         "mkpayload" => mkpayload::main(args),
         "mkshim" => mkshim::main(args),
         "mkinit" => mkinit::main(args),
+        "mktool" => mktool::main(args),
         "adt" => adt::main(args),
         "patch-launchd-plist" => launchd::main(args),
         "root-tweaks" => tweaks::main(args),

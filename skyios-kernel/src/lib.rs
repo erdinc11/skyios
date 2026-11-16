@@ -49,8 +49,38 @@ extern "C" fn reboot_thread(secs: usize) {
     }
 }
 
+// sweetwdog=S: arm the APSS watchdog (qcom,wdt@17c10000 in the sweet DT,
+// 32768 Hz, register layout of Linux qcom_wdt "kpss") with an S second bite
+// and pet it every second, so a hung or panicked kernel resets the phone
+// (observed hardware resets land in recovery) instead of waiting for a hand
+const APSS_WDT: u64 = 0x17c1_0000;
+const WDT_RST: usize = 0x04;
+const WDT_EN: usize = 0x08;
+const WDT_BARK_TIME: usize = 0x10;
+const WDT_BITE_TIME: usize = 0x14;
+
+extern "C" fn wdog_thread(secs: usize) {
+    let Some(wdt) = xnu::Mmio::map(APSS_WDT, 0x1000) else {
+        return;
+    };
+    let ticks = secs as u32 * 32768;
+    wdt.write(WDT_EN, 0);
+    wdt.write(WDT_RST, 1);
+    wdt.write(WDT_BARK_TIME, ticks);
+    wdt.write(WDT_BITE_TIME, ticks);
+    wdt.write(WDT_EN, 1);
+    crate::log!("SWEET RS: watchdog armed, bite after {secs} s without a pet (en {:#x})", wdt.read(WDT_EN));
+    loop {
+        wdt.write(WDT_RST, 1);
+        xnu::sleep_ms(1000);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn sweet_rs_init() {
+    if let Some(secs) = xnu::boot_arg_u32(c"sweetwdog").filter(|&s| s >= 5) {
+        xnu::spawn(wdog_thread, secs as usize);
+    }
     if let Some(secs) = xnu::boot_arg_u32(c"sweetreboot").filter(|&s| s != 0) {
         xnu::spawn(reboot_thread, secs as usize);
     }

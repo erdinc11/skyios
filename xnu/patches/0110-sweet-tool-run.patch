@@ -1,0 +1,160 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -475,6 +475,8 @@
+  */
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
+ #include <stdarg.h>
++#include <pexpert/device_tree.h>
++extern vm_offset_t ml_static_ptovirt(vm_offset_t);
+ 
+ char sweet_boot_note[256];
+ 
+@@ -658,6 +660,67 @@
+ 	printf("SWEET AXPREFS: reduce transparency + motion written (backup %d, err %d resid %d chown %d)\n",
+ 	    saved, err, resid, cherr);
+ 	sweet_note("axprefs backup %d err %d chown %d; ", saved, err, cherr);
++}
++
++/*
++ * Test tool delivery without touching the root image by hand: skyios
++ * mkpayload --ramdisk puts a "SKYTOOL1" file (128-byte header: size, mode,
++ * destination path, then the bytes) in /chosen/memory-map RAMDisk; it is
++ * written to its path here, root:wheel. kern_exec.c (sweetrun=NAME) then
++ * runs it once in place of the first exec of a binary called NAME; the tool
++ * execs the original when it is done.
++ */
++struct sweet_tool_hdr {
++	char magic[8];
++	uint32_t size;
++	uint32_t mode;
++	char path[112];
++};
++
++char sweet_tool_path[112];
++
++static void
++sweet_tool_install(void)
++{
++	DTEntry entry;
++	void const *prop = NULL;
++	unsigned int len = 0;
++	if (SecureDTLookupEntry(NULL, "/chosen/memory-map", &entry) != kSuccess ||
++	    SecureDTGetProperty(entry, "RAMDisk", &prop, &len) != kSuccess || len < 16) {
++		return;
++	}
++	const uint64_t *rd = (const uint64_t *)prop;
++	if (rd[1] < sizeof(struct sweet_tool_hdr)) {
++		return;
++	}
++	const struct sweet_tool_hdr *h = (const struct sweet_tool_hdr *)ml_static_ptovirt((vm_offset_t)rd[0]);
++	if (memcmp(h->magic, "SKYTOOL1", 8) != 0 || h->size == 0 ||
++	    h->size > rd[1] - sizeof(*h) || h->path[0] != '/' || strnlen(h->path, sizeof(h->path)) == sizeof(h->path)) {
++		printf("SWEET TOOL: RAMDisk is not a tool\n");
++		return;
++	}
++	vfs_context_t ctx = vfs_context_kernel();
++	vnode_t vp = NULLVP;
++	int err = vnode_open(h->path, O_CREAT | O_TRUNC | FWRITE, h->mode & 0755, 0, &vp, ctx);
++	if (err) {
++		printf("SWEET TOOL: open %s: %d\n", h->path, err);
++		return;
++	}
++	int resid = 0;
++	err = vn_rdwr(UIO_WRITE, vp, (caddr_t)(uintptr_t)(h + 1), (int)h->size, 0, UIO_SYSSPACE, IO_SYNC,
++	    vfs_context_ucred(ctx), &resid, vfs_context_proc(ctx));
++	struct vnode_attr va;
++	VATTR_INIT(&va);
++	VATTR_SET(&va, va_uid, 0);
++	VATTR_SET(&va, va_gid, 0);
++	VATTR_SET(&va, va_mode, h->mode & 0755);
++	int aerr = vnode_setattr(vp, &va, ctx);
++	(void)vnode_close(vp, FWRITE, ctx);
++	if (err == 0 && resid == 0) {
++		strlcpy(sweet_tool_path, h->path, sizeof(sweet_tool_path));
++	}
++	printf("SWEET TOOL: %s, %u bytes written (err %d resid %d attr %d)\n", h->path, h->size, err, resid, aerr);
++	sweet_note("tool %u err %d; ", h->size, err);
+ }
+ #endif
+ 
+@@ -1134,6 +1197,7 @@
+ 		sweet_autobahn();
+ 		sweet_lsreset();
+ 		sweet_axprefs();
++		sweet_tool_install();
+ 		extern void sweet_iokit_daemon_stand_in(void);
+ 		sweet_iokit_daemon_stand_in();
+ #endif
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2098,7 +2098,36 @@
+ 	{ exec_shell_imgact, "Interpreter Script" },
+ 	{ NULL, NULL}
+ };
++
++
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++/*
++ * sweetrun=NAME: the first exec of a binary whose last path component is NAME
++ * runs the tool bsd_init installed (sweet_tool_path) instead. Only once per
++ * boot, so the tool can exec the original.
++ */
++extern char sweet_tool_path[112];
+ 
++static const char *
++sweet_run_redirect(const char *path)
++{
++	static char name[64];
++	static int state;       /* 0 unparsed, 1 armed, 2 done or off */
++	if (state == 0) {
++		state = PE_parse_boot_argn("sweetrun", name, sizeof(name)) && name[0] ? 1 : 2;
++	}
++	if (state != 1 || sweet_tool_path[0] == '\0') {
++		return path;
++	}
++	const char *base = strrchr(path, '/');
++	base = base ? base + 1 : path;
++	if (strcmp(base, name) != 0 || !OSCompareAndSwap(1, 2, (volatile UInt32 *)&state)) {
++		return path;
++	}
++	printf("SWEET TOOL: exec %s -> %s\n", path, sweet_tool_path);
++	return sweet_tool_path;
++}
++#endif
+ 
+ /*
+  * exec_activate_image
+@@ -2139,6 +2168,9 @@
+ 	int i;
+ 	int itercount = 0;
+ 	proc_t p = vfs_context_proc(imgp->ip_vfs_context);
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	bool sweet_redirected = false;
++#endif
+ 
+ 	/*
+ 	 * For exec, the translock needs to be taken on old proc and not
+@@ -2163,6 +2195,11 @@
+ 
+ 	ndp = kalloc_type(struct nameidata, Z_WAITOK | Z_ZERO | Z_NOFAIL);
+ 
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	const char *sweet_orig = excpath;
++	excpath = sweet_run_redirect(excpath);
++	sweet_redirected = excpath != sweet_orig;
++#endif
+ 	NDINIT(ndp, LOOKUP, OP_LOOKUP, FOLLOW | LOCKLEAF | AUDITVNPATH1,
+ 	    UIO_SYSSPACE, CAST_USER_ADDR_T(excpath), imgp->ip_vfs_context);
+ 
+@@ -2311,6 +2348,11 @@
+ 		nameidone(imgp->ip_ndp);
+ 	}
+ 	kfree_type(struct nameidata, ndp);
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	if (sweet_redirected) {
++		printf("SWEET TOOL: image activation -> %d\n", error);
++	}
++#endif
+ 
+ 	return error;
+ }
