@@ -1,9 +1,10 @@
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
 +++ b/iokit/Kernel/arm/hid/SweetHID.cpp
-@@ -560,10 +560,45 @@
+@@ -559,11 +559,77 @@
+ 		IOSleep(1500);
  	}
  	IOLog("SWEET TOUCHSIM: done (40 swipes)\n");
- }
++}
 +
 +/*
 + * sweetpowersim=S (sweetpowersim_every=T, up to 8 times): S seconds after the
@@ -11,7 +12,7 @@
 + * unattended boots (sweetshot screenshots) show a lit screen.
 + */
 +extern "C" volatile int sweet_fb_power_off;
- 
++
 +static void
 +sweet_powersim_thread(void *arg, wait_result_t wr)
 +{
@@ -34,9 +35,40 @@
 +	}
 +}
 +
++/*
++ * sweetunlocksim=S: S seconds after the touch service starts, wake the
++ * display if it is off and swipe up from the bottom edge (the home gesture),
++ * which opens the home screen when there is no passcode.
++ */
++static void
++sweet_unlocksim_thread(void *arg, wait_result_t wr)
++{
++	(void)wr;
++	IOSleep((uint32_t)(uintptr_t)arg * 1000);
++	if (sweet_fb_power_off) {
++		sweet_hid_key(0, 1);
++		IOSleep(120);
++		sweet_hid_key(0, 0);
++		IOSleep(1500);
++	}
++	const int steps = 20;
++	for (int i = 0; i <= steps; i++) {
++		sweet_hid_touch(9, 1, 540, 2395 - (2395 - 900) * i / steps);
++		IOSleep(16);
++	}
++	sweet_hid_touch(9, 0, 540, 900);
++	IOLog("SWEET UNLOCKSIM: home gesture done (display was %s)\n", sweet_fb_power_off ? "off" : "on");
+ }
+ 
  extern "C" void
  sweet_touchsim_start(void)
  {
++	uint32_t usecs = 0;
++	thread_t ut;
++	if (PE_parse_boot_argn("sweetunlocksim", &usecs, sizeof(usecs)) && usecs != 0 &&
++	    kernel_thread_start(sweet_unlocksim_thread, (void *)(uintptr_t)usecs, &ut) == KERN_SUCCESS) {
++		thread_deallocate(ut);
++	}
 +	uint32_t psecs = 0;
 +	thread_t pt;
 +	if (PE_parse_boot_argn("sweetpowersim", &psecs, sizeof(psecs)) && psecs != 0 &&

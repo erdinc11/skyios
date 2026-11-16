@@ -31,9 +31,12 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 
 ## Evidence
 
-<img src="docs/images/lockscreen-0112a.png" width="270" align="right" alt="iOS 16 lock screen on the Redmi Note 10 Pro, captured from the panel">
+<p align="right">
+<img src="docs/images/lockscreen-0112a.png" width="230" alt="iOS 16 lock screen on the Redmi Note 10 Pro, captured from the panel">
+<img src="docs/images/homescreen-0112g.png" width="230" alt="iOS 16 home screen on the Redmi Note 10 Pro, captured from the panel">
+</p>
 
-**Screenshot from the phone (boot 0112a, 2026-11-16).** The iOS 16.7.16 lock screen as it is on the Redmi Note 10 Pro's panel. The kernel copies the framebuffer (every second pixel and row) into spare blocks at the end of `userdata` (`sweetshot=S`), and `skyios shot-pull` turns it into this PNG from recovery: no camera, no editing. The panel is 1080×2400 and iOS draws an iPhone X 1125×2436 frame, so the edges are cropped (the flashlight button on the left is cut off). The date is 31 December because there is no RTC driver.
+**Screenshots from the phone (boots 0112a and 0112g, 2026-11-16).** The iOS 16.7.16 lock screen and, after a simulated home gesture (`sweetunlocksim`), the home screen, as they are on the Redmi Note 10 Pro's panel. The kernel copies the framebuffer (every second pixel and row) into spare blocks at the end of `userdata` (`sweetshot=S`), and `skyios shot-pull` turns it into this PNG from recovery: no camera, no editing. The panel is 1080×2400 and iOS draws an iPhone X 1125×2436 frame, so the edges are cropped (the flashlight button on the left is cut off). The date is 31 December because there is no RTC driver.
 
 **GPU log lines from the same kind of boot** (`skyios usbnet` live log; the kernel self tests run once the GPU is up, the user-space tests are `skyios-metal/test/accel-test` run at boot by `sweetrun`):
 
@@ -67,7 +70,7 @@ The 36 ms full-screen fill and the 34 ms present copy show the GPU still runs at
 - **No GPU rendering of the UI.** CoreAnimation draws on the CPU, typically 6–15 fps while interacting (7–8 swaps/s measured during synthetic swipes). Two things are missing for a GPU-drawn UI: (1) a GPU frequency / bandwidth vote; at the boot clock a full-screen fill takes 36 ms, so the GPU path would be slower than the CPU; (2) a complete Metal driver for CoreAnimation: a compiler from Metal shaders (AIR) to Adreno ir3, a drawing render encoder, GPU textures and framebuffer-fetch emulation. Building blocks that work are listed in `NOTES.md`.
 - **Wallpaper cannot be changed yet.** The default blue lock-screen poster is drawn (see the screenshot), but setting a custom image through SpringBoard's legacy wallpaper service does not change the iOS 16 poster-based lock screen.
 - **No Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPS or SEP / Face ID.** Daemons that only spin without hardware (bluetoothd, fairplayd.H2, the voicemail daemon vmd) are blocked at exec (`sweetnoexec`).
-- **Few apps.** The image has only what is on the system volume. There is no App Store, no Apple ID, and some Settings pages are empty.
+- **Few apps.** The home screen shows six: Photos, App Store, Settings, Phone, Safari and Messages (screenshot above). The image has only what is on the system volume. There is no App Store, no Apple ID, and some Settings pages are empty.
 - **Security is off:** permissive code signing (AMFI) and sandbox policies, a stub AppleKeyStore, no data protection. Do not put anything personal on it.
 
 ## How it boots
@@ -171,6 +174,7 @@ What the less obvious boot-args do:
 | `sweetreboot=S` | Reset S seconds after boot (unattended test cycles; lands in recovery) |
 | `sweetreducetransp=1` / `2` | Write Reduce Transparency + Reduce Motion before userland / restore the original prefs |
 | `sweettouchsim=S` | 20 synthetic swipes S seconds after the touch driver starts (lag measurements) |
+| `sweetunlocksim=S` | Wake the display if needed and swipe up from the bottom edge (home gesture) at S seconds |
 | `sweetpowersim=S`, `sweetpowersim_every=T` | Press the power key at S seconds (up to 8 times, T apart) when the display is off, for unattended screenshots |
 | `sweetshot=S`, `sweetshot_every=T` | Screenshot of the panel S seconds after the log starts (up to 4, T seconds apart), read with `skyios shot-pull` from recovery |
 
@@ -278,7 +282,7 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 | 0109 | GPU accelerator service + user client (buffers, IOSurface import, submit, wait), Metal `IOAcceleratorES` |
 | 0110 | Boot-time tool installer from the payload and `sweetrun` exec redirect |
 | 0111 | `sweetshot` panel screenshots into spare blocks at the end of `userdata` |
-| 0112 | `sweetpowersim` power key simulation |
+| 0112 | `sweetpowersim` power key and `sweetunlocksim` home gesture simulation |
 
 ## Key hardware facts
 
