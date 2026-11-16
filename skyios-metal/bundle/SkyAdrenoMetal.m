@@ -53,8 +53,17 @@ static BOOL sky_allowed(io_service_t port) {
 static id sky_init(id self, SEL _cmd, io_service_t port) {
     if (!sky_allowed(port))
         return nil;
-    if (!sky_conn)
-        IOServiceOpen(port, mach_task_self(), 0, &sky_conn);
+    if (!sky_conn) {
+        // port is the IOAcceleratorES service (SkyAdrenoMetalAccel); find
+        // the separate SkyAdrenoAccel service for GPU command submission
+        io_service_t accel = IOServiceGetMatchingService(kIOMainPortDefault,
+            IOServiceMatching("SkyAdrenoAccel"));
+        if (accel) {
+            IOServiceOpen(accel, mach_task_self(), 0, &sky_conn);
+            IOObjectRelease(accel);
+        }
+        sky_log("sky_conn %#x (SkyAdrenoAccel)", sky_conn);
+    }
     struct objc_super sup = {self, class_getSuperclass(object_getClass(self))};
     self = ((id(*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, @selector(init));
     sky_log("initWithAcceleratorPort: %#x from pid %d -> %p", port, getpid(), self);

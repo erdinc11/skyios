@@ -298,12 +298,30 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         _vb = b.gpuAddress + o;
 }
 
-// cp3d.rs emit_state + emit_draw, viewport/scissors for the whole target
-- (void)draw:(uint32_t)initiator count:(NSUInteger)n start:(NSUInteger)first {
-    int prog = -1;
+// Map CA's pipeline function names to built-in programs. CA uses
+// fixed_vert_lph_spc[texcoord_count0=1] + fixed_frag_lph_cph[...] with
+// function constants appended in brackets; match by prefix.
+- (int)resolveProgram {
+    // exact match first (test programs)
     for (int i = 0; i < (int)(sizeof(sky_programs) / sizeof(sky_programs[0])); i++)
         if ([_vname isEqualToString:sky_programs[i].vertex] && [_fname isEqualToString:sky_programs[i].fragment])
-            prog = i;
+            return i;
+    // CA's compositing pipelines: fixed_vert + fixed_frag
+    if ([_vname hasPrefix:@"fixed_vert"] && [_fname hasPrefix:@"fixed_frag"]) {
+        BOOL has_texture = [_fname containsString:@"image_count="];
+        BOOL has_fbfetch = [_fname containsString:@"framebuffer_fetch=1"];
+        if (has_texture && has_fbfetch)
+            return 2; // sky_fb_blend_fragment (textured + fb fetch blend)
+        if (has_texture)
+            return 1; // sky_texture_fragment (textured, no fb fetch)
+        return 0;     // sky_red_fragment (solid, clear color from pipeline)
+    }
+    return -1;
+}
+
+// cp3d.rs emit_state + emit_draw, viewport/scissors for the whole target
+- (void)draw:(uint32_t)initiator count:(NSUInteger)n start:(NSUInteger)first {
+    int prog = [self resolveProgram];
     BOOL textured = prog >= 0 && sky_programs[prog].textured;
     BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
     uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
