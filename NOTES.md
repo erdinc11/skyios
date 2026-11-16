@@ -52,6 +52,8 @@
   - Recovered with sbfix (0113k): black background, 0 SpringBoard crashes. The SkyIOS snapshot `.atx` files stay in the legacy configuration (originals `.sweet-old`).
 - Next ideas: find why CollectionsPoster has no descriptors; or provide the snapshot PosterBoard/SpringBoard expect on disk (`PBFPosterSnapshotManager`, `_populateSnapshotsFromDiskIfPossible`); or give SpringBoard a GPU renderer once Metal can run CA.
 
+**Logo partition flashed (2026-11-16, user-approved):** `fastboot flash logo` with a rebuilt image: the two Mi boot logos (BMP slots at 0x5000 = locked boot, 0xedb000 = unlocked boot; header `LOGO!!!!` at 0x4000) replaced by a white Apple logo (230 px wide, rendered from macOS `AKAppleLogoWhite.pdf`) on black; "Powered by android" gone, the unlocked padlock kept; FASTBOOT and "system destroyed" slots unchanged, original BMP headers kept. Flash OKAY. Restore: `fastboot flash logo backup/logo.img`. Not checked visually on the phone yet.
+
 **Persistent changes on the phone's iOS root from test boots:** wallpaper experiment (PosterBoard data store deleted; SkyIOS collection + default plists changed, `.sweet-old` backups; SpringBoard legacy wallpaper files moved to `/private/var/mobile/Library/SpringBoard.sweet-legacy-wallpaper/`), 32 staged stock apps moved from `/private/var/staged_system_apps` to `/Applications` (0112h, undo with the tool), `/private/var/root/skyios-accel-test`, `/System/Library/Extensions/SkyAdrenoMetal.bundle/` (only loaded with `sweetaccel=2`), backboardd preference `CAEnableDeepFramebuffer = false` (affects only CA's Metal path; delete the key to restore).
 
 ### >>> RESULT 2026-11-16: CoreAnimation RUNS ITS METAL RENDERER ON OUR DEVICE (recording only, boots 0111l-o) <<<
