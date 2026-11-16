@@ -242,7 +242,7 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     uint32_t _w, _h, _info; // RB_MRT[0].BUF_INFO
     NSString *_vname, *_fname;
     uint32_t _mrtControl, _mrtBlend;
-    uint64_t _vb;
+    uint64_t _vb, _vb_base;
     id<MTLTexture> _tex;
     NSUInteger _draws, _skipped;
 }
@@ -289,13 +289,25 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 }
 
 - (void)setVertexBytes:(const void *)p length:(NSUInteger)l atIndex:(NSUInteger)i {
-    if (i == 0)
-        _vb = [self upload:p length:l];
+    if (i <= 1) {
+        uint64_t a = [self upload:p length:l];
+        if (i == 0) _vb = a;
+        static int nlog;
+        if (nlog++ < 3)
+            sky_log("setVertexBytes idx=%lu len=%lu -> gpu %#llx", (unsigned long)i, (unsigned long)l, a);
+    }
 }
 
 - (void)setVertexBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {
+    if (i == 0) {
+        _vb_base = b.gpuAddress;
+        _vb = _vb_base + o;
+    }
+}
+
+- (void)setVertexBufferOffset:(NSUInteger)o atIndex:(NSUInteger)i {
     if (i == 0)
-        _vb = b.gpuAddress + o;
+        _vb = _vb_base + o;
 }
 
 // Map CA's pipeline function names to built-in programs. CA uses
@@ -325,9 +337,11 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     BOOL textured = prog >= 0 && sky_programs[prog].textured;
     BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
     uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
-    if (prog < 0 || !_vb || first != 0 || (textured && !desc)) {
-        if (_skipped++ == 0)
-            sky_log("draw skipped: no GPU code for %s + %s (or no usable texture)", _vname.UTF8String, _fname.UTF8String);
+    if (prog < 0 || !_vb || (textured && !desc)) {
+        if (_skipped++ < 5)
+            sky_log("draw skipped: prog=%d vb=%llx tex=%d desc=%llx first=%lu n=%lu %s + %s",
+                    prog, _vb, textured, desc, (unsigned long)first, (unsigned long)n,
+                    _vname.UTF8String ?: "nil", _fname.UTF8String ?: "nil");
         return;
     }
     uint64_t fs = sky_programs[prog].code;
@@ -562,9 +576,16 @@ id sky_draw_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d, NSMutableData
     MTLPixelFormat f = t.pixelFormat;
     BOOL fmt_ok = f == MTLPixelFormatBGRA8Unorm || f == MTLPixelFormatRGBA8Unorm || f == MTLPixelFormatBGRA8Unorm_sRGB ||
                   f == MTLPixelFormatRGBA8Unorm_sRGB;
-    SkyImport rt;
-    if (!surf || !fmt_ok || !code_ready() || !import_surface(surf, &rt) || (rt.bpr & 63))
+    SkyImport rt = {0};
+    BOOL cr = code_ready();
+    BOOL imp = cr && surf && import_surface(surf, &rt);
+    if (!surf || !fmt_ok || !cr || !imp || (rt.bpr & 63)) {
+        static int n;
+        if (n++ < 20)
+            sky_log("draw encoder rejected: surf=%p fmt=%d(%s) code=%d imp=%d bpr=%llu conn=%#x",
+                    surf, (int)f, fmt_ok ? "ok" : "bad", cr, imp, (unsigned long long)rt.bpr, sky_conn);
         return nil;
+    }
     uint32_t w = (uint32_t)t.width, h = (uint32_t)t.height;
     begin_pass(stream, rt, w, h, c);
     // BGRA memory order: COLOR_SWAP WXYZ (a3xx_color_swap 1) in RB_MRT[0].BUF_INFO

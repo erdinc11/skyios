@@ -26,10 +26,15 @@ void sky_log(const char *fmt, ...) {
 }
 
 BOOL sky_alloc(uint64_t size, SkyMem *m) {
-    uint64_t out[3];
+    uint64_t out[3] = {0};
     uint32_t n = 3;
-    if (IOConnectCallScalarMethod(sky_conn, SKY_ALLOC, &size, 1, out, &n) != KERN_SUCCESS)
+    kern_return_t kr = IOConnectCallScalarMethod(sky_conn, SKY_ALLOC, &size, 1, out, &n);
+    if (kr != KERN_SUCCESS) {
+        static int nfail;
+        if (nfail++ < 3)
+            sky_log("sky_alloc %llu FAILED: kr=%#x conn=%#x n=%u", size, kr, sky_conn, n);
         return NO;
+    }
     m->handle = out[0];
     m->iova = out[1];
     m->cpu = (void *)(uintptr_t)out[2];
@@ -382,7 +387,14 @@ static uint32_t pkt7(uint32_t op, uint32_t cnt) {
 - (void)addScheduledHandler:(MTLCommandBufferHandler)block { [_scheduled addObject:[block copy]]; }
 
 - (id<MTLRenderCommandEncoder>)renderCommandEncoderWithDescriptor:(MTLRenderPassDescriptor *)d {
-    return sky_draw_encoder(self.device, d, _s->data, self) ?: sky_render_encoder(self.device, d);
+    id e = sky_draw_encoder(self.device, d, _s->data, self);
+    if (e) {
+        static int ngpu;
+        if (ngpu++ < 5)
+            sky_log("GPU encoder %d: %ux%u", ngpu, (unsigned)((id<MTLTexture>)d.colorAttachments[0].texture).width,
+                    (unsigned)((id<MTLTexture>)d.colorAttachments[0].texture).height);
+    }
+    return e ?: sky_render_encoder(self.device, d);
 }
 
 - (id<MTLBlitCommandEncoder>)blitCommandEncoder {
@@ -486,6 +498,15 @@ static uint32_t pkt7(uint32_t op, uint32_t cnt) {
     SkyBuffer *b = [[SkyBuffer alloc] initWithDevice:(id<MTLDevice>)self length:length options:options];
     if (b)
         memcpy(b.contents, p, length);
+    return b;
+}
+- (id<MTLBuffer>)newBufferWithBytesNoCopy:(void *)p length:(NSUInteger)length options:(MTLResourceOptions)options deallocator:(void (^)(void *, NSUInteger))dealloc {
+    // CA uses this for vertex data mapped from IOSurfaces. Ideally we'd import
+    // the pages into the GPU, but for now copy into a GPU-backed buffer.
+    SkyBuffer *b = [[SkyBuffer alloc] initWithDevice:(id<MTLDevice>)self length:length options:options];
+    if (b)
+        memcpy(b.contents, p, length);
+    // Don't call the deallocator — the caller owns the memory, our buffer is a copy
     return b;
 }
 - (NSString *)name {
