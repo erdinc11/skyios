@@ -11,13 +11,11 @@ Subject: [PATCH] private 0115: en0 + Apple80211 for wifid over the Sweet
  bsd/dev/redwood_sta.c                   | 371 ++++++++++++
  bsd/dev/sweet_sta.c                     | 226 ++++++++
  bsd/sys/redwood_input.h                 |   5 +
- bsd/sys/redwood_net.h                   |  63 ++
+ bsd/sys/redwood_net.h                   |  62 ++
  bsd/sys/redwood_sta.h                   | 122 ++++
  iokit/Kernel/arm/RedwoodWLAN.cpp        | 137 +++++
- iokit/Kernel/arm/SweetKeyStore.cpp      |  43 ++
- iokit/Kernel/arm/SweetSurface.cpp       |  14 +-
  iokit/conf/files.arm64                  |   1 +
- 12 files changed, 2101 insertions(+), 1 deletion(-)
+ 10 files changed, 2043 insertions(+)
  create mode 100644 bsd/dev/redwood_apple80211.c
  create mode 100644 bsd/dev/redwood_net.c
  create mode 100644 bsd/dev/redwood_sta.c
@@ -2126,92 +2124,6 @@ index 0000000..89d8840
 +	}
 +	controller->release();
 +}
-diff --git a/iokit/Kernel/arm/SweetKeyStore.cpp b/iokit/Kernel/arm/SweetKeyStore.cpp
-index d11fe26..73d9267 100644
---- a/iokit/Kernel/arm/SweetKeyStore.cpp
-+++ b/iokit/Kernel/arm/SweetKeyStore.cpp
-@@ -227,6 +227,49 @@ AppleKeyStoreUserClient::externalMethod(uint32_t selector, IOExternalMethodArgum
- 		args->scalarOutputCount = 0;
- 		ret = sweet_aks_device_state(args);
- 		break;
-+	/*
-+	 * (from HackiOS) kAKSWrapKey / kAKSUnwrapKey: securityd wraps each keychain item's key with
-+	 * its protection class before storing it. No SEP, no secret: a mark, the class and the key
-+	 * mixed with a fixed pattern, 8 bytes longer like AES key wrap. Without them no keychain item
-+	 * (wifid's network passwords among them) could be stored.
-+	 */
-+	case kAKSWrapKey: {
-+		uint8_t wrapped[8 + 64];
-+		size_t len = args->structureInputSize;
-+		if (args->structureInput == NULL || len == 0 || len > 64 || in_scalars < 2) {
-+			ret = kIOReturnBadArgument;
-+			break;
-+		}
-+		memcpy(wrapped, "HKwr", 4);
-+		wrapped[4] = (uint8_t)args->scalarInput[1];
-+		wrapped[5] = wrapped[6] = wrapped[7] = 0;
-+		memcpy(wrapped + 8, args->structureInput, len);
-+		for (size_t i = 0; i < len; i++) {
-+			wrapped[8 + i] ^= (uint8_t)(0x5a + 37 * i);
-+		}
-+		if (out_scalars >= 1) {
-+			args->scalarOutput[0] = args->scalarInput[1];
-+			args->scalarOutputCount = 1;
-+		}
-+		ret = sweet_aks_struct_out(args, wrapped, (uint32_t)(8 + len));
-+		break;
-+	}
-+	case kAKSUnwrapKey: {
-+		uint8_t key[64];
-+		const uint8_t *w = (const uint8_t *)args->structureInput;
-+		size_t len = args->structureInputSize;
-+		if (w == NULL || len <= 8 || len > 8 + sizeof(key) || memcmp(w, "HKwr", 4) != 0) {
-+			ret = kIOReturnBadArgument;
-+			break;
-+		}
-+		memcpy(key, w + 8, len - 8);
-+		for (size_t i = 0; i < len - 8; i++) {
-+			key[i] ^= (uint8_t)(0x5a + 37 * i);
-+		}
-+		args->scalarOutputCount = 0;
-+		ret = sweet_aks_struct_out(args, key, (uint32_t)(len - 8));
-+		break;
-+	}
- 	default:
- 		ret = kIOReturnUnsupported;
- 		break;
-diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.cpp
-index 0c07743..21d5d31 100644
---- a/iokit/Kernel/arm/SweetSurface.cpp
-+++ b/iokit/Kernel/arm/SweetSurface.cpp
-@@ -393,6 +393,18 @@ sweet_surface_layout(SweetSurface *s, OSDictionary *props)
- 	s->elementWidth = (uint8_t)sweet_dict_u32(props, "IOSurfaceElementWidth", 1);
- 	s->elementHeight = (uint8_t)sweet_dict_u32(props, "IOSurfaceElementHeight", 1);
- 	s->pixelFormat = sweet_dict_u32(props, "IOSurfacePixelFormat", 0);
-+	/*
-+	 * (from HackiOS) 10-bit formats a wide-gamut iPhone asks for ('w30r', 'l10r', 'w30R' and
-+	 * 'b3a8' with its separate alpha plane): neither these surfaces nor the software renderer
-+	 * draw them, and the panel is 8-bit sRGB. Made as one-plane BGRA, which the client reads back.
-+	 */
-+	bool one_plane = false;
-+	if (s->pixelFormat == 0x77333072u || s->pixelFormat == 0x6C313072u || s->pixelFormat == 0x77333052u) {
-+		s->pixelFormat = 0x42475241u;           /* BGRA */
-+	} else if (s->pixelFormat == 0x62336138u) {
-+		s->pixelFormat = 0x42475241u;
-+		one_plane = true;
-+	}
- 	s->cacheMode = sweet_dict_u32(props, "IOSurfaceCacheMode", 0);
- 	s->offset = sweet_dict_u32(props, "IOSurfaceOffset", 0);
- 	if (s->width > SWEET_SURFACE_MAX_DIM || s->height > SWEET_SURFACE_MAX_DIM ||
-@@ -406,7 +418,7 @@ sweet_surface_layout(SweetSurface *s, OSDictionary *props)
- 	}
- 	end = (uint64_t)s->offset + (uint64_t)s->bytesPerRow * sweet_div_up(s->height, s->elementHeight);
- 
--	OSArray *planes = OSDynamicCast(OSArray, props->getObject("IOSurfacePlaneInfo"));
-+	OSArray *planes = one_plane ? NULL : OSDynamicCast(OSArray, props->getObject("IOSurfacePlaneInfo"));
- 	s->planeCount = 0;
- 	if (planes != NULL) {
- 		uint64_t next = s->offset;
 diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
 index 60ec873..4d3730b 100644
 --- a/iokit/conf/files.arm64
