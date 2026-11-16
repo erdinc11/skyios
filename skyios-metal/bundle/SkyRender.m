@@ -71,7 +71,8 @@ static uint32_t fbits(float f) {
 
 // GPU memory shared by all encoders of the process: shader code (128-byte
 // aligned), zeroed border colours, a CCU timestamp word
-enum { CODE_VS = 0x000, CODE_FS_RED = 0x080, CODE_FS_TEX = 0x100, CODE_FS_BLEND = 0x180, CODE_BORDER = 0x280, CODE_TS = 0x380, CODE_SIZE = 0x4000 };
+enum { CODE_VS = 0x000, CODE_FS_RED = 0x080, CODE_FS_TEX = 0x100, CODE_FS_BLEND = 0x180,
+       CODE_VS_MVP = 0x280, CODE_BORDER = 0x400, CODE_TS = 0x500, CODE_SIZE = 0x4000 };
 
 static SkyMem sky_code;
 
@@ -136,6 +137,72 @@ static BOOL code_ready(void) {
 #undef CAT2_NEG
 #undef NOP
         memcpy(&w[CODE_FS_BLEND / 4], blend, sizeof(blend));
+
+        // VS: matrix multiply — transforms position by 4×4 matrix in constants c0-c3.
+        // Input:  r0.xyzw = position (VFD), r1.xy = texcoord (VFD)
+        // Output: r0.xyzw = matrix * position, r1.xy = texcoord (passthrough)
+        // Uses r2-r5 as temporaries.
+#define C(r,c) ((r)*4+(c) | (1u << 11))
+#define CAT2_CG(opc, dst, s1c, s2g, sy) \
+    { (s1c) | ((uint32_t)(s2g) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+#define CAT2_GG(opc, dst, s1, s2, sy) \
+    { (s1) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+#define CAT2_FG(opc, dst, flut, s2, sy) \
+    { ((flut)|(5u<<11)) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+#define G(r,c) ((r)*4+(c))
+#define VNOP {0, 0}
+        const uint32_t vs_mvp[] = {
+            // Row 0: clip.x = c0 · pos
+            CAT2_CG(3, G(2,0), C(0,0), G(0,0), 0), // mul.f r2.x, c0.x, r0.x
+            CAT2_CG(3, G(2,1), C(0,1), G(0,1), 0), // mul.f r2.y, c0.y, r0.y
+            CAT2_CG(3, G(2,2), C(0,2), G(0,2), 0), // mul.f r2.z, c0.z, r0.z
+            CAT2_CG(3, G(2,3), C(0,3), G(0,3), 0), // mul.f r2.w, c0.w, r0.w
+            // Row 1: interleave while row 0 muls complete
+            CAT2_CG(3, G(3,0), C(1,0), G(0,0), 0), // mul.f r3.x, c1.x, r0.x
+            CAT2_CG(3, G(3,1), C(1,1), G(0,1), 0), // mul.f r3.y, c1.y, r0.y
+            CAT2_GG(0, G(2,0), G(2,0), G(2,1), 0),  // add.f r2.x, r2.x, r2.y
+            CAT2_CG(3, G(3,2), C(1,2), G(0,2), 0), // mul.f r3.z, c1.z, r0.z
+            CAT2_GG(0, G(2,2), G(2,2), G(2,3), 0),  // add.f r2.z, r2.z, r2.w
+            CAT2_CG(3, G(3,3), C(1,3), G(0,3), 0), // mul.f r3.w, c1.w, r0.w
+            // Row 2:
+            CAT2_CG(3, G(4,0), C(2,0), G(0,0), 0), // mul.f r4.x, c2.x, r0.x
+            CAT2_CG(3, G(4,1), C(2,1), G(0,1), 0), // mul.f r4.y, c2.y, r0.y
+            CAT2_GG(0, G(2,0), G(2,0), G(2,2), 0),  // add.f r2.x, r2.x, r2.z → clip.x DONE
+            CAT2_GG(0, G(3,0), G(3,0), G(3,1), 0),  // add.f r3.x, r3.x, r3.y
+            CAT2_CG(3, G(4,2), C(2,2), G(0,2), 0), // mul.f r4.z, c2.z, r0.z
+            CAT2_GG(0, G(3,2), G(3,2), G(3,3), 0),  // add.f r3.z, r3.z, r3.w
+            CAT2_CG(3, G(4,3), C(2,3), G(0,3), 0), // mul.f r4.w, c2.w, r0.w
+            // Row 3:
+            CAT2_CG(3, G(5,0), C(3,0), G(0,0), 0), // mul.f r5.x, c3.x, r0.x
+            CAT2_CG(3, G(5,1), C(3,1), G(0,1), 0), // mul.f r5.y, c3.y, r0.y
+            CAT2_GG(0, G(3,0), G(3,0), G(3,2), 0),  // add.f r3.x, r3.x, r3.z → clip.y DONE
+            CAT2_GG(0, G(4,0), G(4,0), G(4,1), 0),  // add.f r4.x, r4.x, r4.y
+            CAT2_CG(3, G(5,2), C(3,2), G(0,2), 0), // mul.f r5.z, c3.z, r0.z
+            CAT2_GG(0, G(4,2), G(4,2), G(4,3), 0),  // add.f r4.z, r4.z, r4.w
+            CAT2_CG(3, G(5,3), C(3,3), G(0,3), 0), // mul.f r5.w, c3.w, r0.w
+            CAT2_GG(0, G(5,0), G(5,0), G(5,1), 0),  // add.f r5.x, r5.x, r5.y
+            VNOP,
+            CAT2_GG(0, G(4,0), G(4,0), G(4,2), 0),  // add.f r4.x, r4.x, r4.z → clip.z DONE
+            CAT2_GG(0, G(5,2), G(5,2), G(5,3), 0),  // add.f r5.z, r5.z, r5.w
+            VNOP, VNOP,
+            CAT2_GG(0, G(5,0), G(5,0), G(5,2), 0),  // add.f r5.x, r5.x, r5.z → clip.w DONE
+            VNOP, VNOP, VNOP,
+            // Move results to r0 output: add.f r0.c, 0.0, rN.x
+            CAT2_FG(0, G(0,0), 0, G(2,0), 0),  // r0.x = clip.x
+            CAT2_FG(0, G(0,1), 0, G(3,0), 0),  // r0.y = clip.y
+            CAT2_FG(0, G(0,2), 0, G(4,0), 0),  // r0.z = clip.z
+            CAT2_FG(0, G(0,3), 0, G(5,0), 0),  // r0.w = clip.w
+            // r1.xy already has texcoord from VFD (passthrough)
+            VNOP,
+            {0, 0x03000000}, // end
+        };
+#undef C
+#undef CAT2_CG
+#undef CAT2_GG
+#undef CAT2_FG
+#undef G
+#undef VNOP
+        memcpy(&w[CODE_VS_MVP / 4], vs_mvp, sizeof(vs_mvp));
     }
     os_unfair_lock_unlock(&lock);
     return sky_code.handle != 0;
@@ -149,10 +216,12 @@ static const struct {
     uint32_t code;
     BOOL textured;
     BOOL fbfetch;
+    BOOL mvp;
 } sky_programs[] = {
-    {@"sky_position_vertex", @"sky_red_fragment", CODE_FS_RED, NO, NO},
-    {@"sky_position_uv_vertex", @"sky_texture_fragment", CODE_FS_TEX, YES, NO},
-    {@"sky_position_uv_vertex", @"sky_fb_blend_fragment", CODE_FS_BLEND, YES, YES},
+    {@"sky_position_vertex", @"sky_red_fragment", CODE_FS_RED, NO, NO, NO},
+    {@"sky_position_uv_vertex", @"sky_texture_fragment", CODE_FS_TEX, YES, NO, NO},
+    {@"sky_position_uv_vertex", @"sky_fb_blend_fragment", CODE_FS_BLEND, YES, YES, NO},
+    {@"ca_fixed_vert", @"ca_fixed_frag_blend", CODE_FS_BLEND, YES, YES, YES},
 };
 
 #pragma mark - render targets
@@ -237,14 +306,21 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 
 @implementation SkyDrawEncoder {
     NSMutableData *_s;
-    id _owner; // the command buffer (keeps the uploads alive)
+    id _owner;
     SkyImport _rt;
-    uint32_t _w, _h, _info; // RB_MRT[0].BUF_INFO
+    uint32_t _w, _h, _info;
     NSString *_vname, *_fname;
     uint32_t _mrtControl, _mrtBlend;
     uint64_t _vb, _vb_base;
     id<MTLTexture> _tex;
     NSUInteger _draws, _skipped;
+    uint64_t _vtx_gpu[32];
+    uint64_t _vtx_base[32];
+    NSUInteger _vtx_len[32];
+    uint64_t _frag_gpu[8];
+    NSUInteger _frag_len[8];
+    MTLViewport _vp;
+    BOOL _hasVP;
 }
 
 - (instancetype)initWithStream:(NSMutableData *)s owner:(id)owner target:(SkyImport)rt width:(uint32_t)w height:(uint32_t)h info:(uint32_t)info {
@@ -289,25 +365,45 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 }
 
 - (void)setVertexBytes:(const void *)p length:(NSUInteger)l atIndex:(NSUInteger)i {
-    if (i <= 1) {
-        uint64_t a = [self upload:p length:l];
-        if (i == 0) _vb = a;
-        static int nlog;
-        if (nlog++ < 3)
-            sky_log("setVertexBytes idx=%lu len=%lu -> gpu %#llx", (unsigned long)i, (unsigned long)l, a);
+    uint64_t a = [self upload:p length:l];
+    if (i < 32) {
+        _vtx_gpu[i] = a;
+        _vtx_len[i] = l;
     }
+    if (i == 0 && l != 64)
+        _vb = a;
+    else if (i == 30)
+        _vb = a;
+    static int nlog;
+    if (nlog++ < 20)
+        sky_log("setVertexBytes idx=%lu len=%lu -> gpu %#llx", (unsigned long)i, (unsigned long)l, a);
 }
 
 - (void)setVertexBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {
-    if (i == 0) {
-        _vb_base = b.gpuAddress;
-        _vb = _vb_base + o;
+    uint64_t base = b.gpuAddress;
+    if (i < 32) {
+        _vtx_base[i] = base;
+        _vtx_gpu[i] = base + o;
+        _vtx_len[i] = b.length;
     }
+    if (i == 0) {
+        _vb_base = base;
+        _vb = base + o;
+    } else if (i == 30) {
+        _vb = base + o;
+    }
+    static int nlog;
+    if (nlog++ < 20)
+        sky_log("setVertexBuffer idx=%lu len=%lu off=%lu gpu=%#llx", (unsigned long)i, (unsigned long)b.length, (unsigned long)o, base + o);
 }
 
 - (void)setVertexBufferOffset:(NSUInteger)o atIndex:(NSUInteger)i {
+    if (i < 32)
+        _vtx_gpu[i] = _vtx_base[i] + o;
     if (i == 0)
         _vb = _vb_base + o;
+    else if (i == 30 && i < 32)
+        _vb = _vtx_base[i] + o;
 }
 
 // Map CA's pipeline function names to built-in programs. CA uses
@@ -318,15 +414,15 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     for (int i = 0; i < (int)(sizeof(sky_programs) / sizeof(sky_programs[0])); i++)
         if ([_vname isEqualToString:sky_programs[i].vertex] && [_fname isEqualToString:sky_programs[i].fragment])
             return i;
-    // CA's compositing pipelines: fixed_vert + fixed_frag
+    // CA's compositing pipelines: fixed_vert + fixed_frag → program 3 (MVP + blend)
     if ([_vname hasPrefix:@"fixed_vert"] && [_fname hasPrefix:@"fixed_frag"]) {
         BOOL has_texture = [_fname containsString:@"image_count="];
         BOOL has_fbfetch = [_fname containsString:@"framebuffer_fetch=1"];
         if (has_texture && has_fbfetch)
-            return 2; // sky_fb_blend_fragment (textured + fb fetch blend)
+            return 3; // ca_fixed: MVP vertex shader + fb blend fragment
         if (has_texture)
-            return 1; // sky_texture_fragment (textured, no fb fetch)
-        return 0;     // sky_red_fragment (solid, clear color from pipeline)
+            return 1;
+        return 0;
     }
     return -1;
 }
@@ -337,10 +433,12 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     BOOL textured = prog >= 0 && sky_programs[prog].textured;
     BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
     uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
-    if (prog < 0 || !_vb || (textured && !desc)) {
+    BOOL mvp_early = prog >= 0 && sky_programs[prog].mvp;
+    uint64_t vb_check = (mvp_early && _vtx_gpu[30]) ? _vtx_gpu[30] : _vb;
+    if (prog < 0 || !vb_check || (textured && !desc)) {
         if (_skipped++ < 5)
             sky_log("draw skipped: prog=%d vb=%llx tex=%d desc=%llx first=%lu n=%lu %s + %s",
-                    prog, _vb, textured, desc, (unsigned long)first, (unsigned long)n,
+                    prog, vb_check, textured, desc, (unsigned long)first, (unsigned long)n,
                     _vname.UTF8String ?: "nil", _fname.UTF8String ?: "nil");
         return;
     }
@@ -376,23 +474,34 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         reg(s, 0x8822 + 8 * i, zero6, 6);
         reg1(s, 0xa996 + i, 0);
     }
-    uint64_t vs = sky_code.iova + CODE_VS, fsa = sky_code.iova + (uint64_t)fs;
-    reg64(s, 0xa81c, vs);   // SP_VS_BASE
-    reg64(s, 0xa983, fsa);  // SP_PS_BASE
-    reg64(s, 0xa010, _vb);  // VFD_VERTEX_BUFFER[0].BASE
-    emit(s, pkt7(0x65, 1)); // CP_SET_MARKER: RM6_DIRECT_RENDER
-    emit(s, 1);
-    emit(s, pkt7(0x1d, 1)); // CP_SKIP_IB2_ENABLE_GLOBAL
-    emit(s, 0);
-    emit(s, pkt7(0x64, 1)); // CP_SET_VISIBILITY_OVERRIDE
-    emit(s, 1);
-    emit(s, pkt7(0x63, 1)); // CP_SET_MODE
-    emit(s, 0);
-    emit(s, pkt7(0x32, 3)); // CP_LOAD_STATE6_GEOM: VS icache preload
-    emit(s, (2 << 16) | (8 << 18) | (1 << 22));
+    BOOL mvp = prog >= 0 && sky_programs[prog].mvp;
+    uint64_t vb_draw = _vb;
+    if (mvp && _vtx_gpu[30])
+        vb_draw = _vtx_gpu[30];
+    uint64_t vs = sky_code.iova + (mvp ? CODE_VS_MVP : CODE_VS);
+    uint64_t fsa = sky_code.iova + (uint64_t)fs;
+    if (mvp) {
+        reg1(s, 0xa800, 0x00100180); // SP_VS_CNTL_0: MERGEDREGS, FULLREGFOOTPRINT=6
+        reg1(s, 0xa824, 3);          // SP_VS_INSTR_SIZE: 3 (48 instructions)
+    }
+    reg64(s, 0xa81c, vs);
+    reg64(s, 0xa983, fsa);
+    reg64(s, 0xa010, vb_draw);
+    emit(s, pkt7(0x65, 1)); emit(s, 1);
+    emit(s, pkt7(0x1d, 1)); emit(s, 0);
+    emit(s, pkt7(0x64, 1)); emit(s, 1);
+    emit(s, pkt7(0x63, 1)); emit(s, 0);
+    emit(s, pkt7(0x32, 3)); // CP_LOAD_STATE6_GEOM: VS icache
+    emit(s, (2 << 16) | (8 << 18) | ((mvp ? 3u : 1u) << 22));
     emit(s, (uint32_t)vs);
     emit(s, (uint32_t)(vs >> 32));
-    emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS icache preload
+    if (mvp && _vtx_gpu[0] && _vtx_len[0] >= 64) {
+        emit(s, pkt7(0x32, 3)); // CP_LOAD_STATE6_GEOM: VS constants c0-c3
+        emit(s, (1 << 14) | (2 << 16) | (8 << 18) | (4u << 22));
+        emit(s, (uint32_t)_vtx_gpu[0]);
+        emit(s, (uint32_t)(_vtx_gpu[0] >> 32));
+    }
+    emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS icache
     emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
     emit(s, (uint32_t)fsa);
     emit(s, (uint32_t)(fsa >> 32));
@@ -454,10 +563,12 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     BOOL textured = prog >= 0 && sky_programs[prog].textured;
     BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
     uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
-    if (prog < 0 || !_vb || (textured && !desc)) {
+    BOOL mvp_early = prog >= 0 && sky_programs[prog].mvp;
+    uint64_t vb_check = (mvp_early && _vtx_gpu[30]) ? _vtx_gpu[30] : _vb;
+    if (prog < 0 || !vb_check || (textured && !desc)) {
         if (_skipped++ < 5)
             sky_log("indexed draw skipped: prog=%d vb=%llx tex=%d desc=%llx idxBuf=%p n=%lu %s + %s",
-                    prog, _vb, textured, desc, indexBuffer, (unsigned long)indexCount,
+                    prog, vb_check, textured, desc, indexBuffer, (unsigned long)indexCount,
                     _vname.UTF8String ?: "nil", _fname.UTF8String ?: "nil");
         return;
     }
@@ -493,17 +604,32 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         reg(s, 0x8822 + 8 * i, zero6, 6);
         reg1(s, 0xa996 + i, 0);
     }
-    uint64_t vs = sky_code.iova + CODE_VS, fsa = sky_code.iova + (uint64_t)fs;
+    BOOL mvp = prog >= 0 && sky_programs[prog].mvp;
+    uint64_t vb_draw = _vb;
+    if (mvp && _vtx_gpu[30])
+        vb_draw = _vtx_gpu[30];
+    uint64_t vs = sky_code.iova + (mvp ? CODE_VS_MVP : CODE_VS);
+    uint64_t fsa = sky_code.iova + (uint64_t)fs;
+    if (mvp) {
+        reg1(s, 0xa800, 0x00100180); // SP_VS_CNTL_0: MERGEDREGS, FULLREGFOOTPRINT=6
+        reg1(s, 0xa824, 3);          // SP_VS_INSTR_SIZE: 3 (48 instructions)
+    }
     reg64(s, 0xa81c, vs);
     reg64(s, 0xa983, fsa);
-    reg64(s, 0xa010, _vb);
+    reg64(s, 0xa010, vb_draw);
     emit(s, pkt7(0x65, 1)); emit(s, 1);
     emit(s, pkt7(0x1d, 1)); emit(s, 0);
     emit(s, pkt7(0x64, 1)); emit(s, 1);
     emit(s, pkt7(0x63, 1)); emit(s, 0);
-    emit(s, pkt7(0x32, 3));
-    emit(s, (2 << 16) | (8 << 18) | (1 << 22));
+    emit(s, pkt7(0x32, 3)); // CP_LOAD_STATE6_GEOM: VS icache
+    emit(s, (2 << 16) | (8 << 18) | ((mvp ? 3u : 1u) << 22));
     emit(s, (uint32_t)vs); emit(s, (uint32_t)(vs >> 32));
+    if (mvp && _vtx_gpu[0] && _vtx_len[0] >= 64) {
+        emit(s, pkt7(0x32, 3)); // CP_LOAD_STATE6_GEOM: VS constants c0-c3
+        emit(s, (1 << 14) | (2 << 16) | (8 << 18) | (4u << 22));
+        emit(s, (uint32_t)_vtx_gpu[0]);
+        emit(s, (uint32_t)(_vtx_gpu[0] >> 32));
+    }
     emit(s, pkt7(0x34, 3));
     emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
     emit(s, (uint32_t)fsa); emit(s, (uint32_t)(fsa >> 32));
@@ -548,14 +674,30 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     wfi(_s);
 }
 
-- (void)setViewport:(MTLViewport)v {}
+- (void)setViewport:(MTLViewport)v { _vp = v; _hasVP = YES; }
 - (void)setScissorRect:(MTLScissorRect)r {}
 - (void)setCullMode:(MTLCullMode)m {}
 - (void)setFrontFacingWinding:(MTLWinding)w {}
 - (void)setTriangleFillMode:(MTLTriangleFillMode)m {}
 - (void)setDepthStencilState:(id<MTLDepthStencilState>)s {}
-- (void)setFragmentBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {}
-- (void)setFragmentBytes:(const void *)p length:(NSUInteger)l atIndex:(NSUInteger)i {}
+- (void)setFragmentBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {
+    if (i < 8) {
+        _frag_gpu[i] = b.gpuAddress + o;
+        _frag_len[i] = b.length;
+    }
+    static int nlog;
+    if (nlog++ < 10)
+        sky_log("setFragmentBuffer idx=%lu len=%lu off=%lu", (unsigned long)i, (unsigned long)b.length, (unsigned long)o);
+}
+- (void)setFragmentBytes:(const void *)p length:(NSUInteger)l atIndex:(NSUInteger)i {
+    if (i < 8) {
+        _frag_gpu[i] = [self upload:p length:l];
+        _frag_len[i] = l;
+    }
+    static int nlog;
+    if (nlog++ < 10)
+        sky_log("setFragmentBytes idx=%lu len=%lu", (unsigned long)i, (unsigned long)l);
+}
 - (void)setFragmentTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i {
     if (i == 0)
         _tex = t;
