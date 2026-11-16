@@ -494,15 +494,19 @@ static int run(void) {
         memcpy((void *)(d3.cpu + 0x440 / 4), samp, sizeof(samp));
         struct draw3d q = {CP3D_TEXQ, sizeof(CP3D_TEXQ) / sizeof(CP3D_TEXQ[0]), d3.iova, d3.iova + 0x80,
                            d3.iova + 0x100, d3.iova + 0x400, 0x186, 4}; // DI_PT_TRISTRIP
-        for (int pass = 1; pass <= 2; pass++) {
+        // pass 3: the same two draws with no barrier between them (only at
+        // the end), to see whether the barrier is needed
+        for (int pass = 1; pass <= 3; pass++) {
+            int draws = pass == 1 ? 1 : 2;
             cmd.dw = 0;
             init3d(&cmd, d3.iova + 0x200, d3.iova + 0x300);
-            for (int k = 0; k < pass; k++) {
+            for (int k = 0; k < draws; k++) {
                 draw3d(&cmd, &q, img, 256);
-                barrier3d(&cmd, d3.iova + 0x300, 0x20 + k);
+                if (pass != 3 || k == draws - 1)
+                    barrier3d(&cmd, d3.iova + 0x300, 0x20 + k);
             }
-            // restore the pattern first for pass 2
-            if (pass == 2) {
+            // restore the pattern first for passes 2 and 3
+            if (pass >= 2) {
                 IOSurfaceLock(surf, 0, NULL);
                 for (int y = 0; y < 64; y++)
                     for (int x = 0; x < 64; x++)
@@ -516,7 +520,7 @@ static int run(void) {
             for (int y = 0; y < 64; y++)
                 for (int x = 0; x < 64; x++) {
                     uint32_t t = (4 * x) | ((4 * y) << 8) | (((4 * (x ^ y)) & 0xfc) << 16) | ((0x80 + x) << 24);
-                    uint32_t want = pass == 1 ? ((t & 0xff00ff00) | ((t & 0xff) << 16) | ((t >> 16) & 0xff)) : t;
+                    uint32_t want = draws == 1 ? ((t & 0xff00ff00) | ((t & 0xff) << 16) | ((t >> 16) & 0xff)) : t;
                     uint32_t v = px[y * bpr / 4 + x];
                     if (v == want)
                         ok++;
@@ -524,8 +528,20 @@ static int run(void) {
                         first = v ? v : 1;
                 }
             IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
-            say("test 6 self-sampling quad, %d draw%s: %s (%d/4096 exact, first wrong %#x, %llu us)", pass,
-                pass == 1 ? "" : "s + barrier", r == 0 && ok == 4096 ? "OK" : "FAIL", ok, first, ns / 1000);
+            int swapped = 0;
+            if (pass == 3) {
+                // pixels the second draw did not swap back (it read stale data)
+                IOSurfaceLock(surf, kIOSurfaceLockReadOnly, NULL);
+                for (int y = 0; y < 64; y++)
+                    for (int x = 0; x < 64; x++) {
+                        uint32_t t = (4 * x) | ((4 * y) << 8) | (((4 * (x ^ y)) & 0xfc) << 16) | ((0x80 + x) << 24);
+                        swapped += px[y * bpr / 4 + x] == ((t & 0xff00ff00) | ((t & 0xff) << 16) | ((t >> 16) & 0xff));
+                    }
+                IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
+            }
+            say("test 6 self-sampling quad, %s: %s (%d/4096 exact, still swapped %d, first wrong %#x, %llu us)",
+                pass == 1 ? "1 draw" : pass == 2 ? "2 draws + barrier" : "2 draws, NO barrier",
+                r == 0 && ok == 4096 ? "OK" : "DIFFERENT", ok, swapped, first, ns / 1000);
         }
         IOConnectCallScalarMethod(conn, SEL_FREE, so, 1, NULL, NULL);
         CFRelease(surf);

@@ -4,11 +4,11 @@
 
 SkyIOS ports Apple's open-source XNU kernel (xnu-8796, the iOS 16 generation) to the Xiaomi Redmi Note 10 Pro (`sweet`, Qualcomm SM7150 / Snapdragon 732G). On top of it runs the **unmodified iOS 16.7.16 (20H392) userland of the iPhone X**: launchd, the system daemons, backboardd, SpringBoard and the stock apps.
 
-The phone boots to the **iOS lock screen and home screen**. You can unlock it, move between apps with the home gesture, open Settings, and use Control Center, the notification center, the touchscreen and the hardware buttons. A live kernel log streams to the host over USB Ethernet. The Adreno 618 GPU powers up and its registers can be read, but it does not render yet: CoreAnimation still draws on the CPU.
+The phone boots to the **iOS lock screen and home screen**. You can unlock it, move between apps with the home gesture, open Settings, and use Control Center, the notification center, the touchscreen and the hardware buttons. A live kernel log streams to the host over USB Ethernet. The Adreno 618 GPU runs: the kernel copies every frame to the panel with it, and user space can submit its own command buffers (2D and 3D draws, IOSurfaces, a first Metal device). CoreAnimation itself still draws on the CPU, and the GPU still runs at its boot clock (~9.6 MHz).
 
 > Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. It installs into the `userdata` partition and so **erases Android's user data**.
 
-## Status (2026-11-15)
+## Status (2026-11-16)
 
 | Area | State |
 | --- | --- |
@@ -17,20 +17,21 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 | Memory | About 3.95 GiB of the upper DDR bank |
 | Storage | Own UFS host driver; the iOS root is a journaled HFS+ volume in `userdata`, read/write |
 | iOS userland | Real iPhone X 16.7.16 root filesystem and shared cache; launchd and the system daemons run |
-| Display | Kernel IOSurface + IOMobileFramebuffer (`AppleCLCD`) services; CoreAnimation renders in software; frames are copied into the bootloader's framebuffer in SwapEnd. Presented to iOS as an iPhone X panel (1125×2436) |
+| Display | Kernel IOSurface + IOMobileFramebuffer (`AppleCLCD`) services; CoreAnimation renders in software; each frame is copied into the bootloader's framebuffer by the GPU's 2D engine (asynchronous, CPU copy as fallback). Presented to iOS as an iPhone X panel (1125×2436); optional full-panel scaling with the 3D engine (`sweetfb_scale=1`) |
 | GUI | backboardd, SpringBoard, lock screen, home screen, app switching, Control Center, notification center, Settings |
 | Touch | Goodix GT9896 over I²C (GENI), rail through RPMh, HID digitizer events; filters bogus (0,0) points and releases a finger when the controller stops reporting |
 | Buttons | Power, volume up/down (PMIC through SPMI) as HID consumer keys; lock/wake works |
 | USB | Device-mode USB Ethernet (ECM); the kernel console streams to the host as UDP (`skyios usbnet`) |
 | App extensions | A built-in "AMFI" MAC policy and an `AppleMobileFileIntegrity` IOService let ExtensionKit trust `System/Library/xpc/extensions.plist`, so app extensions (wallpaper posters, widgets, ...) are registered and launch |
-| GPU | Adreno 618 bring-up in kernel Rust (`skyios-kernel/`): GPU clocks, CX/GX power, GMU firmware, RSC/PDC, adreno SMMU context for the GMU, HFI queues, GX rail via the GMU, first GPU register read. No command submission yet |
+| GPU | Adreno 618 in kernel Rust (`skyios-kernel/`): clocks, CX/GX power, GMU firmware + HFI v1, adreno SMMU, SQE microcode + ringbuffer, zap shader (secure mode off), 2D blits, 3D draws with hand-assembled ir3 shaders (triangle, textured quad, scaled compositor). Accelerator service `SkyAdrenoAccel`: GPU buffers and IOSurfaces mapped for user space, user command buffers under CP register protection, fences. Runs at the boot clock (~9.6 MHz): no frequency vote yet |
+| Metal | `SkyAdrenoMetal.bundle` (`skyios-metal/`, `sweetaccel=2`): `MTLCreateSystemDefaultDevice()` returns the Adreno; command queues/buffers, `MTLBuffer` and blit fill/copy run on the GPU. CoreAnimation's Metal renderer starts on it, but only in recording mode (it draws nothing): there is no shader compiler for Metal shaders yet |
 | Battery | IOPMPowerSource service (static 100 %) |
 | Device identity | iPhone X (`iPhone10,3` / `D22AP`): no Home button, gesture UI |
 | Activation | Native "Hactivation" path of mobileactivationd, chosen through device-tree security status. No Apple servers involved |
 
 ## What does not work (yet)
 
-- **No GPU rendering.** The GPU is powered but has no command processor setup, no memory manager and no Metal driver. Everything is drawn by the CPU, typically 6–15 fps while interacting.
+- **No GPU rendering of the UI.** CoreAnimation draws on the CPU, typically 6–15 fps while interacting (7–8 swaps/s measured during synthetic swipes). Two things are missing for a GPU-drawn UI: (1) a GPU frequency / bandwidth vote; at the boot clock a full-screen fill takes 36 ms, so the GPU path would be slower than the CPU; (2) a complete Metal driver for CoreAnimation: a compiler from Metal shaders (AIR) to Adreno ir3, a drawing render encoder, GPU textures and framebuffer-fetch emulation. Building blocks that work are listed in `NOTES.md`.
 - **Wallpaper is black.** Poster extensions now start, but PosterBoard and AegirPoster still die on an uncaught exception.
 - **No Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPS or SEP / Face ID.** Daemons that only spin without hardware (bluetoothd, fairplayd.H2, the voicemail daemon vmd) are blocked at exec (`sweetnoexec`).
 - **Few apps.** The image has only what is on the system volume. There is no App Store, no Apple ID, and some Settings pages are empty.
@@ -119,7 +120,7 @@ What the less obvious boot-args do:
 | `rd=ufsroot0 ufsrw=1 rootrw=1` | Root on the `userdata` partition, writable |
 | `cpus=8` | Start all eight cores; `cpus=1` is the safe fallback |
 | `launchd_unsecure_cache=1` | launchd accepts its job cache without AMFI |
-| `wdt=-1 wdt_test=no_user_checkin` | No hardware watchdog |
+| `wdt=-1 wdt_test=no_user_checkin` | No XNU watchdog |
 | `sweetfb_noconsole=1` | Stop drawing kernel text over the GUI. It still goes to the persistent log; panics are drawn |
 | `sweetfb_hz=60` | Panel refresh rate of the CPU copy |
 | `sweetusb=2` | USB Ethernet with the live UDP console |
@@ -129,6 +130,14 @@ What the less obvious boot-args do:
 | `sweettop=5` | Per-process CPU usage every 5 s |
 | `sweetgpu=N`, `sweetgpu_delay=S` | Run the Adreno bring-up up to stage N, S seconds after the root mount |
 | `sweettouchdot=1` | Draw a red cross at the raw touch point (touch debugging) |
+| `sweetfb_gpu=0`, `sweetfb_scale=1` | Present with the CPU instead of the GPU; scale the frame to the full panel with the 3D engine |
+| `sweetaccel=1` / `2` | Publish the GPU accelerator service (root only) / also the Metal device (`IOAcceleratorES` + `SkyAdrenoMetal.bundle`) |
+| `sweetmetal_procs=a,b` | Processes the Metal device is offered to (default `skyios-accel-test`); others keep software rendering |
+| `sweetrun=NAME` | Run the test tool installed from the boot payload (`skyios mktool`) once in place of the first exec of NAME |
+| `sweetwdog=S` | Arm the APSS hardware watchdog: a hung kernel resets after S seconds |
+| `sweetreboot=S` | Reset S seconds after boot (unattended test cycles; lands in recovery) |
+| `sweetreducetransp=1` / `2` | Write Reduce Transparency + Reduce Motion before userland / restore the original prefs |
+| `sweettouchsim=S` | 20 synthetic swipes S seconds after the touch driver starts (lag measurements) |
 
 ### 4. Flash the root and boot
 
@@ -171,11 +180,13 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 | `xnu/patches/` | The XNU patch series (applied in order by CI), plus staging scripts for libpthread, HFS and BearSSL |
 | `.github/workflows/xnu.yml` | Kernel CI build |
 | `skyios-tool/` | The `skyios` host tool (Rust), one subcommand per job below |
-| `skyios-kernel/` | Rust linked into the kernel: cmd-db reader, Adreno 618 / GMU / SMMU bring-up |
+| `skyios-kernel/` | Rust linked into the kernel: cmd-db reader, Adreno 618 / GMU / SMMU bring-up, command processor, 2D/3D engines, present engine, user command submission, watchdog |
+| `skyios-metal/` | User space for the GPU: `bundle/` = `SkyAdrenoMetal.bundle` (Metal device + recording stand-ins), `test/` = `accel-test` (GPU tests run on the phone at boot) |
 | `skyios usbnet` | Bring up the phone's USB Ethernet on the host and stream the live kernel log |
 | `skyios mkadt` | Generates the Apple Device Tree from sweet's MMIO layout and the iPhone X identity |
 | `skyios mkshim` | Turns the shim ELF into a flat arm64 Image and packs boot.img v2 (shim + payload + stock DTB) |
 | `skyios mkpayload` | Packs kernel + ADT + boot-args into the shim payload |
+| `skyios mktool` | Packs files for the boot-time installer (`mkpayload --ramdisk`): test tools, bundles |
 | `skyios mkiosroot` | Builds the HFS+ iOS root from the IPSW images (Linux) |
 | `skyios root-tweaks` | Bring-up changes to the root (Setup skip, activation, daemons) |
 | `skyios log-pull`, `skyios log` | Read the persistent kernel log from recovery |
@@ -225,6 +236,11 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 | 0092, 0095, 0096, 0098 | Boot-time root fixes: PosterBoard assert, SpringBoard feature-flag override, early boot notes in the live log, LaunchServices store reset |
 | 0094, 0100, 0101 | Touch: ignore (0,0) points, touch-dot debugging and hold times, release a stuck finger |
 | 0097, 0099 | "AMFI" MAC policy syscalls and the `AppleMobileFileIntegrity` IOService (extension point cache trust) |
+| 0102–0104 | IOKit busy dump; stand-ins for IOKit daemons and the network stack |
+| 0105 | GPU present: 2D copy of each frame, optional 3D scaling |
+| 0106–0108 | Reduce Transparency option, scaled touch mapping + synthetic swipes, sampler timing |
+| 0109 | GPU accelerator service + user client (buffers, IOSurface import, submit, wait), Metal `IOAcceleratorES` |
+| 0110 | Boot-time tool installer from the payload and `sweetrun` exec redirect |
 
 ## Key hardware facts
 
