@@ -33,6 +33,10 @@ void sky_free(SkyMem *m);
 - (instancetype)initWithDevice:(id<MTLDevice>)device;
 @end
 
+void sky_record_init(void);
+void sky_log_once(NSString *line);
+id sky_render_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d);
+
 // methods copied into the runtime-made _MTLDevice subclass
 @interface SkyDeviceMethods : NSObject
 @end

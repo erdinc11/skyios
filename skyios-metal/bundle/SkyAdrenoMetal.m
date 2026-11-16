@@ -152,6 +152,7 @@ static uint64_t sky_const(id self, SEL _cmd) {
 
 
 __attribute__((constructor)) static void sky_register(void) {
+    sky_record_init();
     Class base = NSClassFromString(@"_MTLDevice");
     if (!base || objc_getClass("SkyAdrenoMetalDevice"))
         return;
