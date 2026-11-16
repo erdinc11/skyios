@@ -19,6 +19,8 @@
 
 **IOSurface import (selector 6, xnu 0109) WORKS on the phone (boot 0111u, build60, `logs/live-0111u.txt`):** `SkyAdrenoAccel.cpp` maps a `SweetSurface`'s pages into the user GPU slot via `sweet_rs_gpu_user_map` and returns handle / gpu address / bytesPerRow / offset; `flushAll` also flushes imported surfaces; selector 2 frees it. accel-test test 4: `IOSurfaceCreate` 256x256 BGRA (id 46, bpr 1024), `import surface 46 ... 16 segs at gpu 0xc0a0c000`, user 2D fill of 224x184 into it -> **CPU check through IOSurfaceLock: inside 41216/41216, outside 24320/24320, 2.1 ms**. Tests 1-3 unchanged (fill 1080x2400 ~36 ms). `metal: device (nil)` is expected with `sweetaccel=1`. The Metal bundle does not use the import yet.
 
+**User-space 3D draw WORKS (boot 0111v, `logs/live-0111v.txt`):** accel-test test 5 replays the kernel's `cp3d.rs` triangle (INIT/STATE tables generated into `skyios-metal/test/cp3d-tables.h`, emit_init + emit_state + CP_DRAW_INDX_OFFSET, VS `end`, FS 4x `mov.f32f32` + `end`) from a user command buffer (CP protection on, no faults) into an **imported 64x64 IOSurface**: `inside 1922/1922, outside 1922/1922, px(32,16) 0xff0000ff, 1.5 ms`. Next planned: textured quad from the user stream, then sampling the render target itself in the same draw (the framebuffer-fetch emulation idea).
+
 **Persistent changes on the phone's iOS root from test boots:** `/private/var/root/skyios-accel-test`, `/System/Library/Extensions/SkyAdrenoMetal.bundle/` (only loaded with `sweetaccel=2`), backboardd preference `CAEnableDeepFramebuffer = false` (affects only CA's Metal path; delete the key to restore).
 
 ### >>> RESULT 2026-11-16: CoreAnimation RUNS ITS METAL RENDERER ON OUR DEVICE (recording only, boots 0111l-o) <<<

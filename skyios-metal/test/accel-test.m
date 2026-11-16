@@ -9,6 +9,7 @@
 #import <Metal/Metal.h>
 #include <IOKit/IOKitLib.h>
 #include <IOSurface/IOSurfaceRef.h>
+#include "cp3d-tables.h"
 #include <fcntl.h>
 #include <mach/mach_time.h>
 #include <stdarg.h>
@@ -139,6 +140,93 @@ static void fill(struct buf *b, uint64_t dst, uint32_t pitch, uint32_t x0, uint3
     emit(b, pkt7(CP_WAIT_FOR_IDLE, 0));
 }
 
+
+// 3D draw from a user command stream, the kernel's cp3d.rs triangle():
+// emit_init + emit_state + CP_DRAW_INDX_OFFSET, into a 64x64 RGBA8 target
+static void lohi_reg(struct buf *b, uint32_t r, uint64_t a) {
+    uint32_t v[2] = {(uint32_t)a, (uint32_t)(a >> 32)};
+    reg(b, r, v, 2);
+}
+
+static void event_ts(struct buf *b, uint32_t ev, uint64_t a, uint32_t v) {
+    emit(b, pkt7(0x46, 4));
+    emit(b, ev);
+    emit(b, (uint32_t)a);
+    emit(b, (uint32_t)(a >> 32));
+    emit(b, v);
+}
+
+static void triangle(struct buf *b, uint64_t d3, uint64_t target, uint32_t pitch) {
+    uint64_t vs = d3, fs = d3 + 0x80, vb = d3 + 0x100, border = d3 + 0x200, ts = d3 + 0x300;
+    // emit_init
+    event(b, 0x31); // CACHE_INVALIDATE
+    reg1(b, 0xbb08, 0x000fffff); // SP_UPDATE_CNTL
+    emit(b, pkt7(CP_WAIT_FOR_IDLE, 0));
+    for (size_t i = 0; i < sizeof(CP3D_INIT) / sizeof(CP3D_INIT[0]); i++)
+        reg1(b, CP3D_INIT[i][0], CP3D_INIT[i][1]);
+    lohi_reg(b, 0xb302, border); // TPL1_GFX_BORDER_COLOR_BASE
+    lohi_reg(b, 0xb180, border); // TPL1_CS_BORDER_COLOR_BASE
+    emit(b, pkt7(0x43, 3));      // CP_SET_DRAW_STATE: DISABLE_ALL_GROUPS
+    emit(b, 1 << 18);
+    emit(b, 0);
+    emit(b, 0);
+    event_ts(b, 0x1d, ts, 0x10); // PC_CCU_FLUSH_COLOR_TS
+    event_ts(b, 0x1c, ts, 0x11); // PC_CCU_FLUSH_DEPTH_TS
+    event(b, 0x19);
+    event(b, 0x18);
+    emit(b, pkt7(CP_WAIT_FOR_IDLE, 0));
+    reg1(b, 0x8e07, CCU_CNTL_BYPASS);
+    // emit_state
+    reg1(b, 0xbb08, 0x19f);
+    for (size_t i = 0; i < sizeof(CP3D_STATE) / sizeof(CP3D_STATE[0]); i++)
+        reg1(b, CP3D_STATE[i][0], CP3D_STATE[i][1]);
+    uint32_t mrt[6] = {0x30, pitch >> 6, 0, (uint32_t)target, (uint32_t)(target >> 32), 0};
+    reg(b, 0x8822, mrt, 6);      // RB_MRT[0]: BUF_INFO, PITCH, ARRAY_PITCH, BASE, BASE_GMEM
+    reg1(b, 0xa996, 0x30);
+    uint32_t zero6[6] = {0};
+    for (uint32_t i = 1; i < 8; i++) {
+        reg(b, 0x8822 + 8 * i, zero6, 6);
+        reg1(b, 0xa996 + i, 0);
+    }
+    lohi_reg(b, 0xa81c, vs);     // SP_VS_BASE
+    lohi_reg(b, 0xa983, fs);     // SP_PS_BASE
+    lohi_reg(b, 0xa010, vb);     // VFD_VERTEX_BUFFER[0].BASE
+    emit(b, pkt7(0x65, 1));      // CP_SET_MARKER: RM6_DIRECT_RENDER
+    emit(b, 1);
+    emit(b, pkt7(0x1d, 1));      // CP_SKIP_IB2_ENABLE_GLOBAL
+    emit(b, 0);
+    emit(b, pkt7(0x64, 1));      // CP_SET_VISIBILITY_OVERRIDE
+    emit(b, 1);
+    emit(b, pkt7(0x63, 1));      // CP_SET_MODE
+    emit(b, 0);
+    emit(b, pkt7(0x32, 3));      // CP_LOAD_STATE6_GEOM: VS icache preload
+    emit(b, (2 << 16) | (8 << 18) | (1 << 22));
+    emit(b, (uint32_t)vs);
+    emit(b, (uint32_t)(vs >> 32));
+    emit(b, pkt7(0x34, 3));      // CP_LOAD_STATE6_FRAG: FS icache preload
+    emit(b, (2 << 16) | (0xc << 18) | (1 << 22));
+    emit(b, (uint32_t)fs);
+    emit(b, (uint32_t)(fs >> 32));
+    // emit_draw: DI_PT_TRILIST, AUTO_INDEX, USE_VISIBILITY; 3 vertices
+    emit(b, pkt7(0x38, 3));
+    emit(b, 0x184);
+    emit(b, 1);
+    emit(b, 3);
+    // emit_finish (the fence comes from the kernel)
+    event_ts(b, 0x1d, ts, 0x12);
+    event(b, 0x19);
+    emit(b, pkt7(CP_WAIT_FOR_IDLE, 0));
+}
+
+// coverage of the triangle (0,0) (64,0) (32,64) at pixel centres, 1/0, or
+// -1 within half a pixel of an edge (cp3d.rs inside())
+static int inside(int x, int y) {
+    int px = 4 * x + 2, py = 4 * y + 2;
+    int a = px - py / 2, c = 256 - py / 2 - px;
+    int d = a < c ? a : c;
+    return d > 3 ? 1 : d < -3 ? 0 : -1;
+}
+
 static int run(void) {
     io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("SkyAdrenoAccel"));
     say("uid %d, service %#x", getuid(), svc);
@@ -265,6 +353,63 @@ static int run(void) {
             r == 0 && in4 == 224 * 184 && out4 == w * h - 224 * 184 ? "OK" : "FAIL", in4, 224 * 184, out4,
             w * h - 224 * 184, p0, ns / 1000);
         IOConnectCallScalarMethod(conn, SEL_FREE, out, 1, NULL, NULL);
+        CFRelease(surf);
+    }
+    // 5: 3D triangle from the user stream into an imported 64x64 IOSurface
+    {
+        NSDictionary *props = @{
+            (id)kIOSurfaceWidth : @64, (id)kIOSurfaceHeight : @64, (id)kIOSurfaceBytesPerElement : @4,
+            (id)kIOSurfaceBytesPerRow : @256, (id)kIOSurfacePixelFormat : @(0x42475241)
+        };
+        IOSurfaceRef surf = IOSurfaceCreate((__bridge CFDictionaryRef)props);
+        struct buf d3;
+        if (!surf || alloc(&d3, 16384))
+            return -11;
+        for (int i = 0; i < 16384 / 4; i++)
+            d3.cpu[i] = 0;
+        // VS: end; FS: mov.f32f32 r0.x..w = 1, 0, 0, 1; end (ir3, cp3d.rs)
+        const uint32_t vsc[2] = {0, 0x03000000};
+        const uint32_t fsc[10] = {0x3f800000, 0x20444000, 0, 0x20444001, 0, 0x20444002, 0x3f800000, 0x20444003, 0, 0x03000000};
+        memcpy((void *)d3.cpu, vsc, sizeof(vsc));
+        memcpy((void *)(d3.cpu + 0x80 / 4), fsc, sizeof(fsc));
+        const uint32_t M1 = 0xbf800000, ONE = 0x3f800000;
+        const uint32_t verts[12] = {M1, M1, 0, ONE, ONE, M1, 0, ONE, 0, ONE, 0, ONE};
+        memcpy((void *)(d3.cpu + 0x100 / 4), verts, sizeof(verts));
+        IOSurfaceLock(surf, 0, NULL);
+        uint32_t *px = IOSurfaceGetBaseAddress(surf);
+        size_t bpr = IOSurfaceGetBytesPerRow(surf);
+        for (int i = 0; i < 64 * (int)bpr / 4; i++)
+            px[i] = 0x5a5a5a5a;
+        IOSurfaceUnlock(surf, 0, NULL);
+        uint64_t sid = IOSurfaceGetID(surf), so[4] = {0};
+        uint32_t n4 = 4;
+        kern_return_t kr = IOConnectCallScalarMethod(conn, SEL_IMPORT, &sid, 1, so, &n4);
+        if (kr != KERN_SUCCESS || so[2] != 256) {
+            say("test 5 import: kr %#x bpr %llu", kr, so[2]);
+            return -12;
+        }
+        cmd.dw = 0;
+        triangle(&cmd, d3.iova, so[1] + so[3], 256);
+        r = submit_wait(&cmd, 2000, &ns);
+        IOSurfaceLock(surf, kIOSurfaceLockReadOnly, NULL);
+        int tin = 0, win = 0, tout = 0, wout = 0;
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++) {
+                uint32_t v = px[y * bpr / 4 + x];
+                int k = inside(x, y);
+                if (k == 1) {
+                    win++;
+                    tin += v == 0xff0000ff;
+                } else if (k == 0) {
+                    wout++;
+                    tout += v == 0x5a5a5a5a;
+                }
+            }
+        uint32_t p16 = px[16 * bpr / 4 + 32];
+        IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
+        say("test 5 user 3D triangle into IOSurface: %s (inside %d/%d, outside %d/%d, px(32,16) %#x, %llu us)",
+            r == 0 && tin == win && tout == wout ? "OK" : "FAIL", tin, win, tout, wout, p16, ns / 1000);
+        IOConnectCallScalarMethod(conn, SEL_FREE, so, 1, NULL, NULL);
         CFRelease(surf);
     }
     say("ALL USER GPU TESTS DONE");
