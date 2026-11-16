@@ -265,6 +265,20 @@ static int inside(int x, int y) {
     return d > 3 ? 1 : d < -3 ? 0 : -1;
 }
 
+
+// ir3 cat2 (mesa src/freedreno/isa/ir3-cat2.xml): full-precision
+// "op.f rD.c, rS.c, <float table immediate>"; flut index 1 = 0.5
+static void cat2_imm(uint32_t *w, uint32_t opc, uint32_t dst, uint32_t src, uint32_t flut, int sy) {
+    w[0] = src | ((flut | (5u << 11)) << 16);
+    w[1] = (2u << 29) | ((uint32_t)sy << 28) | (opc << 21) | (1u << 20) | dst;
+}
+
+// 7: blending computed in the fragment shader from the framebuffer value
+// (framebuffer-fetch emulation): out = 0.5 * dst + 0.5 * (1, 0, 0, 1)
+static uint32_t pattern_texel(int x, int y) {
+    return (uint32_t)(4 * x) | (uint32_t)(4 * y) << 8 | (uint32_t)((4 * (x ^ y)) & 0xfc) << 16 | (uint32_t)(0x80 + x) << 24;
+}
+
 static int run(void) {
     io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("SkyAdrenoAccel"));
     say("uid %d, service %#x", getuid(), svc);
@@ -543,6 +557,94 @@ static int run(void) {
                 pass == 1 ? "1 draw" : pass == 2 ? "2 draws + barrier" : "2 draws, NO barrier",
                 r == 0 && ok == 4096 ? "OK" : "DIFFERENT", ok, swapped, first, ns / 1000);
         }
+        IOConnectCallScalarMethod(conn, SEL_FREE, so, 1, NULL, NULL);
+        CFRelease(surf);
+    }
+    {
+        NSDictionary *props = @{
+            (id)kIOSurfaceWidth : @64, (id)kIOSurfaceHeight : @64, (id)kIOSurfaceBytesPerElement : @4,
+            (id)kIOSurfaceBytesPerRow : @256, (id)kIOSurfacePixelFormat : @(0x42475241)
+        };
+        IOSurfaceRef surf = IOSurfaceCreate((__bridge CFDictionaryRef)props);
+        struct buf d3;
+        if (!surf || alloc(&d3, 16384))
+            return -15;
+        for (int i = 0; i < 16384 / 4; i++)
+            d3.cpu[i] = 0;
+        const uint32_t vsc[2] = {0, 0x03000000};
+        uint32_t fs[2 * 16] = {0};
+        int k = 0;
+        fs[k++] = 0x00002000; // bary.f (ei)r63.x, 0, r0.x (ends varying input)
+        fs[k++] = 0x473080fc;
+        // r1 = texture prefetch of the framebuffer pixel (rgba)
+        for (uint32_t c = 0; c < 4; c++, k += 2) // (sy) mul.f r1.c, r1.c, 0.5
+            cat2_imm(&fs[k], 3, 4 + c, 4 + c, 1, c == 0);
+        cat2_imm(&fs[k], 0, 4, 4, 1, 0);         // add.f r1.x, r1.x, 0.5
+        k += 2;
+        k += 2 * 2;                               // nop, nop (r1.w from mul.f)
+        cat2_imm(&fs[k], 0, 7, 7, 1, 0);         // add.f r1.w, r1.w, 0.5
+        k += 2;
+        k += 2 * 3;                               // nop x3 before end
+        fs[k++] = 0;
+        fs[k++] = 0x03000000;                     // end
+        memcpy((void *)d3.cpu, vsc, sizeof(vsc));
+        memcpy((void *)(d3.cpu + 0x80 / 4), fs, sizeof(fs));
+        const uint32_t M1 = 0xbf800000, ONE = 0x3f800000;
+        const uint32_t verts[24] = {M1, M1, 0, ONE, 0, 0, ONE, M1, 0, ONE, ONE, 0,
+                                    M1, ONE, 0, ONE, 0, ONE, ONE, ONE, 0, ONE, ONE, ONE};
+        memcpy((void *)(d3.cpu + 0x100 / 4), verts, sizeof(verts));
+        IOSurfaceLock(surf, 0, NULL);
+        uint32_t *px = IOSurfaceGetBaseAddress(surf);
+        size_t bpr = IOSurfaceGetBytesPerRow(surf);
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++)
+                px[y * bpr / 4 + x] = pattern_texel(x, y);
+        IOSurfaceUnlock(surf, 0, NULL);
+        uint64_t sid = IOSurfaceGetID(surf), so[4] = {0};
+        uint32_t n4 = 4;
+        if (IOConnectCallScalarMethod(conn, SEL_IMPORT, &sid, 1, so, &n4) != KERN_SUCCESS || so[2] != 256)
+            return -16;
+        uint64_t img = so[1] + so[3];
+        const uint32_t desc[6] = {0x4c006880, 64 | (64 << 15), 2 | (256 << 7) | (1 << 29), 0, (uint32_t)img,
+                                  (uint32_t)(img >> 32) | (1 << 17)};
+        memcpy((void *)(d3.cpu + 0x400 / 4), desc, sizeof(desc));
+        const uint32_t samp[4] = {0x920, 0x40, 0, 0};
+        memcpy((void *)(d3.cpu + 0x440 / 4), samp, sizeof(samp));
+        // FS is 16 instructions here: SP_PS_INSTR_SIZE stays 1 (x16)
+        struct draw3d q = {CP3D_TEXQ, sizeof(CP3D_TEXQ) / sizeof(CP3D_TEXQ[0]), d3.iova, d3.iova + 0x80,
+                           d3.iova + 0x100, d3.iova + 0x400, 0x186, 4};
+        cmd.dw = 0;
+        init3d(&cmd, d3.iova + 0x200, d3.iova + 0x300);
+        draw3d(&cmd, &q, img, 256);
+        barrier3d(&cmd, d3.iova + 0x300, 0x30);
+        r = submit_wait(&cmd, 2000, &ns);
+        IOSurfaceLock(surf, kIOSurfaceLockReadOnly, NULL);
+        int ok = 0, exact = 0;
+        uint32_t first = 0, firstwant = 0;
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++) {
+                uint32_t t = pattern_texel(x, y);
+                // shader sees r = byte 2, g = byte 1, b = byte 0, a = byte 3 (BGRA);
+                // writes RGBA bytes
+                int in[4] = {(t >> 16) & 0xff, (t >> 8) & 0xff, t & 0xff, t >> 24};
+                int want[4] = {(in[0] + 255 + 1) / 2, (in[1] + 1) / 2, (in[2] + 1) / 2, (in[3] + 255 + 1) / 2};
+                uint32_t v = px[y * bpr / 4 + x];
+                int close = 1, same = 1;
+                for (int c = 0; c < 4; c++) {
+                    int got = (v >> (8 * c)) & 0xff;
+                    close &= abs(got - want[c]) <= 1;
+                    same &= got == want[c];
+                }
+                ok += close;
+                exact += same;
+                if (!close && !first) {
+                    first = v;
+                    firstwant = want[0] | (want[1] << 8) | (want[2] << 16) | ((uint32_t)want[3] << 24);
+                }
+            }
+        IOSurfaceUnlock(surf, kIOSurfaceLockReadOnly, NULL);
+        say("test 7 shader blend with framebuffer value: %s (%d/4096 within 1, %d exact, first wrong %#x want %#x, %llu us)",
+            r == 0 && ok == 4096 ? "OK" : "FAIL", ok, exact, first, firstwant, ns / 1000);
         IOConnectCallScalarMethod(conn, SEL_FREE, so, 1, NULL, NULL);
         CFRelease(surf);
     }

@@ -55,6 +55,7 @@ skyios-accel-test: test 5 user 3D triangle into IOSurface: OK (inside 1922/1922,
 skyios-accel-test: test 6 self-sampling quad, 1 draw: OK (4096/4096 exact, still swapped 0, first wrong 0, 1434 us)
 skyios-accel-test: test 6 self-sampling quad, 2 draws + barrier: OK (4096/4096 exact, still swapped 0, first wrong 0, 2042 us)
 skyios-accel-test: test 6 self-sampling quad, 2 draws, NO barrier: DIFFERENT (64/4096 exact, still swapped 4096, first wrong 0x80000404, 2024 us)
+skyios-accel-test: test 7 shader blend with framebuffer value: OK (4096/4096 within 1, 4096 exact, first wrong 0 want 0, 1733 us)
 
 skyios-accel-test: metal: device Adreno 618 (SkyIOS)
 skyios-accel-test: metal: fill 1 MiB: OK, status 4, 5774 us, first bad -1
