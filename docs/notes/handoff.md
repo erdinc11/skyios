@@ -58,12 +58,24 @@ Enabled Metal for backboardd (`sweetaccel=2 sweetmetal_procs=skyios-accel-test,b
 **What changed (session 3, en0 patch final fixes):**
 - **0115 patch corrected:** hardware name `ath10k for the WCN3990` (was ath11k/WCN6750), hook API uses setter functions `sweet_wlan_set_rx_hook`/`sweet_wlan_set_link_hook` (was global pointer assignment), channel list 37 entries matching wmi.rs SCAN_FREQS (added 2484, removed 5825), removed SweetKeyStore.cpp and SweetSurface.cpp diffs (unrelated to en0), removed `redwood_virtio_net_init` from redwood_net.h, updated redwood_sta.h comment to reference ath10k/skyios-kernel.
 
+**What changed (session 4, commit 75449d3):**
+- **ir3 matrix-multiply VS (CODE_VS_MVP, 40 instructions):** reads 4×4 matrix from VS constant registers c0-c3, computes clip_pos = matrix × position, passes texcoord through. Uses r0-r5 (footprint=6).
+- **Multi-index buffer tracking:** `_vtx_gpu[32]`/`_vtx_len[32]`/`_frag_gpu[8]`/`_frag_len[8]` track all Metal buffer indices.
+- **setFragmentBuffer/setFragmentBytes implemented** (were empty stubs).
+- **setViewport stored** (was empty stub).
+- **Program 3 (`ca_fixed_vert` + `ca_fixed_frag_blend`, mvp=YES):** selected when CA's `fixed_vert_lph_spc` + `fixed_frag_lph_cph` with texture + fb-fetch. Uses VS_MVP + blend FS.
+- **VS constant loading:** draw methods emit CP_LOAD_STATE6_GEOM (ST6_CONSTANTS, SS6_INDIRECT, SB6_VS_SHADER, 4 vec4) pointing at _vtx_gpu[0] when len >= 64 bytes.
+- **SP register overrides for MVP:** SP_VS_CNTL_0 footprint=6, SP_VS_INSTR_SIZE=3 (48 instr max).
+- **Vertex data routing:** MVP programs use _vtx_gpu[30] (Apple's attribute buffer convention) for VFD, falls back to _vb.
+- **CODE_BORDER moved to 0x400, CODE_TS to 0x500** to accommodate the 320-byte VS_MVP at 0x280.
+- **Logging:** setVertexBytes/setVertexBuffer/setFragmentBuffer/setFragmentBytes all log index/length/gpu.
+
 **Next concrete action (for the next agent):**
-1. **Test boot with sweetaccel=2:** indexed draws should now execute for CA. The screen should show SOMETHING (even if wrong colours/positions, confirming GPU rendering works for CA).
-2. Then fix the vertex shader (CA sends world coords + 4×4 matrix; our VS just passes through).
-3. Then fix the fragment shader (CA's fb-fetch compositing vs our solid red).
-4. Then implement `setFragmentBuffer:offset:atIndex:` / `setFragmentBufferOffset:` for CA's constant data.
-5. **WLAN test:** boot with `sweetwifi=1` to see if the ath10k radio initializes and en0 comes up. The full 4-way WPA2 handshake is in Rust (`sta.rs`); boot-arg `sweetwifi_ssid=NAME` + `sweetwifi_psk=PASS` to associate.
+1. **Test boot with sweetaccel=2:** the MVP VS + blend FS should now execute for CA draws. Watch logs for `setVertexBytes`/`setVertexBuffer` index patterns to verify our index 0 = matrix / index 30 = vertex data assumption.
+2. **If draws still produce wrong output:** check log for which buffer indices CA actually uses, and which lengths. The heuristic (index 0 len=64 → matrix) may need adjustment.
+3. **Fragment constants:** CA sends FragmentShaderConfig (52 B) and Uniform (176 B) via setFragmentBytes — now tracked in `_frag_gpu[]` but NOT yet loaded into FS constant registers. Need CP_LOAD_STATE6_FRAG with ST6_CONSTANTS for FS constant loading. The blend FS currently ignores these; a proper uber-shader FS would read them.
+4. **Texture matrix / chroma matrix:** CA may also send these at vertex buffer indices 1-2 (16 bytes each). Currently ignored by our VS. Add support if needed after seeing logs.
+5. **WLAN test:** boot with `sweetwifi=1` to see if en0 comes up.
 
 **Phone state:** OrangeFox recovery, `adb devices` shows `29f6eaa3 recovery`.
 
