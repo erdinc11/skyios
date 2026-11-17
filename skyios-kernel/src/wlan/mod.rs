@@ -61,26 +61,38 @@ fn smmu_identity(smmu: &Mmio) {
     crate::log!("SWEET WLAN: SMMU identity for SID {:#x}", WLAN_SID);
 }
 
-fn radio_init() -> Option<Radio> {
-    let smmu = Mmio::map(WLAN_SMMU_PA, WLAN_SMMU_SZ)?;
+fn radio_init_inplace() -> bool {
+    let smmu = match Mmio::map(WLAN_SMMU_PA, WLAN_SMMU_SZ) {
+        Some(s) => s,
+        None => return false,
+    };
     smmu_identity(&smmu);
 
-    let ce = ce::CeEngine::start()?;
-    Some(Radio {
-        ce,
-        htc: htc::HtcState::new(),
-        wmi: wmi::WmiState::new(),
-        htt: htt::HttState::new(),
-        scan: scan::ScanState::new(),
-        sta: sta::StaState::new(),
-        ms: 0,
-        api_ready: false,
-    })
+    let ce = match ce::CeEngine::start() {
+        Some(c) => c,
+        None => return false,
+    };
+    unsafe {
+        let p = radio_ptr();
+        core::ptr::write(p, Some(Radio {
+            ce,
+            htc: htc::HtcState::new(),
+            wmi: wmi::WmiState::new(),
+            htt: htt::HttState::new(),
+            scan: scan::ScanState::new(),
+            sta: sta::StaState::new(),
+            ms: 0,
+            api_ready: false,
+        }));
+    }
+    true
 }
+
+static mut POLL_FRAMES: [([u8; 2048], usize, usize); 16] = [([0; 2048], 0, 0); 16];
 
 fn radio_poll(r: &mut Radio) {
     let ms = r.ms;
-    let mut frames: [([u8; 2048], usize, usize); 16] = [([0; 2048], 0, 0); 16];
+    let frames = unsafe { &mut *addr_of_mut!(POLL_FRAMES) };
     let mut nframes = 0usize;
 
     r.ce.poll(|c, data| {
@@ -185,15 +197,10 @@ pub extern "C" fn wlan_thread(_arg: usize) {
         return;
     }
 
-    let r = match radio_init() {
-        Some(r) => r,
-        None => {
-            crate::log!("SWEET WLAN: radio init failed");
-            return;
-        }
-    };
-
-    unsafe { (*radio_ptr()) = Some(r) };
+    if !radio_init_inplace() {
+        crate::log!("SWEET WLAN: radio init failed");
+        return;
+    }
     crate::log!("SWEET WLAN: radio initialized, entering poll loop");
 
     loop {
