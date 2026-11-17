@@ -2,9 +2,40 @@
 
 ## Agent handoff / active work (2026-11-17, latest)
 
-### >>> HANDOFF 2026-11-17 (session 6, read first): GPU draws executing in backboardd <<<
+### >>> HANDOFF 2026-11-17 (session 7): ENGINE_READY kernel fix built, probe16 boot image ready <<<
 
-**Goal:** CoreAnimation rendering on the Adreno 618 at 60 fps. **GPU draws now execute from backboardd — first sustained rendering achieved (5+2+3+5+3 draws across 5 GPU passes at 1125×2436).**
+**Goal:** CoreAnimation rendering on the Adreno 618 at 60 fps.
+
+**What changed (session 7, commits 941077c + efbfe07 already pushed):**
+- **ENGINE_READY fix** (efbfe07): `sweet_rs_gpu_user_open()` now polls `ENGINE_READY` AtomicBool (set after `engine_init()`) for up to 30 s before allocating page tables. This eliminates the race where backboardd calls `sky_alloc` before the GPU init sequence completes, and also eliminates the page-table memory leak (Tables allocated then dropped when ENGINE is None).
+- **Fragment texture index fix** (941077c): CA sets fragment textures at indices 3, 4, 9 — not index 0. Changed to `if (t) _tex = t;`.
+- **RGBA8Unorm format** added to `resolveTexGpu` acceptance check.
+- **Diagnostic logging** in SkyObjects.m commit path (`dw=N bytes=M`).
+
+**Local XNU kernel rebuilt with ENGINE_READY:**
+- The dxb build tree's `make install -j8` fails with Error 2 (header install race), but all .o files were already compiled on Nov 14.
+- Workaround: extracted the LD command from the build log, compiled a stub for `sweet_sta_init` (from the en0/WiFi patch 0115 which isn't applied to dxb), linked directly. Kernel binary at `$SCRATCHPAD/kernel.development.sweet` (14.8 MB, `ENGINE_READY` symbol confirmed via nm).
+- Patches 0091-0115 from `xnu/patches/` are NOT in `research/localbuild/dxb/patches/` — the dxb tree only has patches through 0090. `SkyAdrenoAccel.cpp` exists as an untracked file (applied manually). `sweet_sta_init` is stubbed to empty for this build.
+
+**probe16 boot image ready:**
+- Path: `$SCRATCHPAD/probe16.img` (15 MB)
+- Kernel: ENGINE_READY fix + all previous GPU code
+- Tool image: `$SCRATCHPAD/metal/probe16.tool` (393 KB) with updated SkyAdrenoMetal.bundle (texture index fix, format check, logging)
+- Boot args: `sweetaccel=2 sweetmetal_procs=skyios-accel-test,backboardd sweetdyldvars=1 sweetinsert=SpringBoard:/usr/lib/skyios/SkyPBFix.dylib sweetrun=DumpPanic sweetreboot=300 sweetwdog=30 ufslogsecs=1 sweetiolog=backboardd,SpringBoard,skyios-accel-test sweetshot=120 sweetshot_every=30 sweetunlocksim=100`
+- `sweetgpu_delay=60` kept (ENGINE_READY wait handles the race in backboardd)
+
+**Phone state:** disconnected (USB disappeared after last session's reboot). Needs manual power cycle: hold power 10+ sec, then Volume Down for fastboot.
+
+**Next concrete actions:**
+1. Power-cycle phone into fastboot, `fastboot boot $SCRATCHPAD/probe16.img`
+2. Capture logs (usbnet or recovery log pull) — look for: `SWEET CP: user open: waiting for engine init` → `engine ready, proceeding` → `tables allocated` → `user_open` success
+3. Check that `sky_draw_encoder` returns non-nil and `commit: dw=N bytes=M` shows non-zero values
+4. If screen shows content: pull sweetshot screenshots
+5. If still black: check if present engine flips CA's IOSurface targets to display
+
+### >>> PREVIOUS: HANDOFF 2026-11-17 (session 6): GPU draws executing in backboardd <<<
+
+**GPU draws now execute from backboardd — first sustained rendering achieved (5+2+3+5+3 draws across 5 GPU passes at 1125×2436).**
 
 **What changed (session 6, commit 8617e8e):**
 - **`commitAndWaitUntilSubmitted`** added to SkyCommandBuffer — CA calls this to synchronously submit GPU work. Without it, command buffers were never committed and no draws reached the GPU. This was the critical blocker.

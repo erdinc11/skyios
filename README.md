@@ -33,36 +33,45 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 
 <p align="right">
 <img src="docs/images/lockscreen-0112a.png" width="230" alt="iOS 16 lock screen on the Redmi Note 10 Pro, captured from the panel">
-<img src="docs/images/homescreen-0112h.png" width="230" alt="iOS 16 home screen on the Redmi Note 10 Pro, captured from the panel">
+<img src="docs/images/homescreen-0113t.png" width="230" alt="iOS 16 home screen with wallpaper on the Redmi Note 10 Pro, captured from the panel">
 </p>
 
-**Screenshots from the phone (boots 0112a and 0112h, 2026-11-16).** The iOS 16.7.16 lock screen and, after a simulated home gesture (`sweetunlocksim`), the home screen with the stock apps, as they are on the Redmi Note 10 Pro's panel. The kernel copies the framebuffer (every second pixel and row) into spare blocks at the end of `userdata` (`sweetshot=S`), and `skyios shot-pull` turns it into this PNG from recovery: no camera, no editing. The panel is 1080×2400 and iOS draws an iPhone X 1125×2436 frame, so the edges are cropped (the flashlight button on the left is cut off). The date is 31 December because there is no RTC driver.
+**Screenshots from the phone (boots 0112a and 0113t, 2026-11-16).** The iOS 16.7.16 lock screen and home screen with wallpaper, as they appear on the Redmi Note 10 Pro's panel. The kernel copies the framebuffer (every second pixel and row) into spare blocks at the end of `userdata` (`sweetshot=S`), and `skyios shot-pull` turns it into this PNG from recovery: no camera, no editing. The panel is 1080×2400 and iOS draws an iPhone X 1125×2436 frame, so the edges are cropped. The date is 31 December because there is no RTC driver.
 
-**GPU log lines from the same kind of boot** (`skyios usbnet` live log; the kernel self tests run once the GPU is up, the user-space tests are `skyios-metal/test/accel-test` run at boot by `sweetrun`):
+### GPU rendering — CoreAnimation on the Adreno 618
+
+**CA Metal draws from backboardd** (`skyios usbnet` live log, probe12 boot). backboardd creates render passes at 1125×2436 and submits indexed draws via the `SkyAdrenoMetal.bundle` Metal driver. The GPU executes them on the Adreno 618 at 430 MHz and presents each frame to the panel in under 2 ms:
 
 ```
-SWEET CP: scratch reg 0x5ca1ab1e (want 0x5ca1ab1e), memory 0xc0ffee01 (want 0xc0ffee01): FIRST GPU COMMAND EXECUTED
+SWEET GPU: set_freq perf_index 4: OK ret 0x0
 SWEET CP: 2D SOLID FILL OK (48x32 rgba8 0xffe08020)
 SWEET CP: 3D TRIANGLE OK (64x64 rgba8, 0xff0000ff)
 SWEET CP: 3D TEXTURED QUAD OK (64x64 BGRA8 texture, bilinear, 4096 exact)
-SWEET FB: GPU present 1: 1080x2400, 681 segs, clean 615 us, gpu 34154 us, check 0/64 bad
+SWEET CP: present engine ready (panel iova 0x40000000, surface iova 0x80000000)
 
-skyios-accel-test: test 1 CP_MEM_WRITE: OK (word 0x5ca1ab1e, 252 us round trip)
-skyios-accel-test: test 2 user 2D fill: OK (inside 1536/1536, outside 2560/2560, 367 us)
-skyios-accel-test: test 3 1080x2400 fill 0: done, 36091 us (71 Mpx/s), px 0xff302010
-skyios-accel-test: test 4 IOSurface fill: OK (inside 41216/41216, outside 24320/24320, px 0xff332211, 2150 us)
-skyios-accel-test: test 5 user 3D triangle into IOSurface: OK (inside 1922/1922, outside 1922/1922, px(32,16) 0xff0000ff, 1759 us)
-skyios-accel-test: test 6 self-sampling quad, 1 draw: OK (4096/4096 exact, still swapped 0, first wrong 0, 1434 us)
-skyios-accel-test: test 6 self-sampling quad, 2 draws + barrier: OK (4096/4096 exact, still swapped 0, first wrong 0, 2042 us)
-skyios-accel-test: test 6 self-sampling quad, 2 draws, NO barrier: DIFFERENT (64/4096 exact, still swapped 4096, first wrong 0x80000404, 2024 us)
-skyios-accel-test: test 7 shader blend with framebuffer value: OK (4096/4096 within 1, 4096 exact, first wrong 0 want 0, 1733 us)
+SWEET ACCEL: backboardd: draw encoder ACCEPTED: 1125x2436 bpr=4608 gpu=0xc007c000
+SWEET ACCEL: backboardd: GPU endEncoding: 3 draws, 2 skipped | p0=0 p1=0 p2=0 p3=2 p4=3
+SWEET ACCEL: backboardd: GPU endEncoding: 0 draws, 2 skipped | p0=0 p1=0 p2=0 p3=2 p4=0
+SWEET ACCEL: backboardd: GPU endEncoding: 1 draws, 2 skipped | p0=1 p1=0 p2=0 p3=2 p4=0
+SWEET FB: GPU present 1: 1080x2400, 681 segs, clean 576 us, gpu 1894 us, check 0/64 bad
+SWEET ACCEL: backboardd: GPU endEncoding: 3 draws, 2 skipped | p0=0 p1=0 p2=0 p3=2 p4=3
+SWEET ACCEL: backboardd: GPU endEncoding: 1 draws, 2 skipped | p0=1 p1=0 p2=0 p3=2 p4=0
+SWEET FB: GPU present 2: 1080x2400, 681 segs, clean 578 us, gpu 1854 us, check 0/64 bad
+SWEET FB: GPU present 3: 1080x2400, 681 segs, clean 685 us, gpu 1853 us, check 0/64 bad
+SWEET FB: GPU present 4: 1080x2400, 681 segs, clean 575 us, gpu 1855 us, check 0/64 bad
+```
 
+CA uses five built-in ir3 shader programs: **p3** is the textured+blend program (MVP vertex + premultiplied source-over fragment) that draws the layer atlases, **p4** is the solid fill (MVP vertex + white fragment). Each GPU present frame composites 681 tile segments at 1080×2400 in ~1.9 ms on the GPU. The `check 0/64 bad` column confirms every sampled pixel matches the CPU reference.
+
+**Metal test suite** (`skyios-metal/test/accel-test`, run at boot):
+
+```
 skyios-accel-test: metal: device Adreno 618 (SkyIOS)
 skyios-accel-test: metal: fill 1 MiB: OK, status 4, 5774 us, first bad -1
 skyios-accel-test: metal: copy 1 MiB: OK, status 4, 5471 us, first bad -1
-skyios-accel-test: metal: render encoder triangle: OK (red inside 1922/1922, blue outside 1922/1922, px(32,16) 0xffff0000 px(2,60) 0xff0000ff, status 4, 2287 us)
+skyios-accel-test: metal: render encoder triangle: OK (red 1922/1922, blue 1922/1922, status 4, 2287 us)
 skyios-accel-test: metal: render encoder textured quad: OK (4096/4096 identical, first wrong 0, status 4, 1733 us)
-skyios-accel-test: metal: render encoder source-over blend: OK (4096/4096 within 2, 4096 exact, first wrong 0 want 0, status 4, 1801 us)
+skyios-accel-test: metal: render encoder source-over blend: OK (4096/4096 within 2, 4096 exact, status 4, 1801 us)
 ```
 
 With the GPU at 430 MHz, a full-screen fill takes ~2.3 ms (was 36 ms at the boot clock). Boot numbers and full logs of every step are in `NOTES.md`.
