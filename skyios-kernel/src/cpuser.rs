@@ -316,6 +316,21 @@ pub extern "C" fn sweet_rs_gpu_user_open() -> bool {
     if OPEN.load(Ordering::Acquire) {
         return true;
     }
+    // wait for the present engine to finish init (solid fill + 3D tests)
+    if !super::ENGINE_READY.load(Ordering::Acquire) {
+        crate::log!("SWEET CP: user open: waiting for engine init");
+        for _ in 0..300 {
+            delay_us(100_000);
+            if super::ENGINE_READY.load(Ordering::Acquire) {
+                break;
+            }
+        }
+        if !super::ENGINE_READY.load(Ordering::Acquire) {
+            crate::log!("SWEET CP: user open: engine not ready after 30 s");
+            return false;
+        }
+        crate::log!("SWEET CP: user open: engine ready, proceeding");
+    }
     // allocate outside the engine lock: kmem_alloc_contig may take long
     crate::log!("SWEET CP: user open: allocating page tables");
     let Some(pt) = Tables::alloc() else {

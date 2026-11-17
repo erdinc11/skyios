@@ -680,6 +680,7 @@ struct Engine {
 }
 
 static mut ENGINE: Option<Engine> = None;
+pub(crate) static ENGINE_READY: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 static BUSY: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 fn tlb_flush(smmu: &Mmio) {
@@ -713,6 +714,7 @@ fn engine_init(gpu: Gpu, mem: GpuMem, wptr: u32) -> bool {
     let fseq = fence_read(&mem);
     crate::log!("SWEET CP: present engine ready (panel iova {PANEL_IOVA:#x}, surface iova {SURF_IOVA:#x} up to {SURF_MAX:#x} bytes)");
     unsafe { ENGINE = Some(Engine { gpu, mem, smmu, pt, wptr, panel: None, fseq, pending: false, dead: false, user: None }) };
+    ENGINE_READY.store(true, core::sync::atomic::Ordering::Release);
     true
 }
 
