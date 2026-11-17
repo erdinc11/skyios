@@ -25,6 +25,7 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 | App extensions | A built-in "AMFI" MAC policy and an `AppleMobileFileIntegrity` IOService let ExtensionKit trust `System/Library/xpc/extensions.plist`, so app extensions (wallpaper posters, widgets, ...) are registered and launch |
 | GPU | Adreno 618 in kernel Rust (`skyios-kernel/`): clocks, CX/GX power, GMU firmware + HFI v1, adreno SMMU, SQE microcode + ringbuffer, zap shader (secure mode off), 2D blits, 3D draws with hand-assembled ir3 shaders (triangle, textured quad, scaled compositor). Accelerator service `SkyAdrenoAccel`: GPU buffers and IOSurfaces mapped for user space, user command buffers under CP register protection, fences. **430 MHz** via DCVS OOB frequency vote |
 | Metal | `SkyAdrenoMetal.bundle` (`skyios-metal/`, `sweetaccel=2`): `MTLCreateSystemDefaultDevice()` returns the Adreno; command queues/buffers, `MTLBuffer`, blit fill/copy/mipmap and a render encoder (IOSurface render target, clear, indexed and non-indexed draws with the bundle's built-in shaders, blending from the pipeline state, buffer-backed textures from `MTLBuffer`) run on the GPU. **CoreAnimation's Metal renderer in backboardd draws the UI on the GPU**: render passes at 1125×2436 with 2–5 indexed draws each, submitted via `commitAndWaitUntilSubmitted`. No AIR shader compiler yet — CA pipelines are resolved to built-in ir3 programs via the fragment function key (name + function constants). Five programs: p0 red passthrough, p1 textured quad, p2 fb-blend, p3 CA textured+blend (MVP vertex + premultiplied source-over fragment), p4 CA solid fill (MVP vertex + white fragment) |
+| Wi-Fi | WCN3990 ath10k radio in Rust (`skyios-kernel/src/wlan/`, `sweetwifi=1`): copy engine ring DMA, HTC service connect, WMI command channel, HTT data path, passive and active scanning, STA association, WPA2 four-way handshake (PBKDF2 + AES-CCMP), 802.11 data TX/RX. XNU bridge exposes `en0` through BSD `ifnet` and responds to Apple80211 ioctls so `wifid` sees the interface. **Bring-up in progress** |
 | Battery | IOPMPowerSource service (static 100 %) |
 | Device identity | iPhone X (`iPhone10,3` / `D22AP`): no Home button, gesture UI |
 | Activation | Native "Hactivation" path of mobileactivationd, chosen through device-tree security status. No Apple servers involved |
@@ -82,7 +83,8 @@ With the GPU at 430 MHz, a full-screen fill takes ~2.3 ms (was 36 ms at the boot
 
 - **GPU rendering is working but incomplete.** CoreAnimation's Metal renderer in backboardd draws on the GPU at 430 MHz (full-screen fill in ~2 ms). CA pipelines are resolved to five built-in ir3 shader programs via the fragment function key (name + function constants like `image_count`, `framebuffer_fetch`). Buffer-backed textures (CA layer atlases created from `MTLBuffer`) carry their GPU address so the texture descriptor can be built without an IOSurface. Solid fills (program 4, white shader) execute; textured+blend draws (program 3) are still being debugged. There is no AIR shader compiler yet. Post-processing passes (luma boost) fall back to a solid fill. The fragment uber-shader does not yet read CA's constant buffers (FragmentShaderConfig, Uniform), which limits blend correctness.
 - **Wallpaper works** (the user's wallpaper image is shown via the legacy poster path with `SkyPBFix.dylib` intercepting the PosterBoard renderer). Changing the wallpaper through Collections is not yet supported (CollectionsPoster returns no descriptors). Details in `NOTES.md`.
-- **No Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPS or SEP / Face ID.** Daemons that only spin without hardware (bluetoothd, fairplayd.H2, the voicemail daemon vmd) are blocked at exec (`sweetnoexec`).
+- **Wi-Fi is being brought up.** The Rust ath10k radio driver (`skyios-kernel/src/wlan/`) talks to WCN3990 over copy-engine DMA, runs WMI/HTT, scans, associates, and completes the WPA2 four-way handshake. The XNU-side bridge (`en0`, Apple80211 ioctls) is linked in. Heap allocation of the ~120 KB Radio struct via `kalloc` avoids the 16 KB kernel thread stack limit. The driver is not yet confirmed running on-device (early boot log visibility is being resolved).
+- **No Bluetooth, cellular, audio, camera, sensors, GPS or SEP / Face ID.** Daemons that only spin without hardware (bluetoothd, fairplayd.H2, the voicemail daemon vmd) are blocked at exec (`sweetnoexec`).
 - **Apps:** the system apps plus the 32 "staged" stock apps of the IPSW (Calendar, Notes, Clock, Maps, Mail, Music, Weather, Calculator, ...), moved into `/Applications` by `skyios-ios/stagedapps` and registered by a LaunchServices rebuild (`sweetlsreset=1`). They start from the home screen; whether each one works without network and accounts is not tested. There is no App Store, no Apple ID, and some Settings pages are empty.
 - **Security is off:** permissive code signing (AMFI) and sandbox policies, a stub AppleKeyStore, no data protection. Do not put anything personal on it.
 
@@ -190,6 +192,8 @@ What the less obvious boot-args do:
 | `sweetunlocksim=S` | Wake the display if needed and swipe up from the bottom edge (home gesture) at S seconds |
 | `sweetdyldvars=1` | Let dyld honour `DYLD_*` variables (answers the AMFI dyld-policy call) |
 | `sweetinsert=NAME:PATH` | Add `DYLD_INSERT_LIBRARIES=PATH` to every exec of a binary called NAME (used for SpringBoard + `SkyPBFix.dylib`) |
+| `sweetwifi=1` | Start the WCN3990 ath10k WLAN radio driver (Rust) and the XNU WiFi bridge (`en0`) |
+| `sweetbattery=1` | Publish the IOPMPowerSource battery service |
 | `sweetpowersim=S`, `sweetpowersim_every=T` | Press the power key at S seconds (up to 8 times, T apart) when the display is off, for unattended screenshots |
 | `sweetshot=S`, `sweetshot_every=T` | Screenshot of the panel S seconds after the log starts (up to 4, T seconds apart), read with `skyios shot-pull` from recovery |
 
@@ -234,7 +238,7 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 | `xnu/patches/` | The XNU patch series (applied in order by CI), plus staging scripts for libpthread, HFS and BearSSL |
 | `.github/workflows/xnu.yml` | Kernel CI build |
 | `skyios-tool/` | The `skyios` host tool (Rust), one subcommand per job below |
-| `skyios-kernel/` | Rust linked into the kernel: cmd-db reader, Adreno 618 / GMU / SMMU bring-up, command processor, 2D/3D engines, present engine, user command submission, watchdog |
+| `skyios-kernel/` | Rust linked into the kernel: cmd-db reader, Adreno 618 / GMU / SMMU bring-up, command processor, 2D/3D engines, present engine, user command submission, watchdog, WCN3990 ath10k WLAN radio (copy engine, HTC/WMI/HTT, scan, STA, WPA2, data TX/RX) |
 | `skyios-ios/` | Small iOS tools run at boot by `sweetrun`: `stagedapps` (installs the staged stock apps), `wallpaper` (wallpaper attempt) |
 | `skyios-metal/` | User space for the GPU: `bundle/` = `SkyAdrenoMetal.bundle` (Metal device + recording stand-ins), `test/` = `accel-test` (GPU tests run on the phone at boot) |
 | `skyios usbnet` | Bring up the phone's USB Ethernet on the host and stream the live kernel log |
@@ -300,6 +304,8 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 | 0111 | `sweetshot` panel screenshots into spare blocks at the end of `userdata` |
 | 0112 | `sweetpowersim` power key and `sweetunlocksim` home gesture simulation |
 | 0113 | AMFI dyld policy (`sweetdyldvars`) and `sweetinsert` library insertion |
+| 0114 | Battery gauge and charger stubs |
+| 0115 | Wi-Fi: `en0` BSD interface, Apple80211 ioctl bridge, Rust radio hooks (`sweet_sta_init`, `sweet_wlan_*`) |
 
 ## Key hardware facts
 
@@ -309,6 +315,7 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 - Panel: 1080×2400 DSC video mode, continuous splash from ABL, no refresh kick needed.
 - Touch: Goodix GT9896 at I²C `0x5d` on QUP SE7 (`0xa84000`), powered by PM6150L LDO11 through RPMh.
 - Buttons: power and volume down on the PM6150 PON block, volume up on PM6150L GPIO2 (SPMI SID 4).
+- WLAN: WCN3990 (integrated ath10k, 802.11ac 2×2), copy-engine DMA, SMMU SID `0x1A0`.
 
 More in [`NOTES.md`](NOTES.md).
 

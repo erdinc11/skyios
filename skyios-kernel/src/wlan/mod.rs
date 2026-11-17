@@ -35,19 +35,17 @@ static API_SCAN_DONE: AtomicU32 = AtomicU32::new(0);
 static API_JOIN_ASKED: AtomicBool = AtomicBool::new(false);
 static API_LEAVE_ASKED: AtomicBool = AtomicBool::new(false);
 
-static mut RADIO: Option<Radio> = None;
+static mut RADIO_PTR: *mut Radio = core::ptr::null_mut();
 static mut READY_HOOK: Option<fn()> = None;
 
-fn radio_ptr() -> *mut Option<Radio> {
-    unsafe { addr_of_mut!(RADIO) }
-}
-
 fn get_radio() -> Option<&'static mut Radio> {
-    unsafe { (*radio_ptr()).as_mut() }
+    let p = unsafe { RADIO_PTR };
+    if p.is_null() { None } else { Some(unsafe { &mut *p }) }
 }
 
 fn get_radio_ref() -> Option<&'static Radio> {
-    unsafe { (*radio_ptr()).as_ref() }
+    let p = unsafe { RADIO_PTR };
+    if p.is_null() { None } else { Some(unsafe { &*p }) }
 }
 
 fn smmu_identity(smmu: &Mmio) {
@@ -61,7 +59,7 @@ fn smmu_identity(smmu: &Mmio) {
     crate::log!("SWEET WLAN: SMMU identity for SID {:#x}", WLAN_SID);
 }
 
-fn radio_init_inplace() -> bool {
+fn radio_init_heap() -> bool {
     let smmu = match Mmio::map(WLAN_SMMU_PA, WLAN_SMMU_SZ) {
         Some(s) => s,
         None => return false,
@@ -72,18 +70,21 @@ fn radio_init_inplace() -> bool {
         Some(c) => c,
         None => return false,
     };
+    let p: *mut Radio = xnu::kalloc::<Radio>();
+    if p.is_null() {
+        crate::log!("SWEET WLAN: kalloc Radio failed");
+        return false;
+    }
     unsafe {
-        let p = radio_ptr();
-        core::ptr::write(p, Some(Radio {
-            ce,
-            htc: htc::HtcState::new(),
-            wmi: wmi::WmiState::new(),
-            htt: htt::HttState::new(),
-            scan: scan::ScanState::new(),
-            sta: sta::StaState::new(),
-            ms: 0,
-            api_ready: false,
-        }));
+        addr_of_mut!((*p).ce).write(ce);
+        addr_of_mut!((*p).htc).write(htc::HtcState::new());
+        addr_of_mut!((*p).wmi).write(wmi::WmiState::new());
+        addr_of_mut!((*p).htt).write(htt::HttState::new());
+        // scan and sta are large (~120KB combined); kalloc zeroed them,
+        // just fix the few non-zero defaults
+        (*p).sta.bintval = 100;
+        (*p).sta.dtim = 1;
+        RADIO_PTR = p;
     }
     true
 }
@@ -197,7 +198,7 @@ pub extern "C" fn wlan_thread(_arg: usize) {
         return;
     }
 
-    if !radio_init_inplace() {
+    if !radio_init_heap() {
         crate::log!("SWEET WLAN: radio init failed");
         return;
     }
@@ -210,6 +211,9 @@ pub extern "C" fn wlan_thread(_arg: usize) {
         };
         radio_poll(r);
         r.ms += 10;
+        if r.ms % 10000 == 0 {
+            crate::log!("SWEET WLAN: alive ms={} ready={} scans={}", r.ms, r.api_ready, r.scan.scans_done);
+        }
         xnu::sleep_ms(10);
     }
 }

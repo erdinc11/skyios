@@ -14,6 +14,8 @@ mod sys {
         pub fn sweet_rs_alloc_contig(size: u64, pa: *mut u64) -> usize;
         pub fn sweet_rs_cache_clean(va: usize, size: u64);
         pub fn sweet_rs_cache_flush(va: usize, size: u64);
+        pub fn sweet_rs_kalloc(size: u64) -> usize;
+        pub fn sweet_rs_kfree(ptr: usize, size: u64);
     }
 }
 
@@ -70,6 +72,11 @@ pub fn sleep_ms(ms: u32) {
 
 pub fn spawn(f: extern "C" fn(usize), arg: usize) -> bool {
     unsafe { sys::sweet_rs_spawn(f, arg) }
+}
+
+pub fn kalloc<T>() -> *mut T {
+    let p = unsafe { sys::sweet_rs_kalloc(core::mem::size_of::<T>() as u64) };
+    if p == 0 { core::ptr::null_mut() } else { p as *mut T }
 }
 
 pub struct Mmio {
