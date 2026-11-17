@@ -696,6 +696,11 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         emit(s, (uint32_t)vs_const);
         emit(s, (uint32_t)(vs_const >> 32));
     }
+    static int mvplog;
+    if (mvp && mvplog++ < 5)
+        sky_log("mvp draw: vb=%llx vb0=%llx vb1=%llx vb2=%llx vb30=%llx vs_const=%llx len=%lu stride=%u",
+                vb_draw, _vtx_gpu[0], _vtx_gpu[1], _vtx_gpu[2], _vtx_gpu[30],
+                vs_const, (unsigned long)vs_const_len, stride);
     emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS icache
     emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
     emit(s, (uint32_t)fsa); emit(s, (uint32_t)(fsa >> 32));
@@ -809,8 +814,8 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         _frag_gpu[i] = _frag_base[i] + o;
 }
 - (void)setFragmentTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i {
-    if (i == 0)
-        _tex = t;
+    static int tlog; if (tlog++ < 8) sky_log("setFragmentTexture idx=%lu tex=%p fmt=%lu", (unsigned long)i, t, t ? (unsigned long)t.pixelFormat : 0);
+    if (t) _tex = t;
 }
 
 // A6XX_TEX_MEMOBJ + sampler (cp3d.rs tex_desc) for fragment texture 0, an
@@ -820,7 +825,7 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     if (surf) {
         SkyImport im;
         MTLPixelFormat f = _tex.pixelFormat;
-        if ((f != MTLPixelFormatBGRA8Unorm && f != MTLPixelFormatBGRA8Unorm_sRGB) || !import_surface(surf, &im) || (im.bpr & 63))
+        if ((f != MTLPixelFormatBGRA8Unorm && f != MTLPixelFormatBGRA8Unorm_sRGB && f != MTLPixelFormatRGBA8Unorm && f != MTLPixelFormatRGBA8Unorm_sRGB) || !import_surface(surf, &im) || (im.bpr & 63))
             return NO;
         *outBase = im.iova + im.offset;
         *outBpr = (uint32_t)im.bpr;

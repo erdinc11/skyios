@@ -436,6 +436,8 @@ static uint32_t pkt7(uint32_t op, uint32_t cnt) {
     _t0 = sky_now();
     _status = MTLCommandBufferStatusCommitted;
     uint32_t dw = [_s dwords];
+    static int clog; if (clog++ < 10)
+        sky_log("commit: dw=%u bytes=%lu", dw, (unsigned long)_s->data.length);
     if (dw == 0) {
         _status = MTLCommandBufferStatusScheduled;
         for (MTLCommandBufferHandler h in _scheduled)
