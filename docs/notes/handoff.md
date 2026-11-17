@@ -1,10 +1,48 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
-## Agent handoff / active work (2026-11-16, latest)
+## Agent handoff / active work (2026-11-17, latest)
 
-### >>> HANDOFF 2026-11-16 (session 2, read first): GPU, Metal, WLAN status <<<
+### >>> HANDOFF 2026-11-17 (session 6, read first): GPU draws executing in backboardd <<<
 
-**Goal:** CoreAnimation rendering on the Adreno 618 at 60 fps. **Not reached yet — but GPU is now 430 MHz and present path is fast enough (2.2 ms/frame = 454 fps capable). The bottleneck is now 100 % the CA software renderer (backboardd 142 % CPU at 25.8 fps).**
+**Goal:** CoreAnimation rendering on the Adreno 618 at 60 fps. **GPU draws now execute from backboardd — first sustained rendering achieved (5+2+3+5+3 draws across 5 GPU passes at 1125×2436).**
+
+**What changed (session 6, commit 8617e8e):**
+- **`commitAndWaitUntilSubmitted`** added to SkyCommandBuffer — CA calls this to synchronously submit GPU work. Without it, command buffers were never committed and no draws reached the GPU. This was the critical blocker.
+- **`newLinearTextureWithDescriptor:offset:bytesPerRow:bytesPerImage:`** on SkyBuffer — CA creates textures backed by buffer regions for efficient compositing.
+- **`std_vert` pipeline fallback** — CA's luma boost post-processing (`std_vert1_lph + luma_boost_lph`) mapped to solid fill placeholder (prog=0).
+- **Missing method stubs:** `setSubmissionQueue:/setCompletionQueue:` (SkyCommandQueue), `setLabel:` (SkyFunction), `protectionOptions` (SkyCommandBuffer, SkyTexture), `buffer/bufferOffset/bufferBytesPerRow` (SkyTexture).
+- **Diagnostic logging:** code_ready first-success log, draw encoder ACCEPTED log, GPU endEncoding draw count, rejection cap raised to 40.
+
+**Session 5 findings (commits a03d81f, before this session):**
+- CA buffer routing fix: vertex buffer indices 1 (matrix), 2 (vertex data), 3 (per-draw constants); fragment buffer indices 1, 2, 5. The original code tried index 0 for everything.
+- Boot args required for Metal in backboardd: `sweetmetal_procs=skyios-accel-test,backboardd sweetdyldvars=1 sweetinsert=SpringBoard:/usr/lib/skyios/SkyPBFix.dylib`. Without all three, either Metal isn't loaded or SpringBoard crash-loops.
+- `sweetgpu_delay=60` (in mkimg.sh defaults) means GPU isn't ready when backboardd first calls `sky_alloc` — returns `kIOReturnNotReady`. After accel-test triggers GPU bringup at 60s, backboardd's `code_ready()` succeeds on retry.
+
+**Current state (boot buffix6, committed 8617e8e):**
+- GPU code buffer allocated for backboardd ✅
+- 1125×2436 IOSurface render target imported ✅
+- GPU draw encoder created (not recording encoder) ✅
+- `commitAndWaitUntilSubmitted` calls commit successfully ✅
+- **Sustained GPU draws: 5+2+3+5+3 = 18 draws across 5 passes, 0 skipped** ✅
+- CA fixed_vert pipelines resolve to program 3 (MVP VS + blend FS) ✅
+- std_vert pipelines resolve to program 0 (solid fill placeholder) ✅
+- Only 2 missing methods remain: `SkyBlitEncoder copyFromTexture:...` and `generateMipmapsForTexture:` (blit operations, not critical for rendering)
+- Phone booted with buffix6, rendering sustained
+
+**Remaining missing methods (buffix6):**
+- `SkyBlitEncoder copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:` (texture-to-texture blit)
+- `SkyBlitEncoder generateMipmapsForTexture:` (mipmap generation)
+- `newTextureWithBytesNoCopy:length:descriptor:deallocator:` (device method)
+
+**Next concrete actions:**
+1. **Check the screen** — the phone should be displaying rendered content. Take a screenshot (`sweetshot`) or look at the physical screen.
+2. **If screen is black:** the GPU draws execute but the framebuffer present path may not be wired up for CA's IOSurface targets. Check if the present engine flips the rendered surfaces to the display.
+3. **If screen shows content but wrong colours/artifacts:** check the blend FS output, the BGRA colour swap, texture sampling.
+4. **Fragment uber-shader:** CA's blend FS doesn't yet read the fragment constant buffer (FragmentShaderConfig 52B, Uniform 176B) — it uses our hardcoded sky_fb_blend_fragment. This limits blend correctness.
+5. **Reduce GPU delay:** the 60s `sweetgpu_delay` wastes the first minute. Consider reducing it or making backboardd retry earlier.
+6. **WLAN test:** boot with `sweetwifi=1` to test en0.
+
+**Phone state:** booted with iOS buffix6 image, GPU rendering active.
 
 ### >>> MILESTONE 2026-11-16: GPU FREQUENCY 430 MHz CONFIRMED (boot 0114i) <<<
 
