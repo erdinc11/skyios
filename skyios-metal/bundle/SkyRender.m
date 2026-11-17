@@ -222,6 +222,7 @@ static const struct {
     {@"sky_position_uv_vertex", @"sky_texture_fragment", CODE_FS_TEX, YES, NO, NO},
     {@"sky_position_uv_vertex", @"sky_fb_blend_fragment", CODE_FS_BLEND, YES, YES, NO},
     {@"ca_fixed_vert", @"ca_fixed_frag_blend", CODE_FS_BLEND, YES, YES, YES},
+    {@"ca_fixed_vert", @"ca_fixed_frag_solid", CODE_FS_RED, NO, NO, YES},
 };
 
 #pragma mark - render targets
@@ -371,9 +372,7 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         _vtx_gpu[i] = a;
         _vtx_len[i] = l;
     }
-    if (i == 0 && l != 64)
-        _vb = a;
-    else if (i == 30)
+    if (!_vb)
         _vb = a;
     static int nlog;
     if (nlog++ < 20)
@@ -387,10 +386,8 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         _vtx_gpu[i] = base + o;
         _vtx_len[i] = b.length;
     }
-    if (i == 0) {
+    if (!_vb) {
         _vb_base = base;
-        _vb = base + o;
-    } else if (i == 30) {
         _vb = base + o;
     }
     static int nlog;
@@ -401,10 +398,6 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 - (void)setVertexBufferOffset:(NSUInteger)o atIndex:(NSUInteger)i {
     if (i < 32)
         _vtx_gpu[i] = _vtx_base[i] + o;
-    if (i == 0)
-        _vb = _vb_base + o;
-    else if (i == 30 && i < 32)
-        _vb = _vtx_base[i] + o;
 }
 
 // Map CA's pipeline function names to built-in programs. CA uses
@@ -421,6 +414,8 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         BOOL has_fbfetch = [_fname containsString:@"framebuffer_fetch=1"];
         if (has_texture && has_fbfetch)
             return 3; // ca_fixed: MVP vertex shader + fb blend fragment
+        if (has_fbfetch)
+            return 4; // ca_fixed: MVP vertex shader + solid color (no texture)
         if (has_texture)
             return 1;
         return 0;
@@ -435,7 +430,11 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
     uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
     BOOL mvp_early = prog >= 0 && sky_programs[prog].mvp;
-    uint64_t vb_check = (mvp_early && _vtx_gpu[30]) ? _vtx_gpu[30] : _vb;
+    uint64_t vb_check = _vb;
+    if (mvp_early) {
+        for (int vi = 0; vi < 32 && !vb_check; vi++)
+            vb_check = _vtx_gpu[vi];
+    }
     if (prog < 0 || !vb_check || (textured && !desc)) {
         if (_skipped++ < 5)
             sky_log("draw skipped: prog=%d vb=%llx tex=%d desc=%llx first=%lu n=%lu %s + %s",
@@ -486,8 +485,11 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     }
     BOOL mvp = prog >= 0 && sky_programs[prog].mvp;
     uint64_t vb_draw = _vb;
-    if (mvp && _vtx_gpu[30])
-        vb_draw = _vtx_gpu[30];
+    if (mvp) {
+        // CA puts vertex data at idx 2, matrix at idx 1; use idx 2 for VFD if available
+        if (_vtx_gpu[2]) vb_draw = _vtx_gpu[2];
+        else if (_vtx_gpu[30]) vb_draw = _vtx_gpu[30];
+    }
     uint64_t vs = sky_code.iova + (mvp ? CODE_VS_MVP : CODE_VS);
     uint64_t fsa = sky_code.iova + (uint64_t)fs;
     if (mvp) {
@@ -505,23 +507,28 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     emit(s, (2 << 16) | (8 << 18) | ((mvp ? 3u : 1u) << 22));
     emit(s, (uint32_t)vs);
     emit(s, (uint32_t)(vs >> 32));
-    if (mvp && _vtx_gpu[0] && _vtx_len[0] >= 64) {
+    // VS constants: try idx 1 (CA's matrix buffer), then idx 0 (Apple convention)
+    uint64_t vs_const = _vtx_gpu[1] ? _vtx_gpu[1] : _vtx_gpu[0];
+    NSUInteger vs_const_len = _vtx_gpu[1] ? _vtx_len[1] : _vtx_len[0];
+    if (mvp && vs_const && vs_const_len >= 64) {
         emit(s, pkt7(0x32, 3)); // CP_LOAD_STATE6_GEOM: VS constants c0-c3
         emit(s, (1 << 14) | (2 << 16) | (8 << 18) | (4u << 22));
-        emit(s, (uint32_t)_vtx_gpu[0]);
-        emit(s, (uint32_t)(_vtx_gpu[0] >> 32));
+        emit(s, (uint32_t)vs_const);
+        emit(s, (uint32_t)(vs_const >> 32));
     }
     emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS icache
     emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
     emit(s, (uint32_t)fsa);
     emit(s, (uint32_t)(fsa >> 32));
-    if (mvp && _frag_gpu[0] && _frag_len[0] > 0) {
-        uint32_t fconst_vec4 = (uint32_t)((_frag_len[0] + 15) / 16);
+    uint64_t fs_const_a = _frag_gpu[1] ? _frag_gpu[1] : _frag_gpu[0];
+    NSUInteger fs_const_a_len = _frag_gpu[1] ? _frag_len[1] : _frag_len[0];
+    if (mvp && fs_const_a && fs_const_a_len > 0) {
+        uint32_t fconst_vec4 = (uint32_t)((fs_const_a_len + 15) / 16);
         reg1(s, 0xbb10, 0x100 | fconst_vec4); // SP_PS_CONST_CONFIG: enabled + constlen
         emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS constants
         emit(s, (1 << 14) | (2 << 16) | (0xc << 18) | (fconst_vec4 << 22));
-        emit(s, (uint32_t)_frag_gpu[0]);
-        emit(s, (uint32_t)(_frag_gpu[0] >> 32));
+        emit(s, (uint32_t)fs_const_a);
+        emit(s, (uint32_t)(fs_const_a >> 32));
     }
     if (textured) {
         uint32_t tex_count = fbfetch_prog ? 2 : 1;
@@ -580,7 +587,11 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
     uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
     BOOL mvp_early = prog >= 0 && sky_programs[prog].mvp;
-    uint64_t vb_check = (mvp_early && _vtx_gpu[30]) ? _vtx_gpu[30] : _vb;
+    uint64_t vb_check = _vb;
+    if (mvp_early) {
+        for (int vi = 0; vi < 32 && !vb_check; vi++)
+            vb_check = _vtx_gpu[vi];
+    }
     if (prog < 0 || !vb_check || (textured && !desc)) {
         if (_skipped++ < 5)
             sky_log("indexed draw skipped: prog=%d vb=%llx tex=%d desc=%llx idxBuf=%p n=%lu %s + %s",
@@ -631,8 +642,10 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     }
     BOOL mvp = prog >= 0 && sky_programs[prog].mvp;
     uint64_t vb_draw = _vb;
-    if (mvp && _vtx_gpu[30])
-        vb_draw = _vtx_gpu[30];
+    if (mvp) {
+        if (_vtx_gpu[2]) vb_draw = _vtx_gpu[2];
+        else if (_vtx_gpu[30]) vb_draw = _vtx_gpu[30];
+    }
     uint64_t vs = sky_code.iova + (mvp ? CODE_VS_MVP : CODE_VS);
     uint64_t fsa = sky_code.iova + (uint64_t)fs;
     if (mvp) {
@@ -649,22 +662,26 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     emit(s, pkt7(0x32, 3)); // CP_LOAD_STATE6_GEOM: VS icache
     emit(s, (2 << 16) | (8 << 18) | ((mvp ? 3u : 1u) << 22));
     emit(s, (uint32_t)vs); emit(s, (uint32_t)(vs >> 32));
-    if (mvp && _vtx_gpu[0] && _vtx_len[0] >= 64) {
+    uint64_t vs_const = _vtx_gpu[1] ? _vtx_gpu[1] : _vtx_gpu[0];
+    NSUInteger vs_const_len = _vtx_gpu[1] ? _vtx_len[1] : _vtx_len[0];
+    if (mvp && vs_const && vs_const_len >= 64) {
         emit(s, pkt7(0x32, 3)); // CP_LOAD_STATE6_GEOM: VS constants c0-c3
         emit(s, (1 << 14) | (2 << 16) | (8 << 18) | (4u << 22));
-        emit(s, (uint32_t)_vtx_gpu[0]);
-        emit(s, (uint32_t)(_vtx_gpu[0] >> 32));
+        emit(s, (uint32_t)vs_const);
+        emit(s, (uint32_t)(vs_const >> 32));
     }
     emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS icache
     emit(s, (2 << 16) | (0xc << 18) | (1 << 22));
     emit(s, (uint32_t)fsa); emit(s, (uint32_t)(fsa >> 32));
-    if (mvp && _frag_gpu[0] && _frag_len[0] > 0) {
-        uint32_t fconst_vec4 = (uint32_t)((_frag_len[0] + 15) / 16);
+    uint64_t fs_const = _frag_gpu[1] ? _frag_gpu[1] : _frag_gpu[0];
+    NSUInteger fs_const_len = _frag_gpu[1] ? _frag_len[1] : _frag_len[0];
+    if (mvp && fs_const && fs_const_len > 0) {
+        uint32_t fconst_vec4 = (uint32_t)((fs_const_len + 15) / 16);
         reg1(s, 0xbb10, 0x100 | fconst_vec4);
         emit(s, pkt7(0x34, 3)); // CP_LOAD_STATE6_FRAG: FS constants
         emit(s, (1 << 14) | (2 << 16) | (0xc << 18) | (fconst_vec4 << 22));
-        emit(s, (uint32_t)_frag_gpu[0]);
-        emit(s, (uint32_t)(_frag_gpu[0] >> 32));
+        emit(s, (uint32_t)fs_const);
+        emit(s, (uint32_t)(fs_const >> 32));
     }
     if (textured) {
         uint32_t tex_count = fbfetch_prog ? 2 : 1;

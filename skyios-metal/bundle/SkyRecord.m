@@ -317,8 +317,10 @@ static NSString *consts_string(MTLFunctionConstantValues *v) {
 }
 - (void)setVertexBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {}
 - (void)setVertexBytes:(const void *)p length:(NSUInteger)l atIndex:(NSUInteger)i {}
+- (void)setVertexBufferOffset:(NSUInteger)o atIndex:(NSUInteger)i {}
 - (void)setFragmentBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {}
 - (void)setFragmentBytes:(const void *)p length:(NSUInteger)l atIndex:(NSUInteger)i {}
+- (void)setFragmentBufferOffset:(NSUInteger)o atIndex:(NSUInteger)i {}
 - (void)setFragmentTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i {}
 - (void)setFragmentSamplerState:(id<MTLSamplerState>)s atIndex:(NSUInteger)i {}
 - (void)setViewport:(MTLViewport)v {}
