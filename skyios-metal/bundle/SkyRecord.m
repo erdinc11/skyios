@@ -135,7 +135,11 @@ static NSString *consts_string(MTLFunctionConstantValues *v) {
 @property (weak) id<MTLDevice> device;
 @end
 
-@implementation SkyFunction
+@implementation SkyFunction {
+    NSString *_label;
+}
+- (NSString *)label { return _label; }
+- (void)setLabel:(NSString *)l { _label = [l copy]; }
 - (MTLFunctionType)functionType {
     return [self.name containsString:@"vert"] ? MTLFunctionTypeVertex
            : [self.name containsString:@"frag"] ? MTLFunctionTypeFragment : MTLFunctionTypeKernel;
@@ -272,7 +276,16 @@ static NSString *consts_string(MTLFunctionConstantValues *v) {
 - (void)replaceRegion:(MTLRegion)r mipmapLevel:(NSUInteger)l slice:(NSUInteger)s withBytes:(const void *)b bytesPerRow:(NSUInteger)bpr bytesPerImage:(NSUInteger)bpi {}
 - (void)getBytes:(void *)b bytesPerRow:(NSUInteger)bpr fromRegion:(MTLRegion)r mipmapLevel:(NSUInteger)l {}
 - (void)getBytes:(void *)b bytesPerRow:(NSUInteger)bpr bytesPerImage:(NSUInteger)bpi fromRegion:(MTLRegion)r mipmapLevel:(NSUInteger)l slice:(NSUInteger)s {}
+- (id<MTLBuffer>)buffer { return nil; }
+- (NSUInteger)bufferOffset { return 0; }
+- (NSUInteger)bufferBytesPerRow { return 0; }
+- (NSUInteger)protectionOptions { return 0; }
 @end
+
+id sky_texture_from_buffer(id<MTLDevice> dev, MTLTextureDescriptor *d, uint64_t gpu, NSUInteger off, NSUInteger bpr) {
+    SkyTexture *t = [[SkyTexture alloc] initWithDevice:dev descriptor:d surface:NULL plane:0];
+    return t;
+}
 
 #pragma mark - render encoder
 

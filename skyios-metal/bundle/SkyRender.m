@@ -78,8 +78,11 @@ static SkyMem sky_code;
 
 static BOOL code_ready(void) {
     static os_unfair_lock lock = OS_UNFAIR_LOCK_INIT;
+    static BOOL logged_ok;
     os_unfair_lock_lock(&lock);
     if (!sky_code.handle && sky_alloc(CODE_SIZE, &sky_code)) {
+        sky_log("code_ready: shader code allocated at gpu %#llx", (unsigned long long)sky_code.iova);
+        logged_ok = YES;
         uint32_t *w = sky_code.cpu;
         memset(w, 0, CODE_SIZE);
         // VS: end (VFD writes the float4 position straight into r0)
@@ -420,6 +423,9 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
             return 1;
         return 0;
     }
+    // CA post-processing: std_vert + luma_boost/etc → solid fill placeholder
+    if ([_vname hasPrefix:@"std_vert"])
+        return 0;
     return -1;
 }
 
@@ -716,6 +722,9 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 
 // colour to memory, caches dropped (later passes may sample this target)
 - (void)endEncoding {
+    static int nlog;
+    if (nlog++ < 10)
+        sky_log("GPU endEncoding: %lu draws, %lu skipped", (unsigned long)_draws, (unsigned long)_skipped);
     uint64_t ts = sky_code.iova + CODE_TS;
     event_ts(_s, 0x1d, ts, 0x40); // PC_CCU_FLUSH_COLOR_TS
     event(_s, 0x19);              // PC_CCU_INVALIDATE_COLOR
@@ -879,10 +888,15 @@ id sky_draw_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d, NSMutableData
     BOOL imp = cr && surf && import_surface(surf, &rt);
     if (!surf || !fmt_ok || !cr || !imp || (rt.bpr & 63)) {
         static int n;
-        if (n++ < 20)
+        if (n++ < 40)
             sky_log("draw encoder rejected: surf=%p fmt=%d(%s) code=%d imp=%d bpr=%llu conn=%#x",
                     surf, (int)f, fmt_ok ? "ok" : "bad", cr, imp, (unsigned long long)rt.bpr, sky_conn);
         return nil;
+    }
+    static BOOL first_ok;
+    if (!first_ok) {
+        first_ok = YES;
+        sky_log("draw encoder ACCEPTED: %ux%u bpr=%llu gpu=%#llx", (uint32_t)t.width, (uint32_t)t.height, (unsigned long long)rt.bpr, (unsigned long long)rt.iova);
     }
     uint32_t w = (uint32_t)t.width, h = (uint32_t)t.height;
     begin_pass(stream, rt, w, h, c);

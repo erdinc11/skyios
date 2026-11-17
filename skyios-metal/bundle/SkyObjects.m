@@ -117,6 +117,16 @@ static CFTimeInterval sky_now(void) {
 - (void)makeAliasable {}
 - (id<MTLHeap>)heap { return nil; }
 - (NSUInteger)heapOffset { return 0; }
+- (id<MTLTexture>)newTextureWithDescriptor:(MTLTextureDescriptor *)d offset:(NSUInteger)o bytesPerRow:(NSUInteger)bpr {
+    return [self newTextureWithDescriptor:d offset:o bytesPerRow:bpr bytesPerImage:0];
+}
+- (id<MTLTexture>)newTextureWithDescriptor:(MTLTextureDescriptor *)d offset:(NSUInteger)o bytesPerRow:(NSUInteger)bpr bytesPerImage:(NSUInteger)bpi {
+    extern id sky_texture_from_buffer(id<MTLDevice>, MTLTextureDescriptor *, uint64_t gpu, NSUInteger off, NSUInteger bpr);
+    return sky_texture_from_buffer(_device, d, _mem.iova, o, bpr);
+}
+- (id<MTLTexture>)newLinearTextureWithDescriptor:(MTLTextureDescriptor *)d offset:(NSUInteger)o bytesPerRow:(NSUInteger)bpr bytesPerImage:(NSUInteger)bpi {
+    return [self newTextureWithDescriptor:d offset:o bytesPerRow:bpr bytesPerImage:bpi];
+}
 @end
 
 #pragma mark - PM4
@@ -450,6 +460,13 @@ static uint32_t pkt7(uint32_t op, uint32_t cnt) {
     });
 }
 
+- (void)commitAndWaitUntilSubmitted {
+    [self commit];
+}
+
+- (NSUInteger)protectionOptions { return 0; }
+- (void)setProtectionOptions:(NSUInteger)o {}
+
 - (void)waitUntilScheduled {}
 
 - (void)waitUntilCompleted {
@@ -480,6 +497,8 @@ static uint32_t pkt7(uint32_t op, uint32_t cnt) {
 - (void)insertDebugCaptureBoundary {}
 - (void)setGPUPriority:(NSUInteger)p {}
 - (void)setBackgroundGPUPriority:(NSUInteger)p {}
+- (void)setSubmissionQueue:(dispatch_queue_t)q {}
+- (void)setCompletionQueue:(dispatch_queue_t)q {}
 @end
 
 #pragma mark - device
