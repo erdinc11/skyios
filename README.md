@@ -4,11 +4,11 @@
 
 SkyIOS ports Apple's open-source XNU kernel (xnu-8796, the iOS 16 generation) to the Xiaomi Redmi Note 10 Pro (`sweet`, Qualcomm SM7150 / Snapdragon 732G). On top of it runs the **unmodified iOS 16.7.16 (20H392) userland of the iPhone X**: launchd, the system daemons, backboardd, SpringBoard and the stock apps.
 
-The phone boots to the **iOS lock screen and home screen**. You can unlock it, move between apps with the home gesture, open Settings, and use Control Center, the notification center, the touchscreen and the hardware buttons. A live kernel log streams to the host over USB Ethernet. The Adreno 618 GPU runs: the kernel copies every frame to the panel with it, and user space can submit its own command buffers (2D and 3D draws, IOSurfaces, a first Metal device). CoreAnimation itself still draws on the CPU, and the GPU still runs at its boot clock (~9.6 MHz).
+The phone boots to the **iOS lock screen and home screen**. You can unlock it, move between apps with the home gesture, open Settings, and use Control Center, the notification center, the touchscreen and the hardware buttons. A live kernel log streams to the host over USB Ethernet. The Adreno 618 GPU runs at **430 MHz**: the kernel copies every frame to the panel with it, and user space can submit its own command buffers (2D and 3D draws, IOSurfaces). **CoreAnimation's Metal renderer draws the UI on the GPU** through the `SkyAdrenoMetal.bundle` Metal driver — backboardd creates render passes at full 1125×2436 resolution and submits draw commands to the hardware.
 
 > Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. It installs into the `userdata` partition and so **erases Android's user data**.
 
-## Status (2026-11-16)
+## Status (2026-11-17)
 
 | Area | State |
 | --- | --- |
@@ -23,8 +23,8 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 | Buttons | Power, volume up/down (PMIC through SPMI) as HID consumer keys; lock/wake works |
 | USB | Device-mode USB Ethernet (ECM); the kernel console streams to the host as UDP (`skyios usbnet`) |
 | App extensions | A built-in "AMFI" MAC policy and an `AppleMobileFileIntegrity` IOService let ExtensionKit trust `System/Library/xpc/extensions.plist`, so app extensions (wallpaper posters, widgets, ...) are registered and launch |
-| GPU | Adreno 618 in kernel Rust (`skyios-kernel/`): clocks, CX/GX power, GMU firmware + HFI v1, adreno SMMU, SQE microcode + ringbuffer, zap shader (secure mode off), 2D blits, 3D draws with hand-assembled ir3 shaders (triangle, textured quad, scaled compositor). Accelerator service `SkyAdrenoAccel`: GPU buffers and IOSurfaces mapped for user space, user command buffers under CP register protection, fences. Runs at the boot clock (~9.6 MHz): no frequency vote yet |
-| Metal | `SkyAdrenoMetal.bundle` (`skyios-metal/`, `sweetaccel=2`): `MTLCreateSystemDefaultDevice()` returns the Adreno; command queues/buffers, `MTLBuffer`, blit fill/copy and a render encoder (IOSurface render target, clear, triangles and textured quads with the bundle's built-in shaders, blending from the pipeline state) run on the GPU. CoreAnimation's Metal renderer starts on it, but only in recording mode (it draws nothing): there is no shader compiler for Metal shaders yet |
+| GPU | Adreno 618 in kernel Rust (`skyios-kernel/`): clocks, CX/GX power, GMU firmware + HFI v1, adreno SMMU, SQE microcode + ringbuffer, zap shader (secure mode off), 2D blits, 3D draws with hand-assembled ir3 shaders (triangle, textured quad, scaled compositor). Accelerator service `SkyAdrenoAccel`: GPU buffers and IOSurfaces mapped for user space, user command buffers under CP register protection, fences. **430 MHz** via DCVS OOB frequency vote |
+| Metal | `SkyAdrenoMetal.bundle` (`skyios-metal/`, `sweetaccel=2`): `MTLCreateSystemDefaultDevice()` returns the Adreno; command queues/buffers, `MTLBuffer`, blit fill/copy and a render encoder (IOSurface render target, clear, triangles and textured quads with the bundle's built-in shaders, blending from the pipeline state, buffer-backed textures) run on the GPU. **CoreAnimation's Metal renderer in backboardd draws the UI on the GPU**: render passes at 1125×2436 with 2–5 draws each, submitted via `commitAndWaitUntilSubmitted`. No AIR shader compiler yet — CA pipelines are mapped to built-in ir3 programs |
 | Battery | IOPMPowerSource service (static 100 %) |
 | Device identity | iPhone X (`iPhone10,3` / `D22AP`): no Home button, gesture UI |
 | Activation | Native "Hactivation" path of mobileactivationd, chosen through device-tree security status. No Apple servers involved |
@@ -65,14 +65,14 @@ skyios-accel-test: metal: render encoder textured quad: OK (4096/4096 identical,
 skyios-accel-test: metal: render encoder source-over blend: OK (4096/4096 within 2, 4096 exact, first wrong 0 want 0, status 4, 1801 us)
 ```
 
-The 36 ms full-screen fill and the 34 ms present copy show the GPU still runs at its boot clock. Boot numbers and full logs of every step are in `NOTES.md`.
+With the GPU at 430 MHz, a full-screen fill takes ~2.3 ms (was 36 ms at the boot clock). Boot numbers and full logs of every step are in `NOTES.md`.
 
 <br clear="right">
 
 ## What does not work (yet)
 
-- **No GPU rendering of the UI.** CoreAnimation draws on the CPU, typically 6–15 fps while interacting (7–8 swaps/s measured during synthetic swipes). Two things are missing for a GPU-drawn UI: (1) a GPU frequency / bandwidth vote; at the boot clock a full-screen fill takes 36 ms, so the GPU path would be slower than the CPU; (2) a complete Metal driver for CoreAnimation: a compiler from Metal shaders (AIR) to Adreno ir3, a drawing render encoder, GPU textures and framebuffer-fetch emulation. Building blocks that work are listed in `NOTES.md`.
-- **Wallpaper cannot be changed yet.** The blue background in the screenshots is a legacy wallpaper shown through a cached poster snapshot. Rendering a new poster snapshot (needed for any new wallpaper) makes SpringBoard crash on this port: PaperBoardUI renders it through CoreImage or a CoreAnimation renderer into a Metal texture, and SpringBoard has no Metal device here. The phone currently shows a black background. Details in `NOTES.md`.
+- **GPU rendering is working but incomplete.** CoreAnimation's Metal renderer in backboardd draws on the GPU at 430 MHz (full-screen fill in ~2 ms). CA pipelines are mapped to built-in ir3 shader programs (MVP vertex shader + premultiplied source-over blend fragment shader); there is no AIR shader compiler yet, so only the fixed compositing programs run. Post-processing passes (luma boost) fall back to a solid fill. The fragment uber-shader does not yet read CA's constant buffers (FragmentShaderConfig, Uniform), which limits blend correctness.
+- **Wallpaper works** (the user's wallpaper image is shown via the legacy poster path with `SkyPBFix.dylib` intercepting the PosterBoard renderer). Changing the wallpaper through Collections is not yet supported (CollectionsPoster returns no descriptors). Details in `NOTES.md`.
 - **No Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPS or SEP / Face ID.** Daemons that only spin without hardware (bluetoothd, fairplayd.H2, the voicemail daemon vmd) are blocked at exec (`sweetnoexec`).
 - **Apps:** the system apps plus the 32 "staged" stock apps of the IPSW (Calendar, Notes, Clock, Maps, Mail, Music, Weather, Calculator, ...), moved into `/Applications` by `skyios-ios/stagedapps` and registered by a LaunchServices rebuild (`sweetlsreset=1`). They start from the home screen; whether each one works without network and accounts is not tested. There is no App Store, no Apple ID, and some Settings pages are empty.
 - **Security is off:** permissive code signing (AMFI) and sandbox policies, a stub AppleKeyStore, no data protection. Do not put anything personal on it.
