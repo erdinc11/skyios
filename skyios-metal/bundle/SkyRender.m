@@ -107,10 +107,10 @@ static BOOL code_ready(void) {
         // flut: 0=0.0, 1=0.5, 2=1.0
 #define GPR(r,c) ((r)*4+(c))
 #define CAT2_GPR(opc, dst, s1, s2, sy) \
-    { (s1) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+    (s1) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst)
 #define CAT2_NEG(opc, dst, flut, s2, sy) \
-    { ((flut)|(5u<<11)) | (((s2)|(1u<<15)) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
-#define NOP {0, 0}
+    ((flut)|(5u<<11)) | (((s2)|(1u<<15)) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst)
+#define NOP 0, 0
         const uint32_t blend[] = {
             // bary.f (ei)r63.x, 0, r0.x
             0x00002000, 0x473080fc,
@@ -144,13 +144,13 @@ static BOOL code_ready(void) {
         // Uses r2-r5 as temporaries.
 #define C(r,c) ((r)*4+(c) | (1u << 11))
 #define CAT2_CG(opc, dst, s1c, s2g, sy) \
-    { (s1c) | ((uint32_t)(s2g) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+    (s1c) | ((uint32_t)(s2g) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst)
 #define CAT2_GG(opc, dst, s1, s2, sy) \
-    { (s1) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+    (s1) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst)
 #define CAT2_FG(opc, dst, flut, s2, sy) \
-    { ((flut)|(5u<<11)) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst) }
+    ((flut)|(5u<<11)) | ((uint32_t)(s2) << 16), (2u<<29)|((uint32_t)(sy)<<28)|((opc)<<21)|(1u<<20)|(dst)
 #define G(r,c) ((r)*4+(c))
-#define VNOP {0, 0}
+#define VNOP 0, 0
         const uint32_t vs_mvp[] = {
             // Row 0: clip.x = c0 · pos
             CAT2_CG(3, G(2,0), C(0,0), G(0,0), 0), // mul.f r2.x, c0.x, r0.x
@@ -194,7 +194,7 @@ static BOOL code_ready(void) {
             CAT2_FG(0, G(0,3), 0, G(5,0), 0),  // r0.w = clip.w
             // r1.xy already has texcoord from VFD (passthrough)
             VNOP,
-            {0, 0x03000000}, // end
+            0, 0x03000000, // end
         };
 #undef C
 #undef CAT2_CG
