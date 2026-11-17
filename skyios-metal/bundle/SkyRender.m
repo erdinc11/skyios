@@ -15,6 +15,7 @@
 #import "SkyMetal.h"
 #import <IOSurface/IOSurfaceRef.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #include <os/lock.h>
 #include "../test/cp3d-tables.h"
 
@@ -72,7 +73,7 @@ static uint32_t fbits(float f) {
 // GPU memory shared by all encoders of the process: shader code (128-byte
 // aligned), zeroed border colours, a CCU timestamp word
 enum { CODE_VS = 0x000, CODE_FS_RED = 0x080, CODE_FS_TEX = 0x100, CODE_FS_BLEND = 0x180,
-       CODE_VS_MVP = 0x280, CODE_BORDER = 0x400, CODE_TS = 0x500, CODE_SIZE = 0x4000 };
+       CODE_VS_MVP = 0x280, CODE_FS_WHITE = 0x3C0, CODE_BORDER = 0x400, CODE_TS = 0x500, CODE_SIZE = 0x4000 };
 
 static SkyMem sky_code;
 
@@ -206,6 +207,9 @@ static BOOL code_ready(void) {
 #undef G
 #undef VNOP
         memcpy(&w[CODE_VS_MVP / 4], vs_mvp, sizeof(vs_mvp));
+        // FS: white — mov.f32f32 r0.xyzw = 1,1,1,1; end
+        const uint32_t white[10] = {0x3f800000, 0x20444000, 0x3f800000, 0x20444001, 0x3f800000, 0x20444002, 0x3f800000, 0x20444003, 0, 0x03000000};
+        memcpy(&w[CODE_FS_WHITE / 4], white, sizeof(white));
     }
     os_unfair_lock_unlock(&lock);
     return sky_code.handle != 0;
@@ -225,7 +229,7 @@ static const struct {
     {@"sky_position_uv_vertex", @"sky_texture_fragment", CODE_FS_TEX, YES, NO, NO},
     {@"sky_position_uv_vertex", @"sky_fb_blend_fragment", CODE_FS_BLEND, YES, YES, NO},
     {@"ca_fixed_vert", @"ca_fixed_frag_blend", CODE_FS_BLEND, YES, YES, YES},
-    {@"ca_fixed_vert", @"ca_fixed_frag_solid", CODE_FS_RED, NO, NO, YES},
+    {@"ca_fixed_vert", @"ca_fixed_frag_solid", CODE_FS_WHITE, NO, NO, YES},
 };
 
 #pragma mark - render targets
@@ -280,6 +284,7 @@ static BOOL import_surface(IOSurfaceRef s, SkyImport *out) {
 @protocol SkyPipelineNames
 - (NSString *)vname;
 - (NSString *)fname;
+- (NSString *)fkey;
 - (uint32_t)mrtControl;
 - (uint32_t)mrtBlend;
 @end
@@ -312,8 +317,9 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     NSMutableData *_s;
     id _owner;
     SkyImport _rt;
+    IOSurfaceRef _rtSurf;
     uint32_t _w, _h, _info;
-    NSString *_vname, *_fname;
+    NSString *_vname, *_fname, *_fkey;
     uint32_t _mrtControl, _mrtBlend;
     uint64_t _vb, _vb_base;
     id<MTLTexture> _tex;
@@ -326,18 +332,23 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     NSUInteger _frag_len[8];
     MTLViewport _vp;
     BOOL _hasVP;
+    int _progcount[5];
 }
 
-- (instancetype)initWithStream:(NSMutableData *)s owner:(id)owner target:(SkyImport)rt width:(uint32_t)w height:(uint32_t)h info:(uint32_t)info {
+- (instancetype)initWithStream:(NSMutableData *)s owner:(id)owner target:(SkyImport)rt surface:(IOSurfaceRef)surf width:(uint32_t)w height:(uint32_t)h info:(uint32_t)info {
     if ((self = [super init])) {
         _info = info;
         _s = s;
         _owner = owner;
         _rt = rt;
+        _rtSurf = (IOSurfaceRef)CFRetain(surf);
         _w = w;
         _h = h;
     }
     return self;
+}
+- (void)dealloc {
+    if (_rtSurf) CFRelease(_rtSurf);
 }
 
 - (uint64_t)upload:(const void *)p length:(NSUInteger)len {
@@ -365,6 +376,7 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 - (void)setRenderPipelineState:(id<MTLRenderPipelineState>)p {
     _vname = [(id<SkyPipelineNames>)p vname];
     _fname = [(id<SkyPipelineNames>)p fname];
+    _fkey = [(id<SkyPipelineNames>)p fkey];
     _mrtControl = [(id<SkyPipelineNames>)p mrtControl];
     _mrtBlend = [(id<SkyPipelineNames>)p mrtBlend];
 }
@@ -412,9 +424,11 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
         if ([_vname isEqualToString:sky_programs[i].vertex] && [_fname isEqualToString:sky_programs[i].fragment])
             return i;
     // CA's compositing pipelines: fixed_vert + fixed_frag → program 3 (MVP + blend)
+    // Function constants (image_count, framebuffer_fetch) are in the fkey, not the name.
     if ([_vname hasPrefix:@"fixed_vert"] && [_fname hasPrefix:@"fixed_frag"]) {
-        BOOL has_texture = [_fname containsString:@"image_count="];
-        BOOL has_fbfetch = [_fname containsString:@"framebuffer_fetch=1"];
+        NSString *fk = _fkey ?: _fname;
+        BOOL has_texture = [fk containsString:@"image_count="];
+        BOOL has_fbfetch = [fk containsString:@"framebuffer_fetch=1"];
         if (has_texture && has_fbfetch)
             return 3; // ca_fixed: MVP vertex shader + fb blend fragment
         if (has_fbfetch)
@@ -432,6 +446,7 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 // cp3d.rs emit_state + emit_draw, viewport/scissors for the whole target
 - (void)draw:(uint32_t)initiator count:(NSUInteger)n start:(NSUInteger)first {
     int prog = [self resolveProgram];
+    if (prog >= 0 && prog < 5) _progcount[prog]++;
     BOOL textured = prog >= 0 && sky_programs[prog].textured;
     BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
     uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
@@ -589,6 +604,11 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
     uint32_t initiator = prim | (0 << 6) | (1 << 8) | (idxSize << 10);
 
     int prog = [self resolveProgram];
+    if (prog >= 0 && prog < 5) _progcount[prog]++;
+    static int idxlog;
+    if (idxlog++ < 5)
+        sky_log("indexed draw: prog=%d %s + %s n=%lu", prog,
+                _vname.UTF8String ?: "nil", _fname.UTF8String ?: "nil", (unsigned long)indexCount);
     BOOL textured = prog >= 0 && sky_programs[prog].textured;
     BOOL fbfetch_prog = prog >= 0 && sky_programs[prog].fbfetch;
     uint64_t desc = textured ? (fbfetch_prog ? [self fbFetchDescriptor] : [self textureDescriptor]) : 0;
@@ -724,13 +744,39 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 - (void)endEncoding {
     static int nlog;
     if (nlog++ < 10)
-        sky_log("GPU endEncoding: %lu draws, %lu skipped", (unsigned long)_draws, (unsigned long)_skipped);
+        sky_log("GPU endEncoding: %lu draws, %lu skipped | p0=%d p1=%d p2=%d p3=%d p4=%d",
+                (unsigned long)_draws, (unsigned long)_skipped,
+                _progcount[0], _progcount[1], _progcount[2], _progcount[3], _progcount[4]);
     uint64_t ts = sky_code.iova + CODE_TS;
     event_ts(_s, 0x1d, ts, 0x40); // PC_CCU_FLUSH_COLOR_TS
     event(_s, 0x19);              // PC_CCU_INVALIDATE_COLOR
     wfi(_s);
     event(_s, 0x31);              // CACHE_INVALIDATE
     wfi(_s);
+    if (nlog > 5 && nlog <= 8 && _rtSurf) {
+        IOSurfaceRef s = (IOSurfaceRef)CFRetain(_rtSurf);
+        uint32_t w = _w;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC),
+                       dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+            IOSurfaceLock(s, kIOSurfaceLockReadOnly, NULL);
+            uint8_t *base = IOSurfaceGetBaseAddress(s);
+            size_t bpr = IOSurfaceGetBytesPerRow(s);
+            size_t h = IOSurfaceGetHeight(s);
+            if (base && bpr > 0 && h > 0) {
+                uint32_t px0 = *(uint32_t *)base;
+                uint32_t pxm = *(uint32_t *)(base + (h/2) * bpr + (w/2) * 4);
+                uint32_t nonzero = 0;
+                for (size_t y = 0; y < h; y += h/8)
+                    for (size_t x = 0; x < w; x += w/8)
+                        if (*(uint32_t *)(base + y * bpr + x * 4))
+                            nonzero++;
+                sky_log("PROBE rt %zux%zu: px(0,0)=%#x px(mid)=%#x nonzero=%u/81",
+                        (size_t)w, h, px0, pxm, nonzero);
+            }
+            IOSurfaceUnlock(s, kIOSurfaceLockReadOnly, NULL);
+            CFRelease(s);
+        });
+    }
 }
 
 - (void)setViewport:(MTLViewport)v { _vp = v; _hasVP = YES; }
@@ -769,15 +815,43 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 
 // A6XX_TEX_MEMOBJ + sampler (cp3d.rs tex_desc) for fragment texture 0, an
 // IOSurface in BGRA8: FMT6_8_8_8_8_UNORM, swap WXYZ, linear; bilinear, clamp
-- (uint64_t)textureDescriptor {
+- (BOOL)resolveTexGpu:(uint64_t *)outBase bpr:(uint32_t *)outBpr {
     IOSurfaceRef surf = _tex.iosurface;
-    SkyImport im;
-    MTLPixelFormat f = _tex.pixelFormat;
-    if (!surf || (f != MTLPixelFormatBGRA8Unorm && f != MTLPixelFormatBGRA8Unorm_sRGB) || !import_surface(surf, &im) ||
-        (im.bpr & 63))
-        return 0;
-    uint64_t base = im.iova + im.offset;
-    uint32_t d[20] = {0x4c006880, (uint32_t)_tex.width | ((uint32_t)_tex.height << 15), 2 | ((uint32_t)im.bpr << 7) | (1u << 29), 0,
+    if (surf) {
+        SkyImport im;
+        MTLPixelFormat f = _tex.pixelFormat;
+        if ((f != MTLPixelFormatBGRA8Unorm && f != MTLPixelFormatBGRA8Unorm_sRGB) || !import_surface(surf, &im) || (im.bpr & 63))
+            return NO;
+        *outBase = im.iova + im.offset;
+        *outBpr = (uint32_t)im.bpr;
+        return YES;
+    }
+    if ([_tex respondsToSelector:@selector(skyBufGpu)]) {
+        uint64_t bg = ((uint64_t (*)(id, SEL))objc_msgSend)(_tex, @selector(skyBufGpu));
+        if (bg) {
+            NSUInteger off = ((NSUInteger (*)(id, SEL))objc_msgSend)(_tex, @selector(skyBufOff));
+            NSUInteger bpr = ((NSUInteger (*)(id, SEL))objc_msgSend)(_tex, @selector(skyBufBpr));
+            if (bpr & 63) {
+                static int nl; if (nl++ < 3) sky_log("texGpu: buf bpr %lu not aligned", (unsigned long)bpr);
+                return NO;
+            }
+            *outBase = bg + off;
+            *outBpr = (uint32_t)bpr;
+            static int nl2; if (nl2++ < 3) sky_log("texGpu: buf %#llx off %lu bpr %lu fmt %lu",
+                bg, (unsigned long)off, (unsigned long)bpr, (unsigned long)_tex.pixelFormat);
+            return YES;
+        }
+        static int nl3; if (nl3++ < 3) sky_log("texGpu: buf gpu=0, tex %p fmt %lu", _tex, (unsigned long)_tex.pixelFormat);
+    } else {
+        static int nl4; if (nl4++ < 3) sky_log("texGpu: no iosurface, no skyBufGpu, tex %p fmt %lu class %@",
+            _tex, (unsigned long)_tex.pixelFormat, [_tex class]);
+    }
+    return NO;
+}
+- (uint64_t)textureDescriptor {
+    uint64_t base; uint32_t bpr;
+    if (![self resolveTexGpu:&base bpr:&bpr]) return 0;
+    uint32_t d[20] = {0x4c006880, (uint32_t)_tex.width | ((uint32_t)_tex.height << 15), 2 | (bpr << 7) | (1u << 29), 0,
                       (uint32_t)base, (uint32_t)(base >> 32) | (1u << 17)};
     d[16] = 0x92a;
     d[17] = 0x40;
@@ -787,18 +861,14 @@ void sky_blend_state(MTLRenderPipelineColorAttachmentDescriptor *c, uint32_t *co
 // sample); sampler0 = bilinear clamp, sampler1 = nearest clamp. Returns the
 // GPU address of the texture array; samplers are at +128 (2 * 16 dwords * 4).
 - (uint64_t)fbFetchDescriptor {
-    IOSurfaceRef surf = _tex.iosurface;
-    SkyImport im;
-    MTLPixelFormat f = _tex.pixelFormat;
-    if (!surf || (f != MTLPixelFormatBGRA8Unorm && f != MTLPixelFormatBGRA8Unorm_sRGB) || !import_surface(surf, &im) || (im.bpr & 63))
-        return 0;
-    uint64_t base = im.iova + im.offset;
+    uint64_t base; uint32_t bpr;
+    if (![self resolveTexGpu:&base bpr:&bpr]) return 0;
     uint64_t rtbase = _rt.iova + _rt.offset;
     uint32_t d[40] = {0};
     // tex0: layer texture (same as textureDescriptor)
     d[0] = 0x4c006880;
     d[1] = (uint32_t)_tex.width | ((uint32_t)_tex.height << 15);
-    d[2] = 2 | ((uint32_t)im.bpr << 7) | (1u << 29);
+    d[2] = 2 | (bpr << 7) | (1u << 29);
     d[4] = (uint32_t)base;
     d[5] = (uint32_t)(base >> 32) | (1u << 17);
     // tex1: render target (fb self-sample), same format/layout
@@ -903,7 +973,7 @@ id sky_draw_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d, NSMutableData
     // BGRA memory order: COLOR_SWAP WXYZ (a3xx_color_swap 1) in RB_MRT[0].BUF_INFO
     BOOL bgra = f == MTLPixelFormatBGRA8Unorm || f == MTLPixelFormatBGRA8Unorm_sRGB;
     uint32_t info = FMT6_8_8_8_8_UNORM | ((bgra ? 1u : 0u) << 13);
-    SkyDrawEncoder *e = [[SkyDrawEncoder alloc] initWithStream:stream owner:owner target:rt width:w height:h info:info];
+    SkyDrawEncoder *e = [[SkyDrawEncoder alloc] initWithStream:stream owner:owner target:rt surface:surf width:w height:h info:info];
     e.device = dev;
     return e;
 }

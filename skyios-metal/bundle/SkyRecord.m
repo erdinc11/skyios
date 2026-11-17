@@ -186,6 +186,7 @@ static NSString *consts_string(MTLFunctionConstantValues *v) {
 @interface SkyRenderPipeline : SkyObject <MTLRenderPipelineState>
 @property (copy) NSString *key;
 @property (copy) NSString *vname, *fname; // function names (SkyRender.m looks for built-in code)
+@property (copy) NSString *fkey;          // fragment function key (name + constants)
 @property uint32_t mrtControl, mrtBlend;  // RB_MRT[0].CONTROL / BLEND_CONTROL (SkyRender.m)
 @property (weak) id<MTLDevice> device;
 @end
@@ -232,6 +233,8 @@ static NSString *consts_string(MTLFunctionConstantValues *v) {
 @implementation SkyTexture {
     IOSurfaceRef _surface;
     NSUInteger _plane;
+    uint64_t _bufGpu;
+    NSUInteger _bufOff, _bufBpr;
 }
 - (instancetype)initWithDevice:(id<MTLDevice>)dev descriptor:(MTLTextureDescriptor *)d surface:(IOSurfaceRef)s plane:(NSUInteger)plane {
     if ((self = [super init])) {
@@ -258,6 +261,10 @@ static NSString *consts_string(MTLFunctionConstantValues *v) {
 }
 - (IOSurfaceRef)iosurface { return _surface; }
 - (NSUInteger)iosurfacePlane { return _plane; }
+- (uint64_t)skyBufGpu { return _bufGpu; }
+- (NSUInteger)skyBufOff { return _bufOff; }
+- (NSUInteger)skyBufBpr { return _bufBpr; }
+- (void)setSkyBufGpu:(uint64_t)g off:(NSUInteger)o bpr:(NSUInteger)b { _bufGpu = g; _bufOff = o; _bufBpr = b; }
 - (BOOL)isFramebufferOnly { return NO; }
 - (BOOL)isShareable { return NO; }
 - (BOOL)allowGPUOptimizedContents { return NO; }
@@ -284,6 +291,7 @@ static NSString *consts_string(MTLFunctionConstantValues *v) {
 
 id sky_texture_from_buffer(id<MTLDevice> dev, MTLTextureDescriptor *d, uint64_t gpu, NSUInteger off, NSUInteger bpr) {
     SkyTexture *t = [[SkyTexture alloc] initWithDevice:dev descriptor:d surface:NULL plane:0];
+    [t setSkyBufGpu:gpu off:off bpr:bpr];
     return t;
 }
 
@@ -391,6 +399,7 @@ id sky_render_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d) {
     p.device = (id<MTLDevice>)self;
     p.vname = d.vertexFunction.name;
     p.fname = d.fragmentFunction.name;
+    p.fkey = [(SkyFunction *)d.fragmentFunction key];
     uint32_t ctl = 0, bl = 0;
     sky_blend_state(d.colorAttachments[0], &ctl, &bl);
     p.mrtControl = ctl;
@@ -439,6 +448,9 @@ id sky_render_encoder(id<MTLDevice> dev, MTLRenderPassDescriptor *d) {
                                             (unsigned long)d.usage, IOSurfaceGetPixelFormat(s), IOSurfaceGetWidth(s),
                                             IOSurfaceGetHeight(s)]);
     return [[SkyTexture alloc] initWithDevice:(id<MTLDevice>)self descriptor:d surface:s plane:plane];
+}
+- (id<MTLTexture>)newTextureWithBytesNoCopy:(const void *)p length:(NSUInteger)len descriptor:(MTLTextureDescriptor *)d deallocator:(void (^)(void *, NSUInteger))dealloc {
+    return [[SkyTexture alloc] initWithDevice:(id<MTLDevice>)self descriptor:d surface:NULL plane:0];
 }
 - (NSUInteger)minimumLinearTextureAlignmentForPixelFormat:(MTLPixelFormat)f { return 64; }
 - (NSUInteger)minConstantBufferAlignmentBytes { return 64; }

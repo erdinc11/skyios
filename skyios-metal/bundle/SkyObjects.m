@@ -340,6 +340,17 @@ static uint32_t pkt7(uint32_t op, uint32_t cnt) {
     for (; done < size; done += 4)
         [_s copyWord:sa + done to:da + done];
 }
+
+- (void)copyFromTexture:(id<MTLTexture>)src sourceSlice:(NSUInteger)ss sourceLevel:(NSUInteger)sl
+           sourceOrigin:(MTLOrigin)so sourceSize:(MTLSize)sz
+              toTexture:(id<MTLTexture>)dst destinationSlice:(NSUInteger)ds destinationLevel:(NSUInteger)dl
+      destinationOrigin:(MTLOrigin)dsto {
+    sky_log_once(@"blit copyFromTexture stub (no-op)");
+}
+
+- (void)generateMipmapsForTexture:(id<MTLTexture>)tex {
+    sky_log_once(@"blit generateMipmaps stub (no-op)");
+}
 @end
 
 #pragma mark - command buffers
