@@ -48,16 +48,26 @@ Current blocker: SMMU fault at fence 59 kills GPU present permanently.
 - Args: `sweetgpu=5 sweetgpu_delay=20 sweetaccel=2 sweetmetal_procs=skyios-accel-test,backboardd sweetdyldvars=1 sweetinsert=SpringBoard:/usr/lib/skyios/SkyPBFix.dylib sweetwifi=1 sweetbattery=1 sweetreboot=120 sweetshot=90`
 
 **CI build status:**
-- Run 44217113864 (c2e3f38): Rust library compiles, XNU Build step likely fails
-  (same patch application issues as run 44213158744)
-- **Root cause of CI failure:** Patches in `xnu/patches/` have evolved out of sync.
-  Many patches (0062, 0072, 0084, 0087, 0089-0093, 0094, 0101) fail to apply via
-  `git apply`. The local build tree (`research/localbuild/dxb/`) has OLDER, working
-  versions of these patches. The source `xnu/patches/0062` is significantly different
-  from the local tree's version.
-- Fixed RUST_TOOLCHAIN in xnu.yml: nightly-2026-08-13 → nightly-2026-07-28
-  (newer nightlies produce unbootable kernels). Not yet committed.
-- CI patches need regeneration against the actual XNU base to fix the cascade.
+- **Run 44222102669 (9e5ed71):** ALL patch fixes — 0062 merged + 0115 line counts.
+  Previous cancelled run (44220771569 / 1df973a) confirmed: patches 0001-0113
+  applied cleanly, Rust lib compiled, XNU compilation started. Only 0114 (comment
+  context) and 0115 (corrupt line count) were skipped. No compile errors before
+  cancellation.
+- **Commits this session:**
+  - 2217cc7: Fixed RUST_TOOLCHAIN nightly-2026-08-13→nightly-2026-07-28
+  - 1df973a: Fixed 0062 diff structure (patch cascade root cause)
+  - 661cbaf: Added source version's comments to 0062 for 0114 compatibility
+  - 9e5ed71: Fixed 0115 line counts (sweet_sta.c 226→224, redwood_net.h 63→62)
+- Remaining skipped dxb patches (expected, not ours): iobuffermemd_monterey,
+  skywalk_sonoma, syntax_checker_sonoma, TrustCache (files already exist).
+- **SnapMetal research (session 11):** Studied the MIT-licensed Metal driver at
+  github.com/Snapintosh/SnapMetal. Key findings for our 60fps target:
+  - Uses IOGPU framework for submission (vs our custom IOKit user client)
+  - Per-draw state emission is much richer: LRZ, bindless descriptors,
+    framebuffer-fetch barriers, driver constants, 48+ register groups
+  - Has proper IB packaging with kext-side relocation patching
+  - CA renderer test (harness/ca-renderer.m) captures command streams, not pixels
+  - Targets A8XX (Adreno X2-90), not directly applicable to our A6XX registers
 
 **Phone state:** Not detected in fastboot. User said they would put it in fastboot
 before sleeping, but `fastboot devices` returns empty. May need reconnection.
@@ -73,9 +83,11 @@ before sleeping, but `fastboot devices` returns empty. May need reconnection.
 - sleep blocks forever → 3s busy-wait at thread start (commit 402151b)
 
 **Next concrete actions:**
-1. Boot probe49 (`fastboot boot skyios-shim/out/shim-boot-probe49.img`)
-2. Verify GPU survives past fence 59 — SMMU faults logged but engine continues
-3. If GPU rendering works: check frame rate, debug remaining CA draw rejections
-4. Fix CI patches: sync `xnu/patches/` with working local tree versions
-5. Implement GPU memory free path (zero frees currently — resource leak)
-6. Study SnapMetal for Metal driver patterns
+1. Reconnect phone USB (not detected in fastboot — cable may need replug)
+2. Boot probe49 (`fastboot boot skyios-shim/out/shim-boot-probe49.img`)
+3. Verify GPU survives past fence 59 — SMMU faults logged but engine continues
+4. If GPU rendering works: check frame rate, debug remaining CA draw rejections
+5. ~~Fix CI patches~~ **DONE** — patches 0062 (cascade) and 0115 (line counts) fixed
+6. Wait for CI run 44222102669 results — if kernel links, download the artifact
+7. Implement GPU memory free path (zero frees currently — resource leak)
+8. Add more texture formats to resolveTexGpu (only BGRA8/RGBA8 currently)
