@@ -13,8 +13,11 @@ mod wlan;
 mod zap;
 
 extern "C" fn gpu_thread(stage: usize) {
+    xnu::log(c"SWEET GPU THREAD: started\n");
     let secs = xnu::boot_arg_u32(c"sweetgpu_delay").unwrap_or(60);
+    xnu::log(c"SWEET GPU THREAD: sleeping\n");
     xnu::sleep_ms(secs * 1000);
+    xnu::log(c"SWEET GPU THREAD: awake, starting bringup\n");
     if stage >= 3 {
         if let Some(db) = cmddb::CmdDb::open() {
             for name in ["gfx.lvl", "mx.lvl", "cx.lvl", "ebi.lvl", "lmx.lvl", "lcx.lvl", "MC0", "SH0"] {
@@ -77,25 +80,47 @@ extern "C" fn wdog_thread(secs: usize) {
     }
 }
 
+const THREAD_GPU: usize = 1;
+const THREAD_REBOOT: usize = 2;
+const THREAD_WDOG: usize = 3;
+const THREAD_WLAN: usize = 4;
+
 #[unsafe(no_mangle)]
-pub extern "C" fn sweet_rs_init() {
+pub extern "C" fn sweet_rs_thread_dispatch(id: usize, arg: usize) {
+    xnu::log(c"SWEET DISPATCH: enter\n");
+    if id == THREAD_GPU {
+        gpu_thread(arg);
+    } else if id == THREAD_REBOOT {
+        reboot_thread(arg);
+    } else if id == THREAD_WDOG {
+        wdog_thread(arg);
+    } else if id == THREAD_WLAN {
+        wlan::wlan_thread(arg);
+    }
+    xnu::log(c"SWEET DISPATCH: done\n");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn sweet_rs_start() {
+    xnu::log(c"SWEET RS: Rust entry alive\n");
     if let Some(secs) = xnu::boot_arg_u32(c"sweetwdog").filter(|&s| s >= 5) {
-        xnu::spawn(wdog_thread, secs as usize);
+        xnu::spawn_id(THREAD_WDOG, secs as usize);
     }
     if let Some(secs) = xnu::boot_arg_u32(c"sweetreboot").filter(|&s| s != 0) {
-        xnu::spawn(reboot_thread, secs as usize);
+        xnu::spawn_id(THREAD_REBOOT, secs as usize);
     }
     xnu::log(c"SWEET RS: kernel Rust online\n");
     let stage = xnu::boot_arg_u32(c"sweetgpu").unwrap_or(0);
     if stage != 0 {
-        xnu::spawn(gpu_thread, stage as usize);
+        let ok = xnu::spawn_id(THREAD_GPU, stage as usize);
+        xnu::logf(format_args!("SWEET RS: gpu_thread spawn stage={stage} ok={ok}\n"));
     }
     let wifi_arg = xnu::boot_arg_u32(c"sweetwifi").unwrap_or(0);
     xnu::logf(format_args!("SWEET RS: sweetwifi={}\n", wifi_arg));
     if wifi_arg != 0 {
         unsafe extern "C" { fn sweet_sta_init(); }
         unsafe { sweet_sta_init() };
-        xnu::spawn(wlan::wlan_thread, 0);
+        xnu::spawn_id(THREAD_WLAN, 0);
         xnu::log(c"SWEET RS: wlan thread spawned\n");
     }
 }
