@@ -245,7 +245,10 @@ fn mem_setup() -> Option<GpuMem> {
         }
         delay_us(1);
     }
-    smmu.write(cb, (1 << 6) | (1 << 5) | (1 << 2) | (1 << 1) | 1);
+    // CFCFG=0 (terminate/abort, not stall): a fault returns DECERR to the GPU
+    // so the CP continues past faulting user IBs instead of hanging forever.
+    // HUPCF=1: allow transactions past a pending fault (already set).
+    smmu.write(cb, (1 << 6) | (1 << 2) | (1 << 1) | 1);
     smmu.write(0xc00 + 4 * SMR, CB as u32);
     smmu.write(0x800 + 4 * SMR, (1 << 31) | GPU_SID);
     crate::log!(
@@ -676,6 +679,7 @@ struct Engine {
     // a present was published and its fence not seen yet
     pending: bool,
     dead: bool,
+    fault_count: u32,
     user: Option<cpuser::User>,
 }
 
@@ -713,7 +717,7 @@ fn engine_init(gpu: Gpu, mem: GpuMem, wptr: u32) -> bool {
     tlb_flush(&smmu);
     let fseq = fence_read(&mem);
     crate::log!("SWEET CP: present engine ready (panel iova {PANEL_IOVA:#x}, surface iova {SURF_IOVA:#x} up to {SURF_MAX:#x} bytes)");
-    unsafe { ENGINE = Some(Engine { gpu, mem, smmu, pt, wptr, panel: None, fseq, pending: false, dead: false, user: None }) };
+    unsafe { ENGINE = Some(Engine { gpu, mem, smmu, pt, wptr, panel: None, fseq, pending: false, dead: false, fault_count: 0, user: None }) };
     ENGINE_READY.store(true, core::sync::atomic::Ordering::Release);
     true
 }
@@ -994,18 +998,46 @@ fn compose_locked(
 }
 
 impl Engine {
-    // wait for the last submitted present; a timeout disables the engine
+    fn check_clear_smmu_fault(&mut self) -> u32 {
+        let cb = CB_BASE + CB * PAGE;
+        let fsr = self.smmu.read(cb + 0x58);
+        if fsr & 0x7f != 0 {
+            let far = (self.smmu.read(cb + 0x64) as u64) << 32 | self.smmu.read(cb + 0x60) as u64;
+            let fsynr = self.smmu.read(cb + 0x68);
+            self.fault_count += 1;
+            crate::log!(
+                "SWEET CP: SMMU fault #{}: fsr {fsr:#x} far {far:#x} fsynr {fsynr:#x} (fence {} want {})",
+                self.fault_count, fence_read(&self.mem), self.fseq
+            );
+            self.smmu.write(cb + 0x58, fsr);
+        }
+        fsr
+    }
+
     fn idle(&mut self) -> bool {
         if !self.pending {
             return true;
         }
-        if !wait_fence(&self.gpu, &self.mem, self.wptr, self.fseq) {
-            crate::log!("SWEET CP: present blit failed (fence {} want {}), GPU present disabled", fence_read(&self.mem), self.fseq);
-            self.dead = true;
-            return false;
+        if wait_fence(&self.gpu, &self.mem, self.wptr, self.fseq) {
+            self.check_clear_smmu_fault();
+            self.pending = false;
+            return true;
         }
-        self.pending = false;
-        true
+        // timeout: check for SMMU fault, clear it, retry once
+        let fsr = self.check_clear_smmu_fault();
+        if fsr != 0 {
+            crate::log!("SWEET CP: cleared SMMU fault, retrying fence wait");
+            if wait_fence(&self.gpu, &self.mem, self.wptr, self.fseq) {
+                self.pending = false;
+                return true;
+            }
+        }
+        crate::log!(
+            "SWEET CP: idle failed (fence {} want {}, faults {}), GPU present disabled",
+            fence_read(&self.mem), self.fseq, self.fault_count
+        );
+        self.dead = true;
+        false
     }
 }
 

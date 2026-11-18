@@ -267,7 +267,7 @@ impl Engine {
         }
         let seq = self.fseq.wrapping_add(1);
         static LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-        if LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 4 {
+        if LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 20 {
             crate::log!("SWEET CP: user submit seq {seq}: ib {iova:#x} {dwords} dwords, wptr {}", self.wptr);
         }
         let mut ring = Ring { mem: &self.mem, wptr: self.wptr };
