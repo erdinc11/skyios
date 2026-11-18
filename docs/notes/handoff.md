@@ -2,82 +2,80 @@
 
 ## Agent handoff / active work (2026-11-18, latest)
 
-### >>> HANDOFF 2026-11-18 (session 10): blr crash solved, sleep bug re-discovered, probe48 ready <<<
+### >>> HANDOFF 2026-11-18 (session 11): SMMU stall-on-fault fix, probe49 built <<<
 
-**Goal:** Get GPU rendering at 60fps. Immediate blocker: Rust-spawned threads crash.
+**Goal:** Get GPU rendering at 60fps. Previous blockers (blr crash, sleep) solved.
+Current blocker: SMMU fault at fence 59 kills GPU present permanently.
 
-**Root cause 1 — blr crash (SOLVED):**
-- Indirect function pointer calls (`blr x21`) from kernel threads to Rust code crash.
-- Direct calls (`bl _symbol`) to the same Rust functions work.
-- **Fix:** ID-based dispatch. C-side `sweet_rs_spawn_id(id, arg)` → `sweet_rs_thread()`
-  calls `sweet_rs_thread_dispatch(id, arg)` via direct `bl`. Rust-side match dispatches
-  to gpu_thread/reboot_thread/wdog_thread/wlan_thread.
-- Files changed: `sweet_rs.c` (struct uses id+arg, not fn pointer), `lib.rs` (dispatch fn),
-  `xnu.rs` (spawn_id FFI).
-- **Proof:** probe46 boot note `A; CR; T; TX; T; TX; T; TX; Z;` — all 3 threads enter
-  and return from `sweet_rs_thread_dispatch` via `bl`.
+**Root cause 3 — SMMU stall-on-fault (SOLVED, committed c2e3f38):**
+- SCTLR CFCFG=1 (bit 5) in `mem_setup()` caused the SMMU to STALL GPU transactions
+  on translation faults instead of aborting. When a user IB referenced a bad address
+  (FAR=0x1400000528000, FSR=0x402), the SMMU stalled the transaction, the CP hung,
+  the fence never arrived, `idle()` timed out at 1s, and `dead=true` was set permanently.
+- **Fix:** Clear CFCFG (bit 5) in SCTLR write → terminate/abort mode. GPU gets DECERR
+  for bad addresses, draws complete with garbage, CP continues. Added `fault_count`
+  tracking and `check_clear_smmu_fault()` method to detect, log, and W1C-clear faults.
+  Rewrote `idle()` to check/clear fault after success, retry once on timeout before
+  setting dead=true.
+- **Files changed (committed):** `skyios-kernel/src/cp.rs`
+  - `mem_setup()`: SCTLR from `(1<<6)|(1<<5)|(1<<2)|(1<<1)|1` to `(1<<6)|(1<<2)|(1<<1)|1`
+  - `Engine` struct: added `fault_count: u32`
+  - New method `check_clear_smmu_fault()` — reads FSR/FAR/FSYNR, logs, W1C clears FSR
+  - Rewrote `idle()` — checks fault after success, retries once on timeout
+- **Commit:** c2e3f38 "kernel: fix SMMU stall-on-fault killing GPU after user IB faults"
 
-**Root cause 2 — sleep blocks forever (RE-DISCOVERED):**
-- Both `delay_for_interval()` AND `tsleep()` block forever in threads spawned from
-  `sweet_rs_init()` context. The previous session's tsleep fix (memory says it worked
-  in probe30) does NOT work for threads created during sweet_rs_init.
-- sweet_log_start / sweet_sample_start threads (called right after sweet_rs_init in
-  sweet_ufs_rootdev) work fine with tsleep — the difference is timing.
-- **Evidence:** probe46 C-side reboot thread used tsleep for 120s — never fired.
-  Phone ran indefinitely without rebooting.
-- **Fix (probe48, ready to boot):** 3-second busy-wait (mach_absolute_time + yield)
-  at thread start in `sweet_rs_thread()`, before calling Rust dispatch. By then, boot
-  has progressed past sweet_log_start/sweet_sample_start and sleep infrastructure works.
-- C-side reboot thread also uses busy-wait (mach_absolute_time + yield).
+**Bad texture address investigation (ongoing):**
+- FAR=0x1400000528000 → FAR_HI=0x00014000, FAR_LO=0x00528000
+- For 32-bit IOVA space (T0SZ=32), FAR_HI should be zero. GPU generated a >32-bit address.
+- Likely from a texture descriptor: TEX_CONST_4=0x00528000 (bare buffer offset without
+  0xC0000000 IOVA base), TEX_CONST_5 bits[0:16] contain garbage 0x4000.
+- SkyRender.m's `textureDescriptor` and `resolveTexGpu` look correct for valid paths.
+  Draw path skips when desc=0 or prog invalid. The fault may come from a race or
+  uninitialized descriptor reaching the GPU before the skip check.
+- With SMMU abort mode, these faults are no longer fatal — just logged.
 
-**Probe history this session:**
+**Local build flow (re-link only, ~2 seconds):**
+1. `TOOLCHAIN=nightly-2026-07-28 skyios-kernel/build.sh` → builds Rust lib
+2. Run the linker command from the build directory (see session transcript or
+   `research/localbuild/build10.log` line 1865) pointing to new Rust lib
+3. `xcrun strip -x` the unstripped kernel
+4. `skyios mkpayload KERNEL ADT OUT --cmdline "..." --ramdisk dtb/boot_unpacked/ramdisk`
+5. `skyios-shim/build.sh PAYLOAD OUT.img`
+
+**Boot images:**
+- `skyios-shim/out/shim-boot-probe48.img` — blr+sleep fixes, NO SMMU fix
+- `skyios-shim/out/shim-boot-probe49.img` — blr+sleep+SMMU fixes (NEW)
+- Args: `sweetgpu=5 sweetgpu_delay=20 sweetaccel=2 sweetmetal_procs=skyios-accel-test,backboardd sweetdyldvars=1 sweetinsert=SpringBoard:/usr/lib/skyios/SkyPBFix.dylib sweetwifi=1 sweetbattery=1 sweetreboot=120 sweetshot=90`
+
+**CI build status:**
+- Run 44217113864 (c2e3f38): Rust library compiles, XNU Build step likely fails
+  (same patch application issues as run 44213158744)
+- **Root cause of CI failure:** Patches in `xnu/patches/` have evolved out of sync.
+  Many patches (0062, 0072, 0084, 0087, 0089-0093, 0094, 0101) fail to apply via
+  `git apply`. The local build tree (`research/localbuild/dxb/`) has OLDER, working
+  versions of these patches. The source `xnu/patches/0062` is significantly different
+  from the local tree's version.
+- Fixed RUST_TOOLCHAIN in xnu.yml: nightly-2026-08-13 → nightly-2026-07-28
+  (newer nightlies produce unbootable kernels). Not yet committed.
+- CI patches need regeneration against the actual XNU base to fix the cascade.
+
+**Phone state:** Not detected in fastboot. User said they would put it in fastboot
+before sleeping, but `fastboot devices` returns empty. May need reconnection.
+
+**Probe history (continued from session 10):**
 | Probe | Test | Boot note | Result |
 |-------|------|-----------|--------|
-| probe42 | First ID dispatch (no markers) | `A; Z;` | No GPU output — dispatch silent |
-| probe43 | +T/TX markers in C wrapper | `A; T; T; Z; T;` | Threads start, no TX (crash in dispatch) |
-| probe44 | if/else + xnu::log in dispatch | (empty) | No boot note at all — Rust rebuild issue? |
-| probe45 | +printf in sweet_rs_init | `A; T; T; T; Z;` | 3 threads spawn, 0 return |
-| probe46 | No-op dispatch (just log+return) | `A; CR; T; TX; T; TX; T; TX; Z;` | ALL threads return! bl works! |
-| probe47 | sleep_ms test in dispatch | (not booted) | — |
-| probe48 | 3s busy-wait + full dispatch | **(READY)** | — |
+| probe48 | 3s busy-wait + full dispatch | **(not booted)** | — |
+| probe49 | +SMMU stall-on-fault fix | **(READY)** | — |
 
-**What changed (files, not committed):**
-- `research/localbuild/dxb/xnu/osfmk/arm64/sweet_rs.c`:
-  - ID-based dispatch (struct sweet_rs_job has id+arg, not fn pointer)
-  - `sweet_rs_thread()` busy-waits 3s via mach_absolute_time before calling Rust dispatch
-  - `sweet_rs_spawn_id()` function
-  - `sweet_rs_spawn()` stub (returns false, link compat)
-  - C-side reboot thread (`sweet_c_reboot_thread`) with busy-wait + PSCI reset
-  - `sweet_rs_init()` spawns C-side reboot thread for sweetreboot arg
-- `skyios-kernel/src/lib.rs`:
-  - `sweet_rs_thread_dispatch(id, arg)` with if/else chain (not match — avoids jump table)
-  - Thread ID constants THREAD_GPU=1, THREAD_REBOOT=2, THREAD_WDOG=3, THREAD_WLAN=4
-  - `sweet_rs_start()` calls `xnu::spawn_id()` instead of `xnu::spawn()`
-  - gpu_thread uses `xnu::log(c"...")` instead of `crate::log!()` for first messages
-- `skyios-kernel/src/xnu.rs`:
-  - `sweet_rs_spawn_id` FFI declaration
-  - `spawn_id()` public wrapper
-
-**Boot image ready:** `skyios-shim/out/shim-boot-probe48.img`
-- Args: `sweetgpu=5 sweetgpu_delay=20 sweetaccel=2 sweetmetal_procs=skyios-accel-test,backboardd sweetdyldvars=1 sweetinsert=SpringBoard:/usr/lib/skyios/SkyPBFix.dylib sweetwifi=1 sweetbattery=1 sweetreboot=120 sweetshot=90`
-- C-side auto-reboot at 120s (busy-wait, doesn't depend on Rust dispatch)
-
-**SnapMetal reference (found by user):**
-- https://github.com/Snapintosh/SnapMetal — MIT-licensed Metal driver for Adreno X2-90
-- Implements Metal device, command buffers, encoders on PM4 command streams via IOGPU
-- Companion: SnapAdreno (kernel driver), air2ir3 (AIR→IR3 shader compiler)
-- Has CA renderer test harnesses — directly relevant to our work
-- Worth studying for Metal driver patterns and shader compilation approach
-
-**Phone state:** Running probe46 (no-op dispatch). Needs manual reboot to fastboot
-(Vol Down + Power) to boot probe48.
+**Previous fixes (sessions 9-10, committed):**
+- blr crash → ID-based dispatch (commit 402151b)
+- sleep blocks forever → 3s busy-wait at thread start (commit 402151b)
 
 **Next concrete actions:**
-1. Boot probe48 (`fastboot boot skyios-shim/out/shim-boot-probe48.img`)
-2. If GPU thread works (SWEET GPU messages visible): the blr + sleep bugs are BOTH fixed
-3. Study SnapMetal for Metal driver patterns and air2ir3 shader compiler
-4. Debug GPU rendering pipeline for 60fps
-5. Commit working changes
-
-</content>
-</invoke>
+1. Boot probe49 (`fastboot boot skyios-shim/out/shim-boot-probe49.img`)
+2. Verify GPU survives past fence 59 — SMMU faults logged but engine continues
+3. If GPU rendering works: check frame rate, debug remaining CA draw rejections
+4. Fix CI patches: sync `xnu/patches/` with working local tree versions
+5. Implement GPU memory free path (zero frees currently — resource leak)
+6. Study SnapMetal for Metal driver patterns
