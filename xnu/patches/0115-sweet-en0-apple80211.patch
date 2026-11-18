@@ -1549,7 +1549,7 @@ new file mode 100644
 index 0000000..f2ffed4
 --- /dev/null
 +++ b/bsd/dev/sweet_sta.c
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,224 @@
 +/*
 + * sweet: the station side of sys/redwood_sta.h over the radio
 + * (skyios-kernel/src/wlan: its C API, sweet_wlan_*). When the radio is up, en0 is
@@ -1790,7 +1790,7 @@ new file mode 100644
 index 0000000..41550ce
 --- /dev/null
 +++ b/bsd/sys/redwood_net.h
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,62 @@
 +/*
 + * en0, and what stands behind it.
 + *
