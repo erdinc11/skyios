@@ -2125,16 +2125,12 @@ index 0000000..89d8840
 +	controller->release();
 +}
 diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
-index 60ec873..4d3730b 100644
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
-@@ -15,6 +15,7 @@ iokit/Kernel/arm/TopazAudio.cpp                                  optional iokitc
- iokit/Kernel/arm/TopazRpm.cpp                                    optional iokitcpp
- iokit/Kernel/arm/SweetAMFIService.cpp                            optional iokitcpp
- iokit/Kernel/arm/SweetBusy.cpp                                   optional iokitcpp
+@@ -24,3 +24,4 @@
+ iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEventServiceQueue.cpp                  optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp             optional iokitcpp
 +iokit/Kernel/arm/RedwoodWLAN.cpp                                 optional iokitcpp
- iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
- iokit/Kernel/arm/SweetKeyStore.cpp                               optional iokitcpp
- iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
 -- 
 2.43.0
