@@ -80,27 +80,45 @@ Current blocker: SMMU fault at fence 59 kills GPU present permanently.
   - CA renderer test (harness/ca-renderer.m) captures command streams, not pixels
   - Targets A8XX (Adreno X2-90), not directly applicable to our A6XX registers
 
-**Phone state:** Not detected in fastboot. User said they would put it in fastboot
-before sleeping, but `fastboot devices` returns empty. May need reconnection.
-When phone is reconnected: `fastboot boot skyios-shim/out/shim-boot-probe50.img`
+**Phone state:** Booting probe53 (or in fastboot for next boot).
+Boot command: `fastboot boot skyios-shim/out/shim-boot-probe53.img`
 
 **Probe history (continued from session 10):**
 | Probe | Test | Boot note | Result |
 |-------|------|-----------|--------|
 | probe48 | 3s busy-wait + full dispatch | **(not booted)** | — |
 | probe49 | +SMMU stall-on-fault fix | **(READY, local build)** | — |
-| probe50 | CI kernel: all C fixes + Rust GPU | **(READY, CI run 44227242600)** | — |
+| probe50 | CI kernel, cpus=1 | Booted but console text covers screen, too slow | Console only |
+| probe51 | CI kernel, cpus=8 | **BOOT SUCCESS** — log confirms backboardd, 15 GPU presents, lock screen behind console text | GPU works, console covers GUI |
+| probe52 | Fresh ADT, gpu_delay=10 | ADT missing props, boot stalls early | Failed |
+| probe53 | Original ADT, reboot=300, no kprintf_spam | **(READY)** | — |
+
+**probe51 boot results (logs/boot-probe51.txt, 4503 lines):**
+- 8/8 CPUs alive, L3 1459 MHz, silver 1.8 GHz, gold 2.3 GHz
+- Battery: PM6150 100% 4453mV, external=1 charging=0 (POWER_PATH fix works)
+- GPU: Adreno 618 @ 430 MHz, 15 GPU presents, 0/64 bad pixels, ~2.1ms/frame
+- Metal: backboardd connected, CA render passes at 1125×2436
+- WLAN: thread started, crypto selftest OK, but radio_init_heap silent (no "radio initialized" or "radio init failed")
+- USB: DWC3 up, ECM gadget did not connect to host
+- All prog=3 textured draws skipped (desc=0, texture descriptor empty)
+- Console text stayed on screen because GPU delay was 60s (from ADT stale args) and user rebooted before presents cleared it
+
+**Key issue: stale ADT boot-args override cmdline.** The `sweet-0081hi.adt`
+contains `sweetgpu_delay=60 sweettop=5 sweetautobahn=1` etc. that
+`PE_parse_boot_argn` finds first. Cmdline args come after. Need to
+strip stale boot-args from the ADT or make mkpayload put cmdline first.
 
 **Previous fixes (sessions 9-10, committed):**
 - blr crash → ID-based dispatch (commit 402151b)
 - sleep blocks forever → 3s busy-wait at thread start (commit 402151b)
+- Battery stuck-charging → POWER_PATH cross-check (commit 899cbb5)
 
 **Next concrete actions:**
-1. ~~Fix CI patches~~ — DONE, all applied, kernel built (CI run 44227242600)
-2. ~~Build probe50~~ — DONE (`skyios-shim/out/shim-boot-probe50.img`, 19MB)
-3. Reconnect phone USB (not detected in fastboot — cable may need replug)
-4. Boot probe50 (`fastboot boot skyios-shim/out/shim-boot-probe50.img`)
-5. Verify GPU survives past fence 59 — SMMU faults logged but engine continues
-6. If GPU rendering works: check frame rate, debug remaining CA draw rejections
-7. Implement GPU memory free path (zero frees currently — resource leak)
-8. Add more texture formats to resolveTexGpu (only BGRA8/RGBA8 currently)
+1. ~~Fix CI patches~~ — DONE
+2. ~~Build + boot CI kernel~~ — DONE (probe51 confirmed working)
+3. Fix stale ADT boot-args (strip or rebuild sweet-0081hi.adt without embedded args)
+4. Boot probe53 and wait full 2-3 min for lock screen to appear
+5. Get USB Ethernet working for live log capture
+6. Debug prog=3 texture descriptor (desc=0 → all textured draws skipped)
+7. Debug WLAN radio_init_heap hang (passes crypto selftest, then silent)
+8. Implement GPU memory free path (zero frees currently — resource leak)

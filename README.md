@@ -27,7 +27,7 @@ The GPU driver, WLAN radio stack, and boot shim are written in Rust — not C or
 | iOS Userland | ✅ Working | launchd, daemons, backboardd, SpringBoard, apps |
 | GUI | ✅ Working | Lock screen, home screen, app switcher, Control Center, Settings |
 | App Extensions | ✅ Working | Widgets, wallpaper posters via AMFI trust |
-| Battery | ✅ Working | PM6150 PMIC gauge, real voltage/current/SOC, charging detection |
+| Battery | ✅ Working | PM6150 PMIC gauge, real voltage/current/SOC, charging detection with POWER_PATH cross-check |
 | Activation | ✅ Working | Native hactivation, no Apple servers |
 | Wi-Fi | 🔧 In Progress | Rust ath10k driver for WCN3990 complete, XNU `en0` bridge linked, not yet confirmed on-device |
 | AIR Shader Compiler | 🔧 In Progress | CA pipelines resolved to built-in ir3 programs; no arbitrary shaders yet |
