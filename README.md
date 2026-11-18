@@ -6,6 +6,10 @@ Runs Apple's XNU kernel (xnu-8796) and the unmodified iOS 16.7.16 iPhone X userl
 
 > ⚠️ Experimental. Not a usable phone. Security is off. Erases Android user data.
 
+## Why Rust?
+
+The GPU driver, WLAN radio stack, and boot shim are written in Rust — not C or C++. In a bare-metal kernel context with no debugger and no MMU protection between drivers, one bad pointer corrupts memory silently and the phone reboots with no clue why. Rust's ownership model catches use-after-free, buffer overflows, and data races at compile time. The GPU command processor alone juggles ring buffers, DMA descriptors, SMMU page tables, and fence tracking across interrupt-like contexts — exactly the kind of code where C bugs hide for weeks. Rust also has zero-cost `no_std` support, so the compiled output is plain arm64 machine code linked directly into XNU with no runtime overhead. The tradeoff is slower iteration (the borrow checker fights you on MMIO register structs), but for kernel drivers that must not crash, it's worth it.
+
 ## Hardware Status
 
 | Component | Status | Notes |
