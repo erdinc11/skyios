@@ -8,7 +8,7 @@ The phone boots to the **iOS lock screen and home screen**. You can unlock it, m
 
 > Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. It installs into the `userdata` partition and so **erases Android's user data**.
 
-## Status (2026-11-17)
+## Status (2026-11-18)
 
 | Area | State |
 | --- | --- |
@@ -290,7 +290,7 @@ Not in git: partition backups, live device trees, recovery images, Apple firmwar
 | 0083 | Xcode 16+ IIG/IORPC compatibility (local builds) |
 | 0084 | CPU and L3 frequencies through OSM |
 | 0085–0086 | Frame statistics; present inside SwapEnd; touch retry |
-| 0087, 0089, 0090, 0093 | Rust kernel library (`skyios-kernel/`) and its C hooks: log, panic, MMIO map, boot-args, delays, threads, contiguous DMA memory, cache maintenance |
+| 0087, 0089, 0090, 0093, 0093a | Rust kernel library (`skyios-kernel/`) and its C hooks: log, panic, MMIO map, boot-args, delays, threads, contiguous DMA memory, cache maintenance, ID-based thread dispatch (avoids indirect-branch crash), `kalloc`/`kfree` wrappers, `tsleep`-based sleep with 3-second busy-wait at thread start |
 | 0088 | Per-process CPU usage (`SWEET TOP`) |
 | 0091 | `sweetnoexec`: refuse exec of crash-looping daemons |
 | 0092, 0095, 0096, 0098 | Boot-time root fixes: PosterBoard assert, SpringBoard feature-flag override, early boot notes in the live log, LaunchServices store reset |
