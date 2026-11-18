@@ -48,16 +48,27 @@ Current blocker: SMMU fault at fence 59 kills GPU present permanently.
 - Args: `sweetgpu=5 sweetgpu_delay=20 sweetaccel=2 sweetmetal_procs=skyios-accel-test,backboardd sweetdyldvars=1 sweetinsert=SpringBoard:/usr/lib/skyios/SkyPBFix.dylib sweetwifi=1 sweetbattery=1 sweetreboot=120 sweetshot=90`
 
 **CI build status:**
-- **Run 44222102669 (9e5ed71):** ALL patch fixes — 0062 merged + 0115 line counts.
-  Previous cancelled run (44220771569 / 1df973a) confirmed: patches 0001-0113
-  applied cleanly, Rust lib compiled, XNU compilation started. Only 0114 (comment
-  context) and 0115 (corrupt line count) were skipped. No compile errors before
-  cancellation.
-- **Commits this session:**
-  - 2217cc7: Fixed RUST_TOOLCHAIN nightly-2026-08-13→nightly-2026-07-28
-  - 1df973a: Fixed 0062 diff structure (patch cascade root cause)
-  - 661cbaf: Added source version's comments to 0062 for 0114 compatibility
-  - 9e5ed71: Fixed 0115 line counts (sweet_sta.c 226→224, redwood_net.h 63→62)
+- **Run 44227242600 (509da77, SUCCESS):** All patches applied, kernel linked
+  successfully. All 4 previously-undefined symbols resolved:
+  sweet_rs_init (0x...92288), sweet_rs_spawn_id (0x...92554),
+  sweet_rs_kalloc (0x...9283c), sweet_sta_init (0x...fabe0).
+  Artifact downloaded, probe50 boot image built.
+  **probe50 = CI kernel with all C fixes (id-dispatch, 3s busy-wait,
+  tsleep, SMMU abort, WLAN stubs) + Rust GPU driver.**
+- **Run 44225287511 (38fe45c, FAILED):** 0093a SKIPPED — bsd/conf/files
+  hunk failed at line 108 (context didn't account for 0072's additions).
+  0115 iokit hunk now works (sweet_sta_init resolved). Still had 3
+  undefined symbols from 0093a skip.
+- **Run 44222102669 (9e5ed71, FAILED):** 4 undefined linker symbols.
+- **Commits this session (12-14):**
+  - 509da77: Fixed 0093a bsd/conf/files hunk context (session 14)
+  - 38fe45c: Fixed 0115 iokit hunk line number (24→23) (session 13)
+  - 3260445: Added 0093a patch + fixed 0115 iokit context (session 13)
+  - 0699bf9: Updated handoff with CI session 12 progress
+  - 9e5ed71: Fixed 0115 line counts (session 12)
+  - 661cbaf: Restored 0062 documentation comments (session 12)
+  - 1df973a: Fixed 0062 diff structure (session 12)
+  - 2217cc7: Fixed RUST_TOOLCHAIN (session 12)
 - Remaining skipped dxb patches (expected, not ours): iobuffermemd_monterey,
   skywalk_sonoma, syntax_checker_sonoma, TrustCache (files already exist).
 - **SnapMetal research (session 11):** Studied the MIT-licensed Metal driver at
@@ -71,23 +82,25 @@ Current blocker: SMMU fault at fence 59 kills GPU present permanently.
 
 **Phone state:** Not detected in fastboot. User said they would put it in fastboot
 before sleeping, but `fastboot devices` returns empty. May need reconnection.
+When phone is reconnected: `fastboot boot skyios-shim/out/shim-boot-probe50.img`
 
 **Probe history (continued from session 10):**
 | Probe | Test | Boot note | Result |
 |-------|------|-----------|--------|
 | probe48 | 3s busy-wait + full dispatch | **(not booted)** | — |
-| probe49 | +SMMU stall-on-fault fix | **(READY)** | — |
+| probe49 | +SMMU stall-on-fault fix | **(READY, local build)** | — |
+| probe50 | CI kernel: all C fixes + Rust GPU | **(READY, CI run 44227242600)** | — |
 
 **Previous fixes (sessions 9-10, committed):**
 - blr crash → ID-based dispatch (commit 402151b)
 - sleep blocks forever → 3s busy-wait at thread start (commit 402151b)
 
 **Next concrete actions:**
-1. Reconnect phone USB (not detected in fastboot — cable may need replug)
-2. Boot probe49 (`fastboot boot skyios-shim/out/shim-boot-probe49.img`)
-3. Verify GPU survives past fence 59 — SMMU faults logged but engine continues
-4. If GPU rendering works: check frame rate, debug remaining CA draw rejections
-5. ~~Fix CI patches~~ **DONE** — patches 0062 (cascade) and 0115 (line counts) fixed
-6. Wait for CI run 44222102669 results — if kernel links, download the artifact
+1. ~~Fix CI patches~~ — DONE, all applied, kernel built (CI run 44227242600)
+2. ~~Build probe50~~ — DONE (`skyios-shim/out/shim-boot-probe50.img`, 19MB)
+3. Reconnect phone USB (not detected in fastboot — cable may need replug)
+4. Boot probe50 (`fastboot boot skyios-shim/out/shim-boot-probe50.img`)
+5. Verify GPU survives past fence 59 — SMMU faults logged but engine continues
+6. If GPU rendering works: check frame rate, debug remaining CA draw rejections
 7. Implement GPU memory free path (zero frees currently — resource leak)
 8. Add more texture formats to resolveTexGpu (only BGRA8/RGBA8 currently)
