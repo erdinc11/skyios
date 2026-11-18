@@ -586,7 +586,7 @@ diff --git a/iokit/Kernel/arm/SweetBattery.cpp b/iokit/Kernel/arm/SweetBattery.c
 new file mode 100644
 --- /dev/null
 +++ b/iokit/Kernel/arm/SweetBattery.cpp
-@@ -0,0 +1,319 @@
+@@ -0,0 +1,321 @@
 +/*
 + * Built-in iOS battery bring-up service. Default: 100%, AC, not charging.
 + * sweetbattery=1: read-only PM6150 polling every 30 seconds; voltage-derived
@@ -813,7 +813,9 @@ new file mode 100644
 +		publish(100, 4200, 0, true, true, false, true, false, false);
 +		return;
 +	}
-+	bool external = (usb & 0x10u) != 0;
++	/* QSCRATCH VBUS override (0074) keeps USBIN RT_STS set after cable
++	 * removal; cross-check with POWER_PATH valid-input bit. */
++	bool external = (usb & 0x10u) != 0 && (path & 1u) != 0;
 +	bool capable = external && (path & 0x10u) && (path & 1u) && !(path & 0x40u);
 +	unsigned state = charger & 7u;
 +	bool charging = capable && state >= 1 && state <= 4 &&
