@@ -2,23 +2,22 @@ diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 index af791f932..2ee14fe4b 100644
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
-@@ -26,6 +26,7 @@
- extern kern_return_t kernel_thread_start(thread_continue_t, void *, thread_t *);
- extern void thread_deallocate(thread_t);
- extern int hz;
- static void sweet_log_start(void);
+@@ -30,6 +30,7 @@ static void sweet_log_start(void);
+ extern void sweet_sample_start(void);
+ extern void sweet_keys_init(void);
+ extern void sweet_cpufreq_init(void);
 +extern void sweet_rs_init(void);
+ extern void sweet_touch_init(void);
+ extern void sweet_usb_probe(void);
  
- #define REG_CAP         0x00
-@@ -609,7 +610,8 @@ sweet_ufs_init(void)
- 	su.writable = (rw != 0);
- 	su.ready = true;
- 	printf("SWEET UFS: \"%s\" on LUN %u: first block 0x%llx, %llu MiB, %s, DMA at 0x%llx\n",
+@@ -617,6 +618,7 @@ sweet_ufs_init(void)
  	    want, su.lun, su.first_block, su.nblocks * UFS_BLOCK >> 20,
  	    su.writable ? "read-write" : "read-only", su.dma_pa);
+ 	sweet_cpufreq_init();
 +	sweet_rs_init();
  	sweet_log_start();
- 	return 0;
+ 	sweet_sample_start();
+ 	sweet_keys_init();
 diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
 index 284fb447d..4ccd4eba9 100644
 --- a/makedefs/MakeInc.def
@@ -63,8 +62,10 @@ diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
 index 34a3125d7..2e347b7ca 100644
 --- a/osfmk/conf/files.arm64
 +++ b/osfmk/conf/files.arm64
-@@ -43,4 +43,5 @@
+@@ -42,6 +42,7 @@ osfmk/arm/arm_init.c	optional config_pmap_ppl
+ osfmk/arm64/arm_vm_init.c	optional config_pmap_ppl
  osfmk/arm64/sweet_early.c	standard
+ osfmk/arm64/sweet_cpufreq.c	standard
 +osfmk/arm64/sweet_rs.c	standard
  osfmk/arm64/arm64_hypercall.c	standard
  osfmk/arm/io_map.c		standard
