@@ -10,9 +10,12 @@
   `Unable to find driver for this platform: "D22AP"`
   (`IOPlatformExpert.cpp:2319`).
 - The CPU1 watchdog later reset the phone into TWRP; the latest camera frame
-  showed TWRP. At the last host check both `adb devices` and `fastboot devices`
-  were empty, so `auto-boot.sh` was waiting and could not start another boot.
-  No partition was flashed.
+  showed TWRP. USB recovered later: at 23:03:36 `auto-boot.sh` detected ADB,
+  switched to bootloader, and successfully booted the **same old image** again.
+  At 23:06:13 the camera showed the same D22AP panic. The automatic loop works,
+  but currently repeats the known-bad image until its path is updated. At the
+  last host check both `adb devices` and `fastboot devices` were empty. No
+  partition was flashed.
 - The ADT extracted from `payload-ci-0069adt.bin` has root compatible values
   `D22AP`, `iPhone10,3`, `xiaomi,sweet`, `qcom,sm7150`, and `AppleARM`. The CI
   kernel contains `SweetPlatformExpert` and its static personality; however,
@@ -20,13 +23,21 @@
 - **Unverified source adjustment:** changed the platform personality's
   `IONameMatch` in `xnu/patches/0016-sweet-device-tree-platform-expert.patch`
   from `xiaomi,sweet` to `D22AP`, matching the name in the panic. `git diff
-  --check` passed. This has not been built or booted yet.
+  --check` and Apple Clang `-fsyntax-only` passed. The local single-object make
+  failed because this extracted CI buildtree calls the unavailable
+  `/SETUP/replacecontents/replacecontents` and has CI-only include paths; no
+  kernel was linked.
+- Local commit `2415a92` contains the adjustment and this handoff. `git push
+  origin main` returned HTTP 403 (`Permission ... denied to erdinc11`), so no
+  CI run started and the change is not on GitHub. Do not retry the same push;
+  it needs repository write access or a maintainer to push the commit.
 
-**Next:** build the adjusted XNU kernel, package it with the same 0069 ADT and
-watchdog shim, then boot it once host USB enumerates. Check for the
-`SweetPlatformExpert` start message and confirm the platform panic is gone
-before proceeding to mount/userspace/GPU validation. Preserve the other
-uncommitted shim/tool changes in the working tree.
+**Next:** after repository write access is available, push commit `2415a92` and
+build the adjusted XNU kernel; package it with the same 0069 ADT and watchdog
+shim, then update `../auto-boot.sh` to the new image before letting the phone
+retry. Check for the `SweetPlatformExpert` start message and confirm the
+platform panic is gone before proceeding to mount/userspace/GPU validation.
+Preserve the other uncommitted shim/tool changes in the working tree.
 
 ## Agent handoff / active work (2026-11-18, latest)
 
