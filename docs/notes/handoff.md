@@ -1,48 +1,44 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
-### >>> HANDOFF 2026-11-20: D22AP platform match / watchdog reset <<<
+### >>> HANDOFF 2026-11-20: root volume layout / automatic recovery <<<
 
-**Active goal:** continue the boot bring-up toward the iOS UI/GPU workflow described below.
+**Active goal:** boot iOS on the Redmi Note 10 Pro and reach GPU-rendered UI.
 
-- The watchdog-enabled image `skyios-shim/out/shim-ci-0069adt-wd.img` was sent by
-  `../auto-boot.sh` at 22:54:55 and 22:56:26. Both `fastboot boot` commands
-  returned OK, but the live phone screen showed XNU panic:
-  `Unable to find driver for this platform: "D22AP"`
-  (`IOPlatformExpert.cpp:2319`).
-- The CPU1 watchdog later reset the phone into TWRP; the latest camera frame
-  showed TWRP. USB recovered later: at 23:03:36 `auto-boot.sh` detected ADB,
-  switched to bootloader, and successfully booted the **same old image** again.
-  At 23:06:13 the camera showed the same D22AP panic. The automatic loop works,
-  but currently repeats the known-bad image until it is replaced. At the
-  23:07:16 cycle it booted the same old image once more. I temporarily stopped
-  the poller, then restarted it at 23:08:54 to preserve the active requirement
-  that the phone always has an automatic boot path. It is running and still
-  points to the old image. No partition was flashed.
-- The ADT extracted from `payload-ci-0069adt.bin` has root compatible values
-  `D22AP`, `iPhone10,3`, `xiaomi,sweet`, `qcom,sm7150`, and `AppleARM`. The CI
-  kernel contains `SweetPlatformExpert` and its static personality; however,
-  runtime still selected `IOPanicPlatform`.
-- **Unverified source adjustment:** changed the platform personality's
-  `IONameMatch` in `xnu/patches/0016-sweet-device-tree-platform-expert.patch`
-  from `xiaomi,sweet` to `D22AP`, matching the name in the panic. `git diff
-  --check` and Apple Clang `-fsyntax-only` passed. The local single-object make
-  failed because this extracted CI buildtree calls the unavailable
-  `/SETUP/replacecontents/replacecontents` and has CI-only include paths; no
-  kernel was linked.
-- Local commit `2415a92` contains the adjustment. Pushing to upstream `main`
-  returned HTTP 403 (`Permission ... denied to erdinc11`). A writable existing
-  fork was available: commits are on branch `codex/d22ap-platform-match` in
-  `erdinc11/skyios`. CI run `44808833567` (commit `0b8a2d0`) is in progress;
-  setup, dependency install, and Rust kernel-library build passed, and XNU is
-  compiling.
+- `auto-boot.sh` repeatedly boots `skyios/skyios-shim/out/shim-ci-0069adt-wd.img`;
+  the CPU1 watchdog returns failed boots to TWRP. The phone's display still
+  shows a D22AP panic screen, but the persistent ring pulled from TWRP at
+  23:18:40 has later runtime output: `SweetPlatformExpert` started and
+  registered, 6/6 CPUs came alive, and UFS mounted `userdata` read-write.
+  Treat the old panic display as possibly stale; runtime evidence shows at
+  least one boot passed platform setup.
+- That log then failed root mount repeatedly with
+  `hfs_ValidateHFSPlusVolumeHeader: unknown Volume Signature : 504d`.
+  `ios16-root.img` and `ios16-root.simg` contain an Apple Partition Map at
+  block 2; the HFS+ partition starts at block 64 (HFS+ header at file offset
+  `0x8400`). The kernel mounts the whole `userdata` block device directly and
+  reads `PM` at offset `0x400`, so this is the current concrete root blocker.
+- Verified `ios16-bare.img` is the APM-free HFS+J volume (header `H+` at
+  `0x400`), size 17,179,836,416 bytes. A read-only macOS mount confirmed the
+  volume is `iOSRoot` and contains `/sbin/launchd`, `/System/Library`, and
+  `/Applications`.
+- TWRP ADB identifies the target as `/dev/block/sda34`, 114,970,046,464 bytes;
+  the root image fits. `auto-boot.sh` now pulls the recovery log, writes
+  `ios16-bare.img` to userdata via the existing `dd-root.sh` helper when in
+  TWRP, reads back the first 4 KiB and compares it, records a marker after
+  success, then continues to boot the kernel. The updated poller is running;
+  at the 23:25:58 check ADB was in recovery and the next poll should perform
+  this one-time write. No partition has been flashed yet.
+- The local D22AP `IONameMatch` source adjustment is committed on the
+  `codex/d22ap-platform-match` fork branch, but it is not the current blocker.
+  CI run `44808833567` failed in `bsd_init.c:532` because `sweet_note` is
+  undeclared; no kernel artifact was produced. The existing 0069 kernel is
+  sufficient to test the raw HFS+ root next.
 
-**Next:** finish CI run `44808833567`. If successful, download its XNU artifact,
-package it with the extracted 0069 ADT and current watchdog shim, then atomically
-replace `skyios-shim/out/shim-ci-0069adt-wd.img` so the running poller boots the
-new kernel automatically. Check for the `SweetPlatformExpert` start message
-and confirm the platform panic is gone before proceeding to mount/userspace/GPU
-validation. Preserve the other uncommitted shim/tool changes in the working
-tree.
+**Next:** let the active poller write and verify the APM-free root from TWRP,
+then boot the existing watchdog image and read the new ring. Confirm that HFS+
+mounts and launchd starts; fix the next observed issue, then enable the GPU
+boot args and continue toward the rendered UI. Preserve the other uncommitted
+shim/tool changes in the working tree.
 
 ## Agent handoff / active work (2026-11-18, latest)
 
