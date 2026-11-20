@@ -92,7 +92,7 @@ index 2b14eda8f..e58bad1d7 100644
 +    "   {"
 +    "     'IOClass'         = SweetPlatformExpert;"
 +    "     'IOProviderClass' = IOPlatformExpertDevice;"
-+    "     'IONameMatch'     = 'xiaomi,sweet';"
++    "     'IONameMatch'     = 'D22AP';"
 +    "     'IOProbeScore'    = 10000:32;"
 +    "   },"
 +#endif

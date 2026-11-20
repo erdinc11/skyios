@@ -1,5 +1,33 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> HANDOFF 2026-11-20: D22AP platform match / watchdog reset <<<
+
+**Active goal:** continue the boot bring-up toward the iOS UI/GPU workflow described below.
+
+- The watchdog-enabled image `skyios-shim/out/shim-ci-0069adt-wd.img` was sent by
+  `../auto-boot.sh` at 22:54:55 and 22:56:26. Both `fastboot boot` commands
+  returned OK, but the live phone screen showed XNU panic:
+  `Unable to find driver for this platform: "D22AP"`
+  (`IOPlatformExpert.cpp:2319`).
+- The CPU1 watchdog later reset the phone into TWRP; the latest camera frame
+  showed TWRP. At the last host check both `adb devices` and `fastboot devices`
+  were empty, so `auto-boot.sh` was waiting and could not start another boot.
+  No partition was flashed.
+- The ADT extracted from `payload-ci-0069adt.bin` has root compatible values
+  `D22AP`, `iPhone10,3`, `xiaomi,sweet`, `qcom,sm7150`, and `AppleARM`. The CI
+  kernel contains `SweetPlatformExpert` and its static personality; however,
+  runtime still selected `IOPanicPlatform`.
+- **Unverified source adjustment:** changed the platform personality's
+  `IONameMatch` in `xnu/patches/0016-sweet-device-tree-platform-expert.patch`
+  from `xiaomi,sweet` to `D22AP`, matching the name in the panic. `git diff
+  --check` passed. This has not been built or booted yet.
+
+**Next:** build the adjusted XNU kernel, package it with the same 0069 ADT and
+watchdog shim, then boot it once host USB enumerates. Check for the
+`SweetPlatformExpert` start message and confirm the platform panic is gone
+before proceeding to mount/userspace/GPU validation. Preserve the other
+uncommitted shim/tool changes in the working tree.
+
 ## Agent handoff / active work (2026-11-18, latest)
 
 ### >>> HANDOFF 2026-11-18 (session 11): SMMU stall-on-fault fix, probe49 built <<<
