@@ -1,0 +1,258 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+index 6dad100..1d91064 100644
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -70,10 +70,10 @@ sweet_early_putc(char c)
+ 	early_col++;
+ }
+ 
+-#define CHECKPOINT_X (EARLY_WIDTH - 80u - 120u)
+-#define CHECKPOINT_Y 96u
+-#define CHECKPOINT_BOX_W 120u
+-#define CHECKPOINT_BOX_H 112u
++#define CHECKPOINT_X SWEET_CP_X
++#define CHECKPOINT_Y SWEET_CP_Y
++#define CHECKPOINT_BOX_W SWEET_CP_W
++#define CHECKPOINT_BOX_H SWEET_CP_H
+ #define CHECKPOINT_SCALE 6u
+ #define CHECKPOINT_RED 0xffff2020u
+ #define CHECKPOINT_BLACK 0xff000000u
+@@ -81,7 +81,7 @@ sweet_early_putc(char c)
+ static void
+ sweet_early_draw_checkpoint_digit(unsigned int digit, unsigned int x)
+ {
+-	const unsigned char *glyph = iso_font + (digit % 10u) * 16u;
++	const unsigned char *glyph = iso_font + ('0' + digit % 10u) * 16u;
+ 	for (unsigned int gy = 0; gy < 16; gy++) {
+ 		for (unsigned int sy = 0; sy < CHECKPOINT_SCALE; sy++) {
+ 			volatile uint32_t *line = EARLY_FB +
+@@ -111,6 +111,18 @@ sweet_early_draw_checkpoint(unsigned int stage)
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+ 
++static unsigned int checkpoint_stage_last;
++static unsigned int checkpoint_active;
++
++void
++sweet_early_checkpoint_repaint(void)
++{
++	if (!checkpoint_active) {
++		return;
++	}
++	sweet_early_draw_checkpoint(checkpoint_stage_last);
++}
++
+ static void
+ sweet_early_string(const char *s)
+ {
+@@ -125,6 +137,8 @@ sweet_early_mark(unsigned int stage, const char *label)
+ 	if (stage > 99u) {
+ 		return;
+ 	}
++	checkpoint_stage_last = stage;
++	checkpoint_active = 1;
+ 	sweet_early_draw_checkpoint(stage);
+ 	if (stage <= 20u) {
+ 		uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
+diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
+index 3cce66c..b52855f 100644
+--- a/osfmk/arm64/sweet_early.h
++++ b/osfmk/arm64/sweet_early.h
+@@ -6,7 +6,14 @@
+ #include <stdint.h>
+ 
+ #if defined(SWEET)
++/* Fixed on-panel checkpoint marker rectangle in panel pixels. The fbcon
++ * console leaves this area untouched so the last checkpoint stays visible. */
++#define SWEET_CP_X 880u
++#define SWEET_CP_Y 96u
++#define SWEET_CP_W 120u
++#define SWEET_CP_H 112u
+ void sweet_early_mark(unsigned int stage, const char *label);
++void sweet_early_checkpoint_repaint(void);
+ void sweet_early_putc(char c);
+ void sweet_early_panic(const char *fmt, va_list *args);
+ void sweet_early_relocate(uint64_t base);
+@@ -18,6 +25,7 @@ static inline void sweet_early_mark(unsigned int stage, const char *label)
+ 	(void)label;
+ }
+ static inline void sweet_early_disable(void) {}
++static inline void sweet_early_checkpoint_repaint(void) {}
+ #endif
+ 
+ #endif
+diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
+index bec97fb..f7c1ea4 100644
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -91,6 +91,7 @@
+ #include <kern/sfi.h>
+ #endif
+ #include <kern/startup.h>
++#include <arm64/sweet_early.h>
+ #include <kern/task.h>
+ #include <kern/thread.h>
+ #include <kern/timer.h>
+@@ -448,6 +449,7 @@ kernel_bootstrap(void)
+ 	atm_init();
+ #endif
+ 	kernel_startup_initialize_upto(STARTUP_SUB_OSLOG);
++	sweet_early_mark(46, "OSLOG startup done");
+ 
+ #if CONFIG_UBSAN_MINIMAL
+ 	kernel_bootstrap_log("UBSan minimal runtime init");
+@@ -462,6 +464,7 @@ kernel_bootstrap(void)
+ #if CONFIG_TELEMETRY
+ 	kernel_bootstrap_log("telemetry_init");
+ 	telemetry_init();
++	sweet_early_mark(47, "telemetry_init done");
+ #endif
+ 
+ 	if (PE_i_can_has_debugger(NULL)) {
+@@ -476,19 +479,24 @@ kernel_bootstrap(void)
+ 
+ 	kernel_bootstrap_log("console_init");
+ 	console_init();
++	sweet_early_mark(48, "console_init done");
+ 
+ 	kernel_bootstrap_log("stackshot_init");
+ 	stackshot_init();
++	sweet_early_mark(49, "stackshot_init done");
+ 
+ 	kernel_bootstrap_log("sched_init");
+ 	sched_init();
++	sweet_early_mark(50, "sched_init done");
+ 
+ #if CONFIG_MACF
+ 	kernel_bootstrap_log("mac_policy_init");
+ 	mac_policy_init();
++	sweet_early_mark(51, "mac_policy_init done");
+ #endif
+ 
+ 	kernel_startup_initialize_upto(STARTUP_SUB_MACH_IPC);
++	sweet_early_mark(52, "MACH_IPC startup done");
+ 
+ 	/*
+ 	 * As soon as the virtual memory system is up, we record
+@@ -593,6 +601,7 @@ static void
+ kernel_bootstrap_thread(void)
+ {
+ 	processor_t processor = current_processor();
++	sweet_early_mark(53, "bootstrap thread entered");
+ 
+ #if (DEVELOPMENT || DEBUG)
+ 	platform_stall_panic_or_spin(PLATFORM_STALL_XNU_LOCATION_KERNEL_BOOTSTRAP);
+@@ -612,12 +621,14 @@ kernel_bootstrap_thread(void)
+ 	 */
+ 	kernel_bootstrap_thread_log("sched_startup");
+ 	sched_startup();
++	sweet_early_mark(54, "sched_startup done");
+ 
+ 	/*
+ 	 * Thread lifecycle maintenance (teardown, stack allocation)
+ 	 */
+ 	kernel_bootstrap_thread_log("thread_daemon_init");
+ 	thread_daemon_init();
++	sweet_early_mark(55, "thread_daemon_init done");
+ 
+ 	/*
+ 	 * Thread callout service.
+@@ -707,12 +718,14 @@ kernel_bootstrap_thread(void)
+ 	 * This will start displaying progress to the user, start as early as possible
+ 	 */
+ 	initialize_screen(NULL, kPEAcquireScreen);
++	sweet_early_mark(56, "initialize_screen done");
+ 
+ 	/*
+ 	 *	Initialize the shared region module.
+ 	 */
+ 	vm_commpage_init();
+ 	vm_commpage_text_init();
++	sweet_early_mark(57, "vm_commpage init done");
+ 
+ #if CONFIG_MACF
+ 	kernel_bootstrap_log("mac_policy_initmach");
+@@ -722,6 +735,7 @@ kernel_bootstrap_thread(void)
+ 	vnguard_policy_init();
+ #endif
+ #endif
++	sweet_early_mark(58, "vnguard policy init done");
+ 
+ #if CONFIG_DTRACE
+ 	kernel_bootstrap_log("dtrace_early_init");
+@@ -742,9 +756,11 @@ kernel_bootstrap_thread(void)
+ 
+ 	/* Load the static and engineering trust caches */
+ 	load_static_trust_cache();
++	sweet_early_mark(59, "trust cache init done");
+ #endif
+ 
+ 	kernel_startup_initialize_upto(STARTUP_SUB_LOCKDOWN);
++	sweet_early_mark(60, "LOCKDOWN startup done");
+ 
+ 	/*
+ 	 * Get rid of segments used to bootstrap kext loading. This removes
+@@ -758,6 +774,7 @@ kernel_bootstrap_thread(void)
+ 	/* No changes to kernel text and rodata beyond this point. */
+ 	kernel_bootstrap_log("machine_lockdown");
+ 	machine_lockdown();
++	sweet_early_mark(61, "machine_lockdown done");
+ 
+ #ifdef CONFIG_XNUPOST
+ 	kern_return_t result = kernel_list_tests();
+@@ -780,13 +797,16 @@ kernel_bootstrap_thread(void)
+ 
+ 
+ #if KPERF
++	sweet_early_mark(62, "kperf_init_early entering");
+ 	kperf_init_early();
++	sweet_early_mark(63, "kperf_init_early done (max cpus set)");
+ #endif
+ 
+ 	/*
+ 	 *	Start the user bootstrap.
+ 	 */
+ #ifdef  MACH_BSD
++	sweet_early_mark(64, "bsd_init entering");
+ 	bsd_init();
+ #endif
+ 
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index 5628c33..975ef17 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -714,6 +714,12 @@ fbcon_clear_row(uint32_t row)
+ 	for (uint32_t y = row * 16 * FBCON_SCALE; y < (row + 1) * 16 * FBCON_SCALE; y++) {
+ 		volatile uint32_t *line = fbcon_base + y * (fbcon_stride / 4);
+ 		for (uint32_t x = 0; x < fbcon_width; x++) {
++#if defined(SWEET)
++			if (y >= SWEET_CP_Y && y < SWEET_CP_Y + SWEET_CP_H &&
++			    x >= SWEET_CP_X && x < SWEET_CP_X + SWEET_CP_W) {
++				continue;
++			}
++#endif
+ 			line[x] = FBCON_BG;
+ 		}
+ 	}
+@@ -737,6 +743,7 @@ fbcon_init(void)
+ 	for (uint32_t r = 0; r < fbcon_rows; r++) {
+ 		fbcon_clear_row(r);
+ 	}
++	sweet_early_checkpoint_repaint();
+ }
+ 
+ static unsigned int
+@@ -761,6 +768,13 @@ fbcon_transmit_data(uint8_t c)
+ 	}
+ 	const unsigned char *glyph = iso_font + c * 16;
+ 	uint32_t x0 = fbcon_col * 8 * FBCON_SCALE, y0 = fbcon_row * 16 * FBCON_SCALE;
++#if defined(SWEET)
++	if (y0 < SWEET_CP_Y + SWEET_CP_H && y0 + 16 * FBCON_SCALE > SWEET_CP_Y &&
++	    x0 < SWEET_CP_X + SWEET_CP_W && x0 + 8 * FBCON_SCALE > SWEET_CP_X) {
++		fbcon_col++;
++		return;
++	}
++#endif
+ 	for (uint32_t gy = 0; gy < 16; gy++) {
+ 		for (uint32_t sy = 0; sy < FBCON_SCALE; sy++) {
+ 			volatile uint32_t *line = fbcon_base + (y0 + gy * FBCON_SCALE + sy) * (fbcon_stride / 4) + x0;

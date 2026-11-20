@@ -30,5 +30,33 @@ IDs are stable boundaries, not percentages. IDs 1–20 are the early XNU markers
 | 24 | `bsd_init`, failed return from `vfs_mountroot` | root mount returned an error | exact filesystem root cause | 22 retry; storage/filesystem |
 | 25 | `bsd_init`, immediately before `bsd_utaskbootstrap` | user-task bootstrap is next | launchd reached `main` | 26; root mount |
 | 26 | `bsd/kern/kern_exit.c`, accepted PID 1 write to `kern.initproc_spawned` | launchd reached `main` | SpringBoard or GPU acceleration | future userspace IDs; sysctl path |
+| 46 | `osfmk/kern/startup.c`, after `kernel_startup_initialize_upto(STARTUP_SUB_OSLOG)` | all OSLOG-rank startup entries returned | telemetry, console, scheduler | 47; kernel_bootstrap |
+| 47 | `startup.c`, after `telemetry_init()` | telemetry init returned | console initialization | 48; kprintf |
+| 48 | `startup.c`, after `console_init()` | console init returned | framebuffer ownership by video driver | 49; stackshot |
+| 49 | `startup.c`, after `stackshot_init()` | stackshot init returned | scheduler | 50 |
+| 50 | `startup.c`, after `sched_init()` | scheduler init returned | MAC policy | 51 |
+| 51 | `startup.c`, after `mac_policy_init()` | MAC policy init returned | MACH IPC startup | 52 |
+| 52 | `startup.c`, after `kernel_startup_initialize_upto(STARTUP_SUB_MACH_IPC)` | MACH IPC-rank startup returned | kernel bootstrap thread | 53 |
+| 53 | `startup.c`, `kernel_bootstrap_thread` entry | bootstrap thread is running on CPU0 | scheduler startup | 54 |
+| 54 | `startup.c`, after `sched_startup()` | scheduler services started | thread daemon | 55 |
+| 55 | `startup.c`, after `thread_daemon_init()` | thread daemon ready | thread calls | 56 |
+| 56 | `startup.c`, after `initialize_screen(NULL, kPEAcquireScreen)` | screen acquisition path returned | display driver ownership | 57; video |
+| 57 | `startup.c`, after `vm_commpage_init/commpage_text_init` | commpages initialized | MAC mach policy | 58 |
+| 58 | `startup.c`, after `mac_policy_initmach`/`vnguard_policy_init` | vnguard policy initialized | trust cache | 59 |
+| 59 | `startup.c`, after `load_static_trust_cache()` | trust cache startup returned | lockdown ranks | 60 |
+| 60 | `startup.c`, after `kernel_startup_initialize_upto(STARTUP_SUB_LOCKDOWN)` | lockdown-rank startup returned | machine lockdown | 61 |
+| 61 | `startup.c`, after `machine_lockdown()` | text/rodata lockdown returned | max CPU nail-down | 62 |
+| 62 | `startup.c`, immediately before `kperf_init_early()` | kperf max-CPU wait is next | CPU registration | 63 or stall |
+| 63 | `startup.c`, after `kperf_init_early()` | `ml_wait_max_cpus` returned; all processors accounted for | bsd_init | 64 |
+| 64 | `startup.c`, immediately before `bsd_init()` | BSD init is next | checkpoints 21–26 | 21 |
 
-IDs 27+ are reserved for fine-grained UFS/HFS, display, and GPU stages. Add a registry row before assigning each ID; never reuse an ID.
+IDs 27–45 remain reserved for fine-grained UFS/HFS, display, and GPU stages. Add a registry row before assigning each ID; never reuse an ID.
+
+## Visible marker design (patch 0116)
+
+- The marker is a 120×112 px box at panel (880, 96), two `iso_font` digits at 6× scale, red `0xffff2020` on black.
+- `sweet_early_mark()` records the last stage and repaints the box even after the early console is disabled.
+- The framebuffer console (`pexpert/arm/pe_serial.c`) never clears or draws pixels inside the marker rectangle, so console scrolling cannot erase the current checkpoint. `fbcon_init()` repaints it after clearing the screen.
+- Marker drawing is independent of the Adreno/GPU and of the iOS compositor; it uses the mapped raw framebuffer only.
+- Arrival at an ID proves only that the named boundary was reached. It does not prove the next boundary, nor that a subsystem is functional.
+
