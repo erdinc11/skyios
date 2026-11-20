@@ -55,13 +55,16 @@ index 6dad100..1d91064 100644
  	if (stage <= 20u) {
  		uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
 diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
-index 3cce66c..b52855f 100644
+index 3cce66c..5c61d2c 100644
 --- a/osfmk/arm64/sweet_early.h
 +++ b/osfmk/arm64/sweet_early.h
-@@ -6,7 +6,14 @@
+@@ -6,11 +6,24 @@
  #include <stdint.h>
  
  #if defined(SWEET)
++#ifdef __cplusplus
++extern "C" {
++#endif
 +/* Fixed on-panel checkpoint marker rectangle in panel pixels. The fbcon
 + * console leaves this area untouched so the last checkpoint stays visible. */
 +#define SWEET_CP_X 880u
@@ -73,7 +76,14 @@ index 3cce66c..b52855f 100644
  void sweet_early_putc(char c);
  void sweet_early_panic(const char *fmt, va_list *args);
  void sweet_early_relocate(uint64_t base);
-@@ -18,6 +25,7 @@ static inline void sweet_early_mark(unsigned int stage, const char *label)
+ void sweet_early_disable(void);
++#ifdef __cplusplus
++}
++#endif
+ #else
+ static inline void sweet_early_mark(unsigned int stage, const char *label)
+ {
+@@ -18,6 +31,7 @@ static inline void sweet_early_mark(unsigned int stage, const char *label)
  	(void)label;
  }
  static inline void sweet_early_disable(void) {}
