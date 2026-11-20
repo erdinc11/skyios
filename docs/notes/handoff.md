@@ -14,8 +14,9 @@
   switched to bootloader, and successfully booted the **same old image** again.
   At 23:06:13 the camera showed the same D22AP panic. The automatic loop works,
   but currently repeats the known-bad image until its path is updated. At the
-  last host check both `adb devices` and `fastboot devices` were empty. No
-  partition was flashed.
+  23:07:16 cycle it booted the same old image once more. I stopped the poller
+  after that attempt so it will not repeat the known failure; the phone is
+  expected to return to TWRP via watchdog. No partition was flashed.
 - The ADT extracted from `payload-ci-0069adt.bin` has root compatible values
   `D22AP`, `iPhone10,3`, `xiaomi,sweet`, `qcom,sm7150`, and `AppleARM`. The CI
   kernel contains `SweetPlatformExpert` and its static personality; however,
@@ -34,8 +35,8 @@
 
 **Next:** after repository write access is available, push commit `2415a92` and
 build the adjusted XNU kernel; package it with the same 0069 ADT and watchdog
-shim, then update `../auto-boot.sh` to the new image before letting the phone
-retry. Check for the `SweetPlatformExpert` start message and confirm the
+shim. Update `../auto-boot.sh` to the new image and restart the poller for the
+next boot. Check for the `SweetPlatformExpert` start message and confirm the
 platform panic is gone before proceeding to mount/userspace/GPU validation.
 Preserve the other uncommitted shim/tool changes in the working tree.
 
