@@ -13,10 +13,11 @@
   showed TWRP. USB recovered later: at 23:03:36 `auto-boot.sh` detected ADB,
   switched to bootloader, and successfully booted the **same old image** again.
   At 23:06:13 the camera showed the same D22AP panic. The automatic loop works,
-  but currently repeats the known-bad image until its path is updated. At the
-  23:07:16 cycle it booted the same old image once more. I stopped the poller
-  after that attempt so it will not repeat the known failure; the phone is
-  expected to return to TWRP via watchdog. No partition was flashed.
+  but currently repeats the known-bad image until it is replaced. At the
+  23:07:16 cycle it booted the same old image once more. I temporarily stopped
+  the poller, then restarted it at 23:08:54 to preserve the active requirement
+  that the phone always has an automatic boot path. It is running and still
+  points to the old image. No partition was flashed.
 - The ADT extracted from `payload-ci-0069adt.bin` has root compatible values
   `D22AP`, `iPhone10,3`, `xiaomi,sweet`, `qcom,sm7150`, and `AppleARM`. The CI
   kernel contains `SweetPlatformExpert` and its static personality; however,
@@ -28,17 +29,20 @@
   failed because this extracted CI buildtree calls the unavailable
   `/SETUP/replacecontents/replacecontents` and has CI-only include paths; no
   kernel was linked.
-- Local commit `2415a92` contains the adjustment and this handoff. `git push
-  origin main` returned HTTP 403 (`Permission ... denied to erdinc11`), so no
-  CI run started and the change is not on GitHub. Do not retry the same push;
-  it needs repository write access or a maintainer to push the commit.
+- Local commit `2415a92` contains the adjustment. Pushing to upstream `main`
+  returned HTTP 403 (`Permission ... denied to erdinc11`). A writable existing
+  fork was available: commits are on branch `codex/d22ap-platform-match` in
+  `erdinc11/skyios`. CI run `44808833567` (commit `0b8a2d0`) is in progress;
+  setup, dependency install, and Rust kernel-library build passed, and XNU is
+  compiling.
 
-**Next:** after repository write access is available, push commit `2415a92` and
-build the adjusted XNU kernel; package it with the same 0069 ADT and watchdog
-shim. Update `../auto-boot.sh` to the new image and restart the poller for the
-next boot. Check for the `SweetPlatformExpert` start message and confirm the
-platform panic is gone before proceeding to mount/userspace/GPU validation.
-Preserve the other uncommitted shim/tool changes in the working tree.
+**Next:** finish CI run `44808833567`. If successful, download its XNU artifact,
+package it with the extracted 0069 ADT and current watchdog shim, then atomically
+replace `skyios-shim/out/shim-ci-0069adt-wd.img` so the running poller boots the
+new kernel automatically. Check for the `SweetPlatformExpert` start message
+and confirm the platform panic is gone before proceeding to mount/userspace/GPU
+validation. Preserve the other uncommitted shim/tool changes in the working
+tree.
 
 ## Agent handoff / active work (2026-11-18, latest)
 
