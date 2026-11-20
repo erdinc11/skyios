@@ -1,0 +1,154 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 1c81a85..1316b92 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -94,6 +94,7 @@
+ #include <sys/systm.h>
+ #include <sys/mman.h>
+ #include <sys/kasl.h>
++#include <arm64/sweet_early.h>
+ 
+ #include <security/audit/audit.h>
+ 
+@@ -764,6 +765,8 @@ bsd_init(void)
+ 	boolean_t       netboot = FALSE;
+ #endif
+ 
++	sweet_early_mark(21, "bsd_init entered");
++
+ #if (DEVELOPMENT || DEBUG)
+ 	platform_stall_panic_or_spin(PLATFORM_STALL_XNU_LOCATION_BSD_INIT);
+ #endif
+@@ -1155,9 +1158,12 @@ bsd_init(void)
+ #endif
+ 
+ 		bsd_init_kprintf("vfs_mountroot\n");
++		sweet_early_mark(22, "root mount attempt");
+ 		if (0 == (err = vfs_mountroot())) {
++			sweet_early_mark(23, "root mount succeeded");
+ 			break;
+ 		}
++		sweet_early_mark(24, "root mount failed");
+ 		rootdevice[0] = '\0';
+ #if CONFIG_NETBOOT
+ 		if (netboot) {
+@@ -1324,6 +1330,7 @@ bsd_init(void)
+ 	siginit(kernproc);
+ 
+ 	bsd_init_kprintf("calling bsd_utaskbootstrap\n");
++	sweet_early_mark(25, "BSD user task bootstrap");
+ 	bsd_utaskbootstrap();
+ 
+ 	pal_kernel_announce();
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+index ec0f9cb..f6d6e2c 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -78,6 +78,7 @@
+ 
+ #include <sys/param.h>
+ #include <sys/systm.h>
++#include <arm64/sweet_early.h>
+ #include <sys/ioctl.h>
+ #include <sys/proc_internal.h>
+ #include <sys/proc.h>
+@@ -1312,6 +1313,9 @@ sysctl_initproc_spawned(struct sysctl_oid *oidp, __unused void *arg1, __unused i
+ 		// Can only ever be set by launchd, and only once at boot
+ 		return EPERM;
+ 	}
++	if (req->newptr != 0) {
++		sweet_early_mark(26, "launchd reached main");
++	}
+ 	return sysctl_handle_int(oidp, &initproc_spawned, 0, req);
+ }
+ 
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+index 9ed849b..6dad100 100644
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -70,6 +70,47 @@ sweet_early_putc(char c)
+ 	early_col++;
+ }
+ 
++#define CHECKPOINT_X (EARLY_WIDTH - 80u - 120u)
++#define CHECKPOINT_Y 96u
++#define CHECKPOINT_BOX_W 120u
++#define CHECKPOINT_BOX_H 112u
++#define CHECKPOINT_SCALE 6u
++#define CHECKPOINT_RED 0xffff2020u
++#define CHECKPOINT_BLACK 0xff000000u
++
++static void
++sweet_early_draw_checkpoint_digit(unsigned int digit, unsigned int x)
++{
++	const unsigned char *glyph = iso_font + (digit % 10u) * 16u;
++	for (unsigned int gy = 0; gy < 16; gy++) {
++		for (unsigned int sy = 0; sy < CHECKPOINT_SCALE; sy++) {
++			volatile uint32_t *line = EARLY_FB +
++			    (CHECKPOINT_Y + gy * CHECKPOINT_SCALE + sy) * EARLY_STRIDE + x;
++			for (unsigned int gx = 0; gx < 8; gx++) {
++				uint32_t color = (glyph[gy] & (1u << gx)) ? CHECKPOINT_RED : CHECKPOINT_BLACK;
++				for (unsigned int sx = 0; sx < CHECKPOINT_SCALE; sx++) {
++					line[gx * CHECKPOINT_SCALE + sx] = color;
++				}
++			}
++		}
++	}
++}
++
++static void
++sweet_early_draw_checkpoint(unsigned int stage)
++{
++	unsigned int x = CHECKPOINT_X + 8u;
++	for (unsigned int y = 0; y < CHECKPOINT_BOX_H; y++) {
++		volatile uint32_t *line = EARLY_FB + (CHECKPOINT_Y + y) * EARLY_STRIDE + CHECKPOINT_X;
++		for (unsigned int i = 0; i < CHECKPOINT_BOX_W; i++) {
++			line[i] = CHECKPOINT_BLACK;
++		}
++	}
++	sweet_early_draw_checkpoint_digit(stage / 10u, x);
++	sweet_early_draw_checkpoint_digit(stage % 10u, x + 56u);
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
+ static void
+ sweet_early_string(const char *s)
+ {
+@@ -81,21 +122,29 @@ sweet_early_string(const char *s)
+ void
+ sweet_early_mark(unsigned int stage, const char *label)
+ {
+-	if (early_disabled || stage > 20) {
++	if (stage > 99u) {
+ 		return;
+ 	}
+-	uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
+-	for (unsigned int y = EARLY_HEIGHT - 32; y < EARLY_HEIGHT; y++) {
+-		for (unsigned int x = stage * 48; x < (stage + 1) * 48; x++) {
+-			EARLY_FB[y * EARLY_STRIDE + x] = color;
++	sweet_early_draw_checkpoint(stage);
++	if (stage <= 20u) {
++		uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
++		for (unsigned int y = EARLY_HEIGHT - 32; y < EARLY_HEIGHT; y++) {
++			for (unsigned int x = stage * 48; x < (stage + 1) * 48; x++) {
++				EARLY_FB[y * EARLY_STRIDE + x] = color;
++			}
+ 		}
+ 	}
+ 	__asm__ volatile("dsb sy" ::: "memory");
++	if (early_disabled) {
++		return;
++	}
+ 	sweet_early_string("SWEET EARLY ");
+-	if (stage >= 10) {
+-		sweet_early_putc((char)('0' + stage / 10));
++	if (stage >= 10u) {
++		sweet_early_putc((char)('0' + stage / 10u));
++	} else {
++		sweet_early_putc('0');
+ 	}
+-	sweet_early_putc((char)('0' + stage % 10));
++	sweet_early_putc((char)('0' + stage % 10u));
+ 	sweet_early_string(": ");
+ 	sweet_early_string(label);
+ 	sweet_early_putc('\n');

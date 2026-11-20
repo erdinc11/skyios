@@ -171,7 +171,7 @@ index e58bad1d7..011582b76 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
 @@ -41,6 +41,12 @@ const char * gIOKernelConfigTables =
-     "     'IONameMatch'     = 'xiaomi,sweet';"
+     "     'IONameMatch'     = 'D22AP';"
      "     'IOProbeScore'    = 10000:32;"
      "   },"
 +    "   {"
