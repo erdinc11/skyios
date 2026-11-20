@@ -56,18 +56,3 @@
 +	sweet_note("autobahn %s err %d resid %d; ", on ? "enabled" : "disabled", err, resid);
  }
  #endif
- 
---- a/bsd/dev/sweet_sample.c
-+++ b/bsd/dev/sweet_sample.c
-@@ -118,6 +118,11 @@
- 		uint64_t now = mach_absolute_time(), span = now - last, all = 0;
- 		last = now;
- 		char line[512];
-+		extern char sweet_boot_note[];
-+		if (sweet_boot_note[0]) {
-+			printf("SWEET BOOT NOTE: %s\n", sweet_boot_note);
-+			sweet_boot_note[0] = 0;
-+		}
- 		int len = snprintf(line, sizeof(line), "SWEET TOP %us:", secs);
- 		for (unsigned i = 0; i < sweet_top_ncur; i++) {
- 			all += sweet_top_cur[i].delta;
