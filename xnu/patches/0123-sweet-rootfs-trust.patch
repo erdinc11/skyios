@@ -1,0 +1,15 @@
+diff --git a/bsd/kern/sweet_amfi.c b/bsd/kern/sweet_amfi.c
+index a2e38bf..f4e851a 100644
+--- a/bsd/kern/sweet_amfi.c
++++ b/bsd/kern/sweet_amfi.c
+@@ -219,6 +219,10 @@ sweet_amfi_vnode_check_signature(struct vnode *vp, __unused struct label *label,
+ 	*cs_flags |= CS_SIGNED;
+ 	if (mp != NULL && (vfs_flags(mp) & MNT_ROOTFS)) {
+ 		*cs_flags |= CS_PLATFORM_BINARY;
++		/* The port has no Apple trust cache; the root volume is the
++		 * platform trust root. Do not let an unvalidated page kill a
++		 * rootfs process (launchd died with CS_KILLED otherwise). */
++		*cs_flags &= ~(CS_KILL | CS_HARD | CS_REQUIRE_LV);
+ 	}
+ 	if (cs_blob != cs_blob->csb_ro_addr && cs_blob->csb_entitlements == NULL) {
+ 		sweet_amfi_attach_entitlements(cs_blob);
