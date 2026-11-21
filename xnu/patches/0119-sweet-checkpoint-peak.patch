@@ -1,0 +1,95 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+index 1d91064..94a1f74 100644
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -74,31 +74,40 @@ sweet_early_putc(char c)
+ #define CHECKPOINT_Y SWEET_CP_Y
+ #define CHECKPOINT_BOX_W SWEET_CP_W
+ #define CHECKPOINT_BOX_H SWEET_CP_H
+-#define CHECKPOINT_SCALE 6u
++#define CHECKPOINT_SCALE 5u
++#define CHECKPOINT_DIGIT_W (8u * CHECKPOINT_SCALE)
+ #define CHECKPOINT_RED 0xffff2020u
++#define CHECKPOINT_RED_DIM 0xff9a1818u
+ #define CHECKPOINT_BLACK 0xff000000u
+ 
+ static void
+-sweet_early_draw_checkpoint_digit(unsigned int digit, unsigned int x)
++sweet_early_draw_checkpoint_digit(unsigned int digit, unsigned int x, uint32_t color)
+ {
+ 	const unsigned char *glyph = iso_font + ('0' + digit % 10u) * 16u;
+ 	for (unsigned int gy = 0; gy < 16; gy++) {
+ 		for (unsigned int sy = 0; sy < CHECKPOINT_SCALE; sy++) {
+ 			volatile uint32_t *line = EARLY_FB +
+-			    (CHECKPOINT_Y + gy * CHECKPOINT_SCALE + sy) * EARLY_STRIDE + x;
++			    (CHECKPOINT_Y + 8u + gy * CHECKPOINT_SCALE + sy) * EARLY_STRIDE + x;
+ 			for (unsigned int gx = 0; gx < 8; gx++) {
+-				uint32_t color = (glyph[gy] & (1u << gx)) ? CHECKPOINT_RED : CHECKPOINT_BLACK;
++				uint32_t px = (glyph[gy] & (1u << gx)) ? color : CHECKPOINT_BLACK;
+ 				for (unsigned int sx = 0; sx < CHECKPOINT_SCALE; sx++) {
+-					line[gx * CHECKPOINT_SCALE + sx] = color;
++					line[gx * CHECKPOINT_SCALE + sx] = px;
+ 				}
+ 			}
+ 		}
+ 	}
+ }
+ 
++static unsigned int checkpoint_stage_last;
++static unsigned int checkpoint_stage_max;
++
++/* Two two-digit numbers: left = highest checkpoint reached so far (dim red),
++ * right = most recent checkpoint (bright red). The peak survives later
++ * checkpoints so short-lived diagnostic markers remain observable. */
+ static void
+ sweet_early_draw_checkpoint(unsigned int stage)
+ {
++	unsigned int peak = checkpoint_stage_max > stage ? checkpoint_stage_max : stage;
+ 	unsigned int x = CHECKPOINT_X + 8u;
+ 	for (unsigned int y = 0; y < CHECKPOINT_BOX_H; y++) {
+ 		volatile uint32_t *line = EARLY_FB + (CHECKPOINT_Y + y) * EARLY_STRIDE + CHECKPOINT_X;
+@@ -106,12 +115,13 @@ sweet_early_draw_checkpoint(unsigned int stage)
+ 			line[i] = CHECKPOINT_BLACK;
+ 		}
+ 	}
+-	sweet_early_draw_checkpoint_digit(stage / 10u, x);
+-	sweet_early_draw_checkpoint_digit(stage % 10u, x + 56u);
++	sweet_early_draw_checkpoint_digit(peak / 10u, x, CHECKPOINT_RED_DIM);
++	sweet_early_draw_checkpoint_digit(peak % 10u, x + CHECKPOINT_DIGIT_W + 4u, CHECKPOINT_RED_DIM);
++	sweet_early_draw_checkpoint_digit(stage / 10u, x + 2u * CHECKPOINT_DIGIT_W + 26u, CHECKPOINT_RED);
++	sweet_early_draw_checkpoint_digit(stage % 10u, x + 3u * CHECKPOINT_DIGIT_W + 30u, CHECKPOINT_RED);
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+ 
+-static unsigned int checkpoint_stage_last;
+ static unsigned int checkpoint_active;
+ 
+ void
+@@ -138,6 +148,9 @@ sweet_early_mark(unsigned int stage, const char *label)
+ 		return;
+ 	}
+ 	checkpoint_stage_last = stage;
++	if (stage > checkpoint_stage_max) {
++		checkpoint_stage_max = stage;
++	}
+ 	checkpoint_active = 1;
+ 	sweet_early_draw_checkpoint(stage);
+ 	if (stage <= 20u) {
+diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
+index 5c61d2c..becac17 100644
+--- a/osfmk/arm64/sweet_early.h
++++ b/osfmk/arm64/sweet_early.h
+@@ -11,10 +11,10 @@ extern "C" {
+ #endif
+ /* Fixed on-panel checkpoint marker rectangle in panel pixels. The fbcon
+  * console leaves this area untouched so the last checkpoint stays visible. */
+-#define SWEET_CP_X 880u
++#define SWEET_CP_X 810u
+ #define SWEET_CP_Y 96u
+-#define SWEET_CP_W 120u
+-#define SWEET_CP_H 112u
++#define SWEET_CP_W 190u
++#define SWEET_CP_H 104u
+ void sweet_early_mark(unsigned int stage, const char *label);
+ void sweet_early_checkpoint_repaint(void);
+ void sweet_early_putc(char c);

@@ -52,6 +52,36 @@ IDs are stable boundaries, not percentages. IDs 1–20 are the early XNU markers
 
 IDs 27–45 remain reserved for fine-grained UFS/HFS, display, and GPU stages. Add a registry row before assigning each ID; never reuse an ID.
 
+| 65 | `iokit/Kernel/arm/SweetCPU.cpp`, `SweetCPU::start` entry | the CPU driver was instantiated and matched | provider properties or topology | 66 |
+| 66 | `SweetCPU::start`, `logical-cpu-id` present | the platform expert annotated the CPU nub | `reg` property | 67 |
+| 67 | `SweetCPU::start`, `reg` property valid | nub has a 4-byte `reg` | logical range | 68 |
+| 68 | `SweetCPU::start`, logical id in topology range | topology includes this CPU | phys id match | 69 |
+| 69 | `SweetCPU::start`, nub phys id matches topology | nub and topology agree | `IOCPU::start`/`ml_processor_register` | 86 |
+| 70 | `SweetCPU::start`, startAll thread spawned | boot CPU scheduled the SMP starter | startAll execution | 71 |
+| 71 | `SweetCPU::startAll` entry | starter thread is running | all CPUs registered | 72 |
+| 72 | `startAll`, all CPUs registered | every enabled CPU nub reached `start` | processor start loop | 73 |
+| 73 | `startAll`, every processor started and alive | PSCI/SGI path succeeded for all | max CPU accounting | 74 |
+| 74 | `startAll`, `ml_set_max_cpus` returned | max-CPU accounting was published | kperf wait exit | 63 |
+| 75 | `SweetCPU::start` early return: no `logical-cpu-id` | nub annotation failed | — | investigate `ml_get_cpu_number` vs DT `reg` |
+| 76 | `SweetCPU::start` early return: bad `reg` | nub property shape wrong | — | inspect DT property |
+| 77 | `SweetCPU::start` early return: logical id out of range | nub id not in parsed topology | — | inspect topology count |
+| 78 | `SweetCPU::start` early return: phys id mismatch | nub `reg` != topology phys id | — | inspect DT reg encoding |
+| 81 | `SweetCPU::initCPU` entry | per-CPU init path ran | SGI self-test | 72/73 |
+| 82 | `osfmk/arm/machine_routines_common.c`, `ml_wait_max_cpus` entry | kperf is waiting for max CPUs | max CPUs published | 83 or stall |
+| 83 | `ml_wait_max_cpus` return | wait completed | `kperf_init_early` return | 63 |
+| 84 | `ml_set_max_cpus` entry | publisher reached | flag published | 85 |
+| 85 | `ml_set_max_cpus` completion | `max_cpus_initialized = SET` | wait wakeup | 83 |
+| 86 | `SweetCPU::start`, before `ml_processor_register` | about to register processor | registration result | 87 |
+| 87 | `SweetCPU::start`, after `ml_processor_register` returned success | processor registered | processor_start | 88 |
+| 88 | `startAll`, before `processor_start` | about to start a processor | result | 89 |
+| 89 | `startAll`, after `processor_start` returned success | processor start call succeeded | initCPU/alive | 81/72 |
+
+IDs 90+ are reserved for the remaining `processTopLevel`/nub-creation diagnostics and userland/GPU stages if the above cannot distinguish the failure.
+
+## Two-number marker (patch 0119)
+
+The marker now draws two two-digit numbers side by side: the **left number in dim red is the highest checkpoint ID reached since boot**, the **right number in bright red is the most recent checkpoint**. The peak is retained because early checkpoints are overwritten within milliseconds; without it, a transient diagnostic (for example 74) is invisible once 62 is drawn. The rectangle moved to panel (810, 96), 190x104, digits at 5x scale. The fbcon still never writes inside the rectangle.
+
 ## Visible marker design (patch 0116)
 
 - The marker is a 120×112 px box at panel (880, 96), two `iso_font` digits at 6× scale, red `0xffff2020` on black.
