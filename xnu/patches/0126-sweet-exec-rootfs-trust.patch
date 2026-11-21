@@ -1,0 +1,24 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 6cb9bad..eb563bc 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7449,6 +7449,19 @@ process_signature(proc_t p, struct image_params *imgp)
+ 	 * ones for the process that is being successfully
+ 	 * loaded
+ 	 */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	/* The port trusts its root volume: decrypted iOS binaries are
++	 * adhoc-signed, so treat rootfs executables as signed/valid here.
++	 * This is the documented substitute for the missing trust cache. */
++	if (imgp->ip_vp != NULL) {
++		mount_t exec_mp = vnode_mount(imgp->ip_vp);
++		if (exec_mp != NULL && (vfs_flags(exec_mp) & MNT_ROOTFS)) {
++			imgp->ip_csflags |= CS_SIGNED | CS_VALID;
++			printf("SWEET EXEC: rootfs trusted: %s csflags %#x mach-ret %d cs-err %p\n",
++			    p->p_name, imgp->ip_csflags, imgp->ip_mac_return, imgp->ip_cs_error);
++		}
++	}
++#endif
+ 	proc_lock(p);
+ 	proc_csflags_update(p, imgp->ip_csflags);
+ 	proc_unlock(p);
