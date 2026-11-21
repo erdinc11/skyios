@@ -1,0 +1,209 @@
+diff --git a/iokit/Kernel/IOCatalogue.cpp b/iokit/Kernel/IOCatalogue.cpp
+index 02d05e5..82655dc 100644
+--- a/iokit/Kernel/IOCatalogue.cpp
++++ b/iokit/Kernel/IOCatalogue.cpp
+@@ -42,6 +42,7 @@
+ 
+ extern "C" {
+ #include <libkern/kernel_mach_header.h>
++#include <arm64/sweet_early.h>
+ #include <kern/host.h>
+ #include <security/mac_data.h>
+ };
+@@ -235,6 +236,10 @@ IOCatalogue::findDrivers(
+ 		array = (OSArray *) personalities->getObject(meta->getClassNameSymbol());
+ 		if (array) {
+ 			for (idx = 0; (nextTable = (OSDictionary *) array->getObject(idx)); idx++) {
++				OSString *cls = OSDynamicCast(OSString, nextTable->getObject(gIOClassKey.get()));
++				if (cls && cls->isEqualTo("SweetCPU")) {
++					sweet_early_diag(101);
++				}
+ 				set->setObject(nextTable);
+ 			}
+ 		}
+diff --git a/iokit/Kernel/IOService.cpp b/iokit/Kernel/IOService.cpp
+index a150110..b885057 100644
+--- a/iokit/Kernel/IOService.cpp
++++ b/iokit/Kernel/IOService.cpp
+@@ -27,6 +27,7 @@
+  */
+ 
+ #include <IOKit/system.h>
++#include <arm64/sweet_early.h>
+ #include <IOKit/IOService.h>
+ #include <libkern/OSDebug.h>
+ #include <libkern/c++/OSAllocation.h>
+@@ -3909,9 +3910,21 @@ IOService::probeCandidates( OSOrderedSet * matches )
+ 			props->setCapacityIncrement(1);
+ 
+ 			// check the nub matches
++			{
++				OSString *cp = OSDynamicCast(OSString, match->getObject(gIOClassKey));
++				if (cp && cp->isEqualTo("SweetCPU")) {
++					sweet_early_diag(102);
++				}
++			}
+ 			if (false == matchPassive(props, kIOServiceChangesOK | kIOServiceClassDone)) {
+ 				break;
+ 			}
++			{
++				OSString *cp = OSDynamicCast(OSString, match->getObject(gIOClassKey));
++				if (cp && cp->isEqualTo("SweetCPU")) {
++					sweet_early_diag(103);
++				}
++			}
+ 			if (isReplacementCandidate) {
+ 				if (canTerminateForReplacement(client)) {
+ 					client->terminate(kIOServiceTerminateNeedWillTerminate | kIOServiceTerminateWithRematch);
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 449096d..13a8e27 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -57,6 +57,7 @@ bool
+ SweetCPU::start(IOService *provider)
+ {
+ 	sweet_early_mark(65, "SweetCPU start entered");
++	sweet_early_diag(104);
+ 	const ml_topology_info_t *topology = ml_get_topology_info();
+ 	OSNumber *logical = OSDynamicCast(OSNumber, provider->getProperty("logical-cpu-id"));
+ 	OSData *reg = OSDynamicCast(OSData, provider->getProperty("reg"));
+@@ -82,6 +83,7 @@ SweetCPU::start(IOService *provider)
+ 		return false;
+ 	}
+ 	sweet_early_mark(69, "SweetCPU properties matched");
++	sweet_early_diag(105);
+ 	if (cpu->phys_id > 0x700 || (cpu->phys_id & 0xff) != 0 ||
+ 	    topology->num_cpus > SWEET_SMP_MAX_CPUS) {
+ 		panic("SWEET CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
+@@ -139,6 +141,7 @@ SweetCPU::startAll(void *arg __unused, wait_result_t result __unused)
+ 	IOLog("SWEET CPU: requested=%u selected=%u (limit=%u)\n",
+ 	    requested, topology->num_cpus, SWEET_SMP_MAX_CPUS);
+ 	sweet_early_mark(71, "SweetCPU startAll entered");
++	sweet_early_diag(106);
+ 
+ 	uint64_t deadline;
+ 	nanoseconds_to_deadline(10 * NSEC_PER_SEC, &deadline);
+@@ -182,6 +185,7 @@ SweetCPU::startAll(void *arg __unused, wait_result_t result __unused)
+ 	IOService::publishResource(gIOAllCPUInitializedKey, kOSBooleanTrue);
+ 	ml_set_max_cpus(topology->max_cpu_id + 1);
+ 	sweet_early_mark(74, "SweetCPU max cpus set");
++	sweet_early_diag(107);
+ 	IOLog("SWEET CPU: %u/%u CPUs initialized, SGI1 verified\n",
+ 	    topology->num_cpus, topology->num_cpus);
+ 	thread_terminate(current_thread());
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+index 94a1f74..151c13e 100644
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -123,14 +123,55 @@ sweet_early_draw_checkpoint(unsigned int stage)
+ }
+ 
+ static unsigned int checkpoint_active;
++static unsigned int diag_active;
++static unsigned int diag_stage_last;
++
++static void
++sweet_early_draw_diag(unsigned int id)
++{
++	unsigned int x = SWEET_DIAG_X + 8u;
++	for (unsigned int y = 0; y < SWEET_DIAG_H; y++) {
++		volatile uint32_t *line = EARLY_FB + (SWEET_DIAG_Y + y) * EARLY_STRIDE + SWEET_DIAG_X;
++		for (unsigned int i = 0; i < SWEET_DIAG_W; i++) {
++			line[i] = CHECKPOINT_BLACK;
++		}
++	}
++	for (unsigned int d = 0; d < 3u; d++) {
++		unsigned int digit = (id / (d == 0 ? 100u : (d == 1 ? 10u : 1u))) % 10u;
++		const unsigned char *glyph = iso_font + ('0' + digit) * 16u;
++		for (unsigned int gy = 0; gy < 16; gy++) {
++			for (unsigned int sy = 0; sy < 4u; sy++) {
++				volatile uint32_t *line = EARLY_FB +
++				    (SWEET_DIAG_Y + 6u + gy * 4u + sy) * EARLY_STRIDE + x + d * 36u;
++				for (unsigned int gx = 0; gx < 8; gx++) {
++					uint32_t px = (glyph[gy] & (1u << gx)) ? CHECKPOINT_RED : CHECKPOINT_BLACK;
++					for (unsigned int sx = 0; sx < 4u; sx++) {
++						line[gx * 4u + sx] = px;
++					}
++				}
++			}
++		}
++	}
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++void
++sweet_early_diag(unsigned int id)
++{
++	diag_stage_last = id;
++	diag_active = 1;
++	sweet_early_draw_diag(id);
++}
+ 
+ void
+ sweet_early_checkpoint_repaint(void)
+ {
+-	if (!checkpoint_active) {
+-		return;
++	if (checkpoint_active) {
++		sweet_early_draw_checkpoint(checkpoint_stage_last);
++	}
++	if (diag_active) {
++		sweet_early_draw_diag(diag_stage_last);
+ 	}
+-	sweet_early_draw_checkpoint(checkpoint_stage_last);
+ }
+ 
+ static void
+diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
+index becac17..a8a14f6 100644
+--- a/osfmk/arm64/sweet_early.h
++++ b/osfmk/arm64/sweet_early.h
+@@ -15,8 +15,13 @@ extern "C" {
+ #define SWEET_CP_Y 96u
+ #define SWEET_CP_W 190u
+ #define SWEET_CP_H 104u
++#define SWEET_DIAG_X 810u
++#define SWEET_DIAG_Y 216u
++#define SWEET_DIAG_W 120u
++#define SWEET_DIAG_H 72u
+ void sweet_early_mark(unsigned int stage, const char *label);
+ void sweet_early_checkpoint_repaint(void);
++void sweet_early_diag(unsigned int id);
+ void sweet_early_putc(char c);
+ void sweet_early_panic(const char *fmt, va_list *args);
+ void sweet_early_relocate(uint64_t base);
+@@ -32,6 +37,7 @@ static inline void sweet_early_mark(unsigned int stage, const char *label)
+ }
+ static inline void sweet_early_disable(void) {}
+ static inline void sweet_early_checkpoint_repaint(void) {}
++static inline void sweet_early_diag(unsigned int id) { (void)id; }
+ #endif
+ 
+ #endif
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index 975ef17..f45f642 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -719,6 +719,10 @@ fbcon_clear_row(uint32_t row)
+ 			    x >= SWEET_CP_X && x < SWEET_CP_X + SWEET_CP_W) {
+ 				continue;
+ 			}
++			if (y >= SWEET_DIAG_Y && y < SWEET_DIAG_Y + SWEET_DIAG_H &&
++			    x >= SWEET_DIAG_X && x < SWEET_DIAG_X + SWEET_DIAG_W) {
++				continue;
++			}
+ #endif
+ 			line[x] = FBCON_BG;
+ 		}
+@@ -774,6 +778,11 @@ fbcon_transmit_data(uint8_t c)
+ 		fbcon_col++;
+ 		return;
+ 	}
++	if (y0 < SWEET_DIAG_Y + SWEET_DIAG_H && y0 + 16 * FBCON_SCALE > SWEET_DIAG_Y &&
++	    x0 < SWEET_DIAG_X + SWEET_DIAG_W && x0 + 8 * FBCON_SCALE > SWEET_DIAG_X) {
++		fbcon_col++;
++		return;
++	}
+ #endif
+ 	for (uint32_t gy = 0; gy < 16; gy++) {
+ 		for (uint32_t sy = 0; sy < FBCON_SCALE; sy++) {

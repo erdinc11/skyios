@@ -78,6 +78,21 @@ IDs 27–45 remain reserved for fine-grained UFS/HFS, display, and GPU stages. A
 
 IDs 90+ are reserved for the remaining `processTopLevel`/nub-creation diagnostics and userland/GPU stages if the above cannot distinguish the failure.
 
+## Diagnostic latch (patch 0122)
+
+A second persistent box at panel (810, 216), 120x72, shows **three-digit diagnostic IDs** (101–108), dim/bright red on black. It is independent of the two-number checkpoint ladder, so CPU-matching events are preserved regardless of draw order. The fbcon reserves both rectangles.
+
+| ID | Location | Meaning |
+|---:|---|---|
+| 101 | `iokit/Kernel/IOCatalogue.cpp`, `findDrivers` | a `SweetCPU` personality was present in the candidate array for the provider class |
+| 102 | `iokit/Kernel/IOService.cpp`, `doServiceMatch` | the `SweetCPU` candidate was reached before passive matching |
+| 103 | `doServiceMatch`, after `matchPassive` succeeded | the `SweetCPU` candidate's IOClass/provider/name matching passed |
+| 104 | `SweetCPU::start` entry | the driver's start was invoked |
+| 105 | `SweetCPU::start`, after property checks | nub properties and topology validation passed |
+| 106 | `SweetCPU::startAll` entry | the SMP starter thread ran |
+| 107 | `startAll`, after `ml_set_max_cpus` | max-CPU accounting was published |
+| 108 | reserved | start/registration rejection or timeout |
+
 ## Two-number marker (patch 0119)
 
 The marker now draws two two-digit numbers side by side: the **left number in dim red is the highest checkpoint ID reached since boot**, the **right number in bright red is the most recent checkpoint**. The peak is retained because early checkpoints are overwritten within milliseconds; without it, a transient diagnostic (for example 74) is invisible once 62 is drawn. The rectangle moved to panel (810, 96), 190x104, digits at 5x scale. The fbcon still never writes inside the rectangle.
