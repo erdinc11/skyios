@@ -1,5 +1,14 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+### >>> HANDOFF 2026-11-21 04:05: CPU driver never matches despite valid nubs
+
+- CI tip `ca579cc` (patches 0116, 0117, 0119, 0120, 0121; CI run `44847148421` in progress). Last downloaded kernel: `ci-artifacts/44845596719/kernel.development.sweet` SHA-256 `526a82d6…bec7ad90`.
+- **Evidence chain:** (1) 0119 two-number marker: peak 62 / current 62 → no checkpoint above 62 was ever drawn; `SweetCPU::start` (ID 65) never ran. (2) 0120: peak 96 / current 91 → `processTopLevel` ran, `/cpus` was found, CPU nubs were created, and no CPU nub lacked a `logical-cpu-id` (ID 97 never drawn). (3) Therefore the failure is in IOKit matching/attach of the `SweetCPU` personality against the existing `IOPlatformDevice` CPU nubs, not in property validation or CPU registration.
+- **0121** marks `IODTPlatformExpert::compareNubName` for `qcom,kryo470`: peak 99 = compared and matched, 98 = compared and failed, 96 = never consulted.
+- Marker protocol: left dim-red = highest ID reached, right bright-red = most recent; rectangle panel (810,96) 190x104; registry in `docs/boot-checkpoints.md`.
+- Device tools: `skyios-build/devctl.sh` + `device-supervisor.sh` (singleton launchd `com.skyios.device-supervisor`); every device-changing request must carry the active lease token; automatic recovery returns the verified serial `cd7c252c` from fastboot to TWRP after ~30 s without a lease.
+- Next: read the 0121 peak. If 99, instrument attach/checkResources/probe; if 96, investigate why the personality is not considered; if 98, inspect the CPU nub properties seen by the compare.
+
 ### >>> HANDOFF 2026-11-20: root volume layout / automatic recovery <<<
 
 **Active goal:** boot iOS on the Redmi Note 10 Pro and reach GPU-rendered UI.
