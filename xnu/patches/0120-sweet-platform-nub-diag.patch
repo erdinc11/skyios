@@ -1,0 +1,68 @@
+diff --git a/iokit/Kernel/IOPlatformExpert.cpp b/iokit/Kernel/IOPlatformExpert.cpp
+index 7a32a23..ce51cd4 100644
+--- a/iokit/Kernel/IOPlatformExpert.cpp
++++ b/iokit/Kernel/IOPlatformExpert.cpp
+@@ -27,6 +27,7 @@
+  */
+ 
+ #include <IOKit/IOCPU.h>
++#include <arm64/sweet_early.h>
+ #include <IOKit/IOPlatformActions.h>
+ #include <IOKit/IODeviceTreeSupport.h>
+ #include <IOKit/IOKitDebug.h>
+@@ -1636,6 +1637,7 @@ IODTPlatformExpert::createNubs( IOService * parent, OSIterator * iter )
+ 				nub->registerService();
+ 				continue;
+ 			}
++			sweet_early_mark(96, "CPU nub created");
+ 
+ 			tmpData = (OSData *)next->getProperty("reg");
+ 			assert(tmpData != NULL);
+@@ -1654,6 +1656,7 @@ IODTPlatformExpert::createNubs( IOService * parent, OSIterator * iter )
+ 			 * in the DT/IORegistry in the first place.
+ 			 */
+ 			if (logical_cpu_id < 0) {
++				sweet_early_mark(97, "CPU nub has no logical id");
+ 				nub->registerService();
+ 				continue;
+ 			}
+diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
+index fd26c41..e3e3414 100644
+--- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
++++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
+@@ -1,4 +1,5 @@
+ #include <pexpert/arm64/board_config.h>
++#include <arm64/sweet_early.h>
+ 
+ #if defined(SWEET)
+ #include <IOKit/IOPlatformExpert.h>
+@@ -20,10 +21,12 @@ OSDefineMetaClassAndStructors(SweetPlatformExpert, IODTPlatformExpert);
+ bool
+ SweetPlatformExpert::start(IOService *provider)
+ {
++	sweet_early_mark(90, "SweetPlatformExpert start entered");
+ 	IOLog("SWEET: starting device-tree platform expert\n");
+ 	if (!IODTPlatformExpert::start(provider)) {
+ 		return false;
+ 	}
++	sweet_early_mark(91, "IODTPlatformExpert start done");
+ 	registerService();
+ 	IOLog("SWEET: platform expert registered\n");
+ 	return true;
+@@ -44,12 +47,16 @@ SweetPlatformExpert::excludeList(void)
+ void
+ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+ {
++	sweet_early_mark(92, "processTopLevel entered");
+ 	IORegistryEntry *cpus = root->childFromPath("cpus", gIODTPlane);
+ 	if (cpus != NULL) {
++		sweet_early_mark(93, "cpus node found");
+ 		createNubs(this, IODTFindMatchingEntries(cpus, kIODTExclusive, NULL));
++		sweet_early_mark(94, "CPU nubs created");
+ 		cpus->release();
+ 	}
+ 	createNubs(this, IODTFindMatchingEntries(root, kIODTExclusive, excludeList()));
++	sweet_early_mark(95, "root nubs created");
+ 
+ 	IORegistryEntry *armio = root->childFromPath("arm-io", gIODTPlane);
+ 	if (armio != NULL) {
