@@ -1,0 +1,24 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index d850684..6cb9bad 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7616,10 +7616,15 @@ process_signature(proc_t p, struct image_params *imgp)
+ 				CSSLOT_SIGNATURESLOT,
+ 				CSMAGIC_BLOBWRAPPER) == NULL &&
+ 				/* It could still be in a trust cache (unlikely with CS_ADHOC), or a magic path. */
+-				csb->csb_platform_binary == 0 &&
+-				/* No entitlements, not even unrestricted ones. */
+-				csb->csb_entitlements_blob == NULL &&
+-				csb->csb_der_entitlements_blob == NULL) {
++				csb->csb_platform_binary == 0
++#if !defined(ARM64_BOARD_CONFIG_SWEET)
++				/* No entitlements, not even unrestricted ones. The SWEET
++				 * port's decrypted iOS root is adhoc-signed *with*
++				 * entitlements, so that clause is waived there. */
++				&& csb->csb_entitlements_blob == NULL
++				&& csb->csb_der_entitlements_blob == NULL
++#endif
++				) {
+ 				proc_lock(p);
+ 				proc_csflags_set(p, CS_SIGNED | CS_VALID);
+ 				proc_unlock(p);
