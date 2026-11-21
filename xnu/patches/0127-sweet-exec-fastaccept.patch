@@ -1,0 +1,28 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index eb563bc..6c0ed7c 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7434,6 +7434,23 @@ sweet_noexec(const char *name)
+ static int
+ process_signature(proc_t p, struct image_params *imgp)
+ {
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	/* The SWEET root volume is the platform trust root (decrypted iOS
++	 * binaries are adhoc-signed). Accept rootfs executables without any
++	 * signature gate; the AMFI interface still provides entitlements. */
++	if (imgp->ip_vp != NULL) {
++		mount_t exec_mp = vnode_mount(imgp->ip_vp);
++		if (exec_mp != NULL && (vfs_flags(exec_mp) & MNT_ROOTFS)) {
++			proc_lock(p);
++			proc_csflags_set(p, CS_SIGNED | CS_VALID);
++			proc_unlock(p);
++			vm_map_switch_protect(get_task_map(proc_task(p)), FALSE);
++			vm_map_cs_enforcement_set(get_task_map(proc_task(p)), FALSE);
++			printf("SWEET EXEC: rootfs fast-accept %s\n", p->p_name);
++			return 0;
++		}
++	}
++#endif
+ 	mach_port_t port = IPC_PORT_NULL;
+ 	kern_return_t kr = KERN_FAILURE;
+ 	int error = EACCES;
