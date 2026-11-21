@@ -66,6 +66,11 @@ jobs:
           xcrun --find iig
 
       - name: Rust kernel library
+        env:
+          SWEET_GMU_FW: ${{ github.workspace }}/firmware/a618_gmu.bin
+          SWEET_SQE_FW: ${{ github.workspace }}/firmware/a630_sqe.fw
+          SWEET_ZAP_MDT: ${{ github.workspace }}/firmware/a615_zap.mdt
+          SWEET_ZAP_B02: ${{ github.workspace }}/firmware/a615_zap.b02
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rust-src
           lib=$(TOOLCHAIN="$RUST_TOOLCHAIN" skyios-kernel/build.sh | tail -1)
