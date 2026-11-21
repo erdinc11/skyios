@@ -1,0 +1,22 @@
+diff --git a/bsd/kern/kern_cs.c b/bsd/kern/kern_cs.c
+index 43b1ea6..9a3cb8e 100644
+--- a/bsd/kern/kern_cs.c
++++ b/bsd/kern/kern_cs.c
+@@ -263,6 +263,17 @@ cs_invalid_page(addr64_t vaddr, boolean_t *cs_killed)
+ 
+ 	flags = proc_getcsflags(p);
+ 
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	/* This port has no Apple trust cache; the root volume is the platform
++	 * trust root, so an unvalidated rootfs page must not kill the process. */
++	if (p->p_textvp != NULLVP) {
++		mount_t tvp_mp = vnode_mount(p->p_textvp);
++		if (tvp_mp != NULL && (vfs_flags(tvp_mp) & MNT_ROOTFS)) {
++			flags &= ~(CS_KILL | CS_HARD | CS_REQUIRE_LV);
++		}
++	}
++#endif
++
+ 	/* XXX for testing */
+ 	if (cs_force_kill) {
+ 		flags |= CS_KILL;
