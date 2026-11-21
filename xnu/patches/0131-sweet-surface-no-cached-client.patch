@@ -1,0 +1,34 @@
+--- a/iokit/Kernel/arm/SweetSurface.cpp
++++ b/iokit/Kernel/arm/SweetSurface.cpp
+@@ -159,9 +159,15 @@
+ {
+ 	bool drop = false;
+ 	IOLockLock(sweet_surface_lock);
+-	if (sweet_surface_table[s->id] == s && --sweet_surface_users[s->id] == 0) {
+-		sweet_surface_table[s->id] = NULL;
+-		drop = true;
++	if (sweet_surface_table[s->id] == s) {
++		if (sweet_surface_users[s->id] != 0) {
++			--sweet_surface_users[s->id];
++		}
++		/* 0131b: keep the id bound to this surface for the boot. A userland
++		 * IOSurfaceRef caches its numeric id; freeing the id let a later
++		 * create reuse it, so IOSurfaceLookup(id) in the GLES import resolved
++		 * to a different (ARGB) surface and the b3a8 attach imported the wrong
++		 * pages. The test boot accepts the bounded table retention. */
+ 	}
+ 	IOLockUnlock(sweet_surface_lock);
+ 	if (drop) {
+@@ -728,9 +734,9 @@
+ 			}
+ 		}
+ 
+-		if (existing) {
+-			put64(out, 0x00, ~0ULL);        /* "already yours": use the cached client */
+-		}
++		/* 0131: always return the full current surface result. A cached
++		 * "already yours" client can belong to an earlier surface whose id
++		 * was reused; the b3a8 attach then imported the wrong pages. */
+ 		ret = sweet_struct_out(args, out, SWEET_SURFACE_RESULT_SIZE);
+ 		IOFreeData(out, SWEET_SURFACE_RESULT_SIZE);
+ 	}
