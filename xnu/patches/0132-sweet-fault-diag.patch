@@ -1,0 +1,31 @@
+--- a/iokit/Kernel/arm/SweetNativeAdreno.cpp
++++ b/iokit/Kernel/arm/SweetNativeAdreno.cpp
+@@ -4,6 +4,7 @@
+  * No IOKit accelerator or userspace PM4 interface is published here.
+  */
+ #include <IOKit/IOLib.h>
++#include <pexpert/pexpert.h>
+ #include <sys/errno.h>
+ #include <kern/clock.h>
+ #include <mach/mach_time.h>
+@@ -31,8 +32,19 @@
+  const uint32_t fsr=reg_read(board.smmu,0x8058), gmu=reg_read(board.gmu,0x14648);
+  const uint32_t global=reg_read(board.core,0x804);
+  const uint32_t errors=(1u<<1)|(1u<<7)|(1u<<9)|(1u<<23)|(1u<<24)|(1u<<25);
+- return global==UINT32_MAX || (global&errors) || irq==UINT32_MAX || (irq&0xf7u) || hw || fsr==UINT32_MAX ||
++ const bool fault=global==UINT32_MAX || (global&errors) || irq==UINT32_MAX || (irq&0xf7u) || hw || fsr==UINT32_MAX ||
+      (fsr&0xc00001feu) || gmu==UINT32_MAX || (gmu&(1u<<23));
++ static int reported, nofault=-1;
++ if(nofault<0) {
++  nofault=0;
++  PE_parse_boot_argn("sweetnofault",&nofault,sizeof nofault);
++ }
++ if(fault && !reported) {
++  reported=1;
++  IOLog("SWEET FAULT DIAG: global=%#x irq=%#x hw=%#x fsr=%#x gmu=%#x errors=%#x nofault=%d\n",
++      global, irq, hw, fsr, gmu, errors, nofault);
++ }
++ return fault && !nofault;
+ }
+ /* One-time evidence for the first lost GPU: every term faulted() tests, plus
+  * the SMMU fault address/syndrome and the CP read pointer. Read-only. */
