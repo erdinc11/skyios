@@ -1,0 +1,19 @@
+diff --git a/iokit/Kernel/IOPlatformExpert.cpp b/iokit/Kernel/IOPlatformExpert.cpp
+index ce51cd4..215d498 100644
+--- a/iokit/Kernel/IOPlatformExpert.cpp
++++ b/iokit/Kernel/IOPlatformExpert.cpp
+@@ -1722,8 +1722,12 @@ bool
+ IODTPlatformExpert::compareNubName( const IOService * nub,
+     OSString * name, OSString ** matched ) const
+ {
+-	return IODTCompareNubName( nub, name, matched )
+-	       || super::compareNubName( nub, name, matched);
++	bool result = IODTCompareNubName( nub, name, matched )
++	    || super::compareNubName( nub, name, matched);
++	if (name && name->isEqualTo("qcom,kryo470")) {
++		sweet_early_mark(result ? 99 : 98, result ? "SweetCPU name matched" : "SweetCPU name not matched");
++	}
++	return result;
+ }
+ 
+ 
