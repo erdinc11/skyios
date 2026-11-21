@@ -1,0 +1,39 @@
+--- a/iokit/Kernel/arm/SweetNativeAdreno.cpp
++++ b/iokit/Kernel/arm/SweetNativeAdreno.cpp
+@@ -32,7 +32,7 @@
+  const uint32_t fsr=reg_read(board.smmu,0x8058), gmu=reg_read(board.gmu,0x14648);
+  const uint32_t global=reg_read(board.core,0x804);
+  const uint32_t errors=(1u<<1)|(1u<<7)|(1u<<9)|(1u<<23)|(1u<<24)|(1u<<25);
+- const bool fault=global==UINT32_MAX || (global&errors) || irq==UINT32_MAX || (irq&0xf7u) || hw || fsr==UINT32_MAX ||
++ const bool fault=global==UINT32_MAX || (global&errors) || irq==UINT32_MAX || hw || fsr==UINT32_MAX ||
+      (fsr&0xc00001feu) || gmu==UINT32_MAX || (gmu&(1u<<23));
+  static int reported, nofault=-1;
+  if(nofault<0) {
+--- a/iokit/Kernel/arm/unixnu/NativeAdrenoSubmit.cpp
++++ b/iokit/Kernel/arm/unixnu/NativeAdrenoSubmit.cpp
+@@ -22,6 +22,7 @@
+ /* Fence waits: [0] calls, [1] timeouts, [2] the fence of the last timed-out wait, [3] the fence value the GPU had written then, [4] the newest fence handed out,
+  * [5] the newest completed, [6] waits for a fence no job holds (observeFence path), [7] the last fence refused as never submitted. */
+ extern "C" {volatile uint32_t native_adreno_fence_wait[8];}
++extern "C" {extern volatile uint32_t native_adreno_ring_log[4][116];extern volatile uint32_t native_adreno_ring_log_count;}
+ /* The IBs of the last submissions: [slot] fence, iova low/high, bytes, then the first 28 dwords of the first IB (read as the kernel maps it). */
+ extern "C" {volatile uint32_t native_adreno_ib_log[4][4+28];volatile uint32_t native_adreno_ib_log_count;}
+ IOReturn NativeAdrenoSubmit::poison()
+@@ -281,6 +282,17 @@
+             ++stats_.timeouts;
+             native_adreno_fence_wait[1]=native_adreno_fence_wait[1]+1;native_adreno_fence_wait[2]=fence;native_adreno_fence_wait[3]=observed;
+             native_adreno_fence_wait[4]=ring_->lastSubmitted();native_adreno_fence_wait[5]=ring_->completedFence();
++            IOLog("SWEET RENDER: fence timeout %u observed=%u last=%u completed=%u (job)\n",
++                fence,observed,ring_->lastSubmitted(),ring_->completedFence());
++            for(unsigned s=0;s<4;s++) {
++                if(native_adreno_ring_log[s][0]!=fence)continue;
++                const unsigned total=native_adreno_ring_log[s][3]>32?32:native_adreno_ring_log[s][3];
++                IOLog("SWEET RENDER: ring fence %u start=%u end=%u total=%u words %u\n",
++                    fence,native_adreno_ring_log[s][1],native_adreno_ring_log[s][2],
++                    native_adreno_ring_log[s][3],total);
++                for(unsigned i=0;i<total;i++)
++                    IOLog("SWEET RENDER: ring[%u]=%#x\n",i,native_adreno_ring_log[s][4+i]);
++            }
+             return kIOReturnTimeout;
+         }
+         return kIOReturnSuccess;
