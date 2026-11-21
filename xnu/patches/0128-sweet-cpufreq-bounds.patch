@@ -1,0 +1,17 @@
+diff --git a/osfmk/arm64/sweet_cpufreq.c b/osfmk/arm64/sweet_cpufreq.c
+index 157948d..2c7f8e9 100644
+--- a/osfmk/arm64/sweet_cpufreq.c
++++ b/osfmk/arm64/sweet_cpufreq.c
+@@ -59,7 +59,11 @@ static void
+ cf_probe(const char *when)
+ {
+ 	for (unsigned d = 0; d < sizeof(cf_dom) / sizeof(cf_dom[0]); d++) {
+-		if (cf_dom[d].probe_cpu < 0) {
++		if (cf_dom[d].probe_cpu < 0 ||
++		    (unsigned int)cf_dom[d].probe_cpu > (unsigned int)ml_get_max_cpu_number()) {
++			/* The probe CPU table assumes the full 8-core layout; a
++			 * reduced topology (cpus=N or a reserved CPU1) can have a
++			 * lower max_cpu_id. Never index beyond the topology. */
+ 			continue;
+ 		}
+ 		processor_t p = cpu_to_processor(cf_dom[d].probe_cpu);
